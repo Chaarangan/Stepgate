@@ -1,0 +1,30 @@
+name: Stepfile idea
+description: Suggest a stepfile for the catalog, for yourself or anyone who wants to build it.
+labels: [stepfile]
+body:
+  - type: textarea
+    id: task
+    attributes:
+      label: The task
+      description: What repeated task should the stepfile do, and who would use it?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps and checks
+      description: The steps you imagine, and what should be checked after each one.
+  - type: textarea
+    id: apis
+    attributes:
+      label: APIs and MCP servers
+      description: Which public APIs or remote MCP servers it would call.
+  - type: dropdown
+    id: building
+    attributes:
+      label: Are you building it?
+      options:
+        - Yes, I'll open a pull request
+        - No, it's up for grabs
+    validations:
+      required: true
