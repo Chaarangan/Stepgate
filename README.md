@@ -21,14 +21,14 @@ When an agent is handed a plan as text, it decides how much of the plan to follo
 
 ## Quick start
 
-Add the server to your MCP client's configuration, pointing it at one or more stepfiles:
+Add the server to your MCP client's configuration, naming one or more stepfiles from the [catalog](stepfiles/), or giving paths to your own `.stepfile.yaml` files:
 
 ```json
 {
   "mcpServers": {
     "stepgate": {
       "command": "npx",
-      "args": ["-y", "stepgate", "/path/to/market-research.stepfile.yaml"],
+      "args": ["-y", "stepgate", "market-research"],
       "env": { "TAVILY_API_KEY": "tvly-..." }
     }
   }
@@ -37,7 +37,7 @@ Add the server to your MCP client's configuration, pointing it at one or more st
 
 The client sees a `market-research` tool. Calling it with `{ "brand": "Oatly", "market": "UK plant-based milk" }` runs four steps (search, filter, analyse, report) and returns each step's output.
 
-To serve over HTTP instead of stdio, run `npx -y stepgate --http 3100 market-research.stepfile.yaml` and connect to `http://127.0.0.1:3100/mcp`. `npx -y stepgate --help` lists the limits and the `--ledger-dir` option.
+To serve over HTTP instead of stdio, run `npx -y stepgate --http 3100 market-research` and connect to `http://127.0.0.1:3100/mcp`. `npx -y stepgate --list` shows the catalog, and `--help` lists the limits and the `--ledger-dir` option.
 
 **Client requirement:** the client must support sampling with tools, declared as the `sampling.tools` capability. A call from a client without it gets a clear tool error. The MCP spec suggests clients let a person approve each sampling request, and a stepfile makes many, so clients that call their model from code are a better fit than desktop apps that prompt every time.
 
@@ -89,7 +89,11 @@ steps:
   # ... filter, analyse and report steps
 ```
 
-Credentials say what is needed, never where it lives: the server reads `tavily` from `TAVILY_API_KEY`. The complete example is [examples/market-research.stepfile.yaml](examples/market-research.stepfile.yaml), and editors that support `yaml-language-server` validate against [server/schema/stepfile.schema.json](server/schema/stepfile.schema.json), which the npm package also ships.
+Credentials say what is needed, never where it lives: the server reads `tavily` from `TAVILY_API_KEY`. The complete file is [stepfiles/market-research](stepfiles/market-research/), and editors that support `yaml-language-server` validate against [server/schema/stepfile.schema.json](server/schema/stepfile.schema.json), which the npm package also ships.
+
+## Catalog
+
+[stepfiles/](stepfiles/) is a community catalog of stepfiles, reviewed and shipped with the npm package, so each one runs by name. Built something repeatable? Adding it is one folder and one pull request: see [stepfiles/README.md](stepfiles/README.md), or [suggest an idea](https://github.com/Chaarangan/stepgate/issues/new?template=stepfile_idea.yml).
 
 ## Documentation
 

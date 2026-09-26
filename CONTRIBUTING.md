@@ -1,6 +1,8 @@
 # Contributing
 
-Thanks for helping. Bug reports, stepfiles that expose a gap in the format, and pull requests are all welcome.
+Thanks for helping. Bug reports, new stepfiles for the catalog, and pull requests are all welcome.
+
+**Adding a stepfile to the catalog?** That needs no server knowledge: follow [stepfiles/README.md](stepfiles/README.md). The rest of this guide is about the server and the format.
 
 ## Before you start
 
@@ -31,6 +33,7 @@ MODEL_BASE_URL=https://openrouter.ai/api/v1 MODEL_NAME=<model> MODEL_API_KEY=...
 | Path | What it is |
 |---|---|
 | `docs/stepfile.md`, `docs/how-it-works.md` | The stepfile format, and what Stepgate does with it |
+| `stepfiles/` | The community catalog, one folder per stepfile |
 | `server/schema/stepfile.schema.json` | The JSON Schema for stepfiles, shipped in the package |
 | `server/src/engine/` | Loading, validation, the step loop, tools, gates and the ledger |
 | `server/src/server.ts`, `server/src/cli.ts` | The MCP server and the `stepgate` command |
@@ -38,12 +41,12 @@ MODEL_BASE_URL=https://openrouter.ai/api/v1 MODEL_NAME=<model> MODEL_API_KEY=...
 
 ## Making a change
 
-- **Change the docs, the schema and the code in the same pull request** when the format changes. The server validates stepfiles against `server/schema/stepfile.schema.json` directly, and a test loads every file in `examples/`.
+- **Change the docs, the schema and the code in the same pull request** when the format changes. The server validates stepfiles against `server/schema/stepfile.schema.json` directly, and a test checks every catalog entry.
 - **Test through the server.** Tests in `server/test/` call a stepfile as an MCP tool through the harness, against real local HTTP and MCP fixture servers. The scripted model is the only fake, because a real model is not deterministic. Add a test that fails without your change.
 - **Keep stepfiles model-agnostic.** A field that only makes sense for one model, provider or framework does not belong in the format.
 
 ## Commits and pull requests
 
-Commit subjects take the form `area: short lowercase summary`, where the area is one of `spec`, `schema`, `server`, `examples`, `docs`, `ci` or `chore`. Keep each commit to one change, and explain why in the body.
+Commit subjects take the form `area: short lowercase summary`, where the area is one of `stepfiles`, `schema`, `server`, `docs`, `ci` or `chore`. Keep each commit to one change, and explain why in the body.
 
 By contributing you agree that your contributions are licensed under the [Apache License 2.0](LICENSE).

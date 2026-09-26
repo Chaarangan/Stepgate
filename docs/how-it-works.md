@@ -22,7 +22,7 @@ What this guarantees is that the path through a stepfile depends only on submitt
 
 ## Connecting a client
 
-`stepgate <file>...` serves over stdio, which is how desktop MCP clients launch servers. `--http <port>` serves Streamable HTTP at `/mcp` instead. Every file is loaded and validated at start, so an invalid stepfile stops the server rather than failing a call.
+`stepgate <stepfile>...` serves over stdio, which is how desktop MCP clients launch servers. Each argument is either a path ending in `.yaml`, `.yml` or `.json`, or the name of a stepfile in the bundled [catalog](../stepfiles/); `stepgate --list` shows the catalog. `--http <port>` serves Streamable HTTP at `/mcp` instead. Every file is loaded and validated at start, so an invalid stepfile stops the server rather than failing a call.
 
 - **Listing.** Each stepfile is one tool: `id` is its name, `description` its description, and `inputs` its input schema.
 - **Calling.** The call's arguments are the run's inputs. The calling agent supplies inputs only; it cannot add or change credentials.
