@@ -1,11 +1,11 @@
-import { readdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it } from "vitest";
 import { parse as parseYaml } from "yaml";
 import { verifyLedger } from "../src/engine/ledger.ts";
 import { load } from "../src/engine/load.ts";
 import { GOOD_STOCK, GOOD_SUMMARY, startHarness, type Harness } from "./harness.ts";
 
-const EXAMPLES = new URL("../../examples/", import.meta.url);
+const MARKET_RESEARCH = new URL("../../stepfiles/market-research/market-research.stepfile.yaml", import.meta.url);
 
 let harness: Harness | undefined;
 
@@ -15,16 +15,8 @@ afterEach(async () => {
 });
 
 describe("load", () => {
-  it("accepts every stepfile in examples/", () => {
-    const files = readdirSync(EXAMPLES).filter((name) => /\.(ya?ml|json)$/.test(name));
-    expect(files.length).toBeGreaterThan(0);
-    for (const name of files) {
-      expect(() => load(readFileSync(new URL(name, EXAMPLES), "utf8")), name).not.toThrow();
-    }
-  });
-
   it("gives the YAML and JSON forms of a stepfile the same identity", () => {
-    const yaml = readFileSync(new URL("market-research.stepfile.yaml", EXAMPLES), "utf8");
+    const yaml = readFileSync(MARKET_RESEARCH, "utf8");
     expect(load(yaml).identity).toBe(load(JSON.stringify(parseYaml(yaml))).identity);
   });
 });

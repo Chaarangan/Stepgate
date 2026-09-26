@@ -2,7 +2,7 @@
 
 A stepfile is one YAML or JSON file that describes an agent's procedure: its inputs, the remote APIs and MCP servers it may call, and an ordered list of steps with the checks each step must pass. It names no model, provider or framework, so the same file runs on any MCP client.
 
-The JSON Schema is [server/schema/stepfile.schema.json](../server/schema/stepfile.schema.json), and [examples/market-research.stepfile.yaml](../examples/market-research.stepfile.yaml) is a complete example. Name files `<id>.stepfile.yaml`. For what Stepgate does when it runs one, see [how-it-works.md](how-it-works.md).
+The JSON Schema is [server/schema/stepfile.schema.json](../server/schema/stepfile.schema.json), and [stepfiles/market-research](../stepfiles/market-research/) is a complete example from the [catalog](../stepfiles/). Name files `<id>.stepfile.yaml`. For what Stepgate does when it runs one, see [how-it-works.md](how-it-works.md).
 
 The format version is `"1"`. It is a draft, so fields may still change before a stable release.
 
