@@ -1,0 +1,219 @@
+# yaml-language-server: $schema=../server/schema/stepfile.schema.json
+stepgate: "1"
+id: market-research
+title: Market research report for a brand
+description: >
+  Researches a brand's market position from web sources, discards what is
+  irrelevant on the record, and writes a report in which every claim cites a
+  source that survived the filter.
+
+inputs:
+  type: object
+  required: [brand, market]
+  properties:
+    brand: { type: string, minLength: 1 }
+    market: { type: string, minLength: 1 }
+
+credentials:
+  tavily:
+    kind: bearer
+    hosts: [mcp.tavily.com]
+    description: >
+      Web search, used only by the search step. Sent by Stepgate as an
+      Authorization header, so no step's model ever sees it.
+
+tools:
+  # Pinned provider rather than "any search tool": Tavily and Brave return
+  # different results, so swapping one silently would change the report.
+  tavily:
+    mcp: { url: "https://mcp.tavily.com/mcp/" }
+    credential: tavily
+    exposes: [tavily_search]
+
+steps:
+  - id: search
+    tools: [tavily_search]
+    instructions: |
+      Search the web with tavily_search for recent coverage of {{inputs.brand}}
+      in {{inputs.market}}. Run at least six distinct queries covering the
+      brand's products, its competitors, its pricing and any recent news. Pass
+      max_results: 3 on every query, and do not request raw page content.
+
+      Submit every result as a source with an id of the form S-01, S-02 and so
+      on. Do not summarise, interpret or deduplicate yet. Record what you found,
+      including results you suspect are irrelevant.
+    produces:
+      type: object
+      required: [sources, query_count]
+      properties:
+        sources: { $ref: "#/$defs/sources" }
+        query_count: { type: integer }
+    gates:
+      - id: enough-coverage
+        schema:
+          properties:
+            sources: { minItems: 12 }
+            query_count: { minimum: 6 }
+      - id: ids-unique
+        message: Every source id must appear once.
+        predicate:
+          "==":
+            - { length: { unique: { map: [{ var: output.sources }, { var: id }] } } }
+            - { length: { var: output.sources } }
+      # Distinct hosts, not URLs: twenty pages from one site is one source.
+      - id: domain-breadth
+        message: Sources must span at least six distinct domains.
+        predicate:
+          ">=":
+            - { length: { unique: { map: [{ var: output.sources }, { host: { var: url } }] } } }
+            - 6
+    retries: 2
+
+  - id: filter
+    instructions: |
+      Here are the sources found for {{inputs.brand}} in {{inputs.market}}:
+
+      {{steps.search.sources}}
+
+      For every source, decide whether it is relevant and state why in at least
+      ten characters. Every source id must appear exactly once. Do not add ids
+      that were not given. Do not drop an irrelevant source silently; submit it
+      with keep set to false and the reason.
+    produces:
+      type: object
+      required: [decisions, kept]
+      properties:
+        decisions:
+          type: array
+          items:
+            type: object
+            required: [id, keep, reason]
+            properties:
+              id: { type: string }
+              keep: { type: boolean }
+              reason: { type: string, minLength: 10 }
+        kept: { type: integer }
+    gates:
+      - id: every-source-once
+        message: Decide on every source id exactly once, and invent none.
+        predicate:
+          and:
+            - subset:
+                - { map: [{ var: steps.search.sources }, { var: id }] }
+                - { map: [{ var: output.decisions }, { var: id }] }
+            - subset:
+                - { map: [{ var: output.decisions }, { var: id }] }
+                - { map: [{ var: steps.search.sources }, { var: id }] }
+            - "==":
+                - { length: { unique: { map: [{ var: output.decisions }, { var: id }] } } }
+                - { length: { var: output.decisions } }
+      - id: kept-count-matches
+        message: kept must equal the number of decisions with keep set to true.
+        predicate:
+          "==":
+            - { var: output.kept }
+            - { length: { filter: [{ var: output.decisions }, { var: keep }] } }
+      - id: kept-at-least-five
+        schema:
+          properties:
+            kept: { minimum: 5 }
+    retries: 2
+
+  - id: analyse
+    instructions: |
+      Sources:
+      {{steps.search.sources}}
+
+      Filter decisions:
+      {{steps.filter.decisions}}
+
+      Using only sources with keep set to true, submit claims about
+      {{inputs.brand}}. Each claim is one sentence, cites at least one kept
+      source id, and has a confidence of high, medium or low. Do not cite a
+      discarded source or an id that does not exist.
+    produces:
+      type: object
+      required: [claims]
+      properties:
+        claims:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [claim, source_ids, confidence]
+            properties:
+              claim: { type: string, minLength: 1 }
+              source_ids: { type: array, minItems: 1, items: { type: string } }
+              confidence: { enum: [high, medium, low] }
+    gates:
+      # Discarded and never-existed share one message: both mean the claim
+      # rests on something the filter step rejected.
+      - id: claims-cite-kept-sources
+        message: Every cited id must be a source the filter step kept.
+        predicate:
+          subset:
+            - reduce:
+                - { map: [{ var: output.claims }, { var: source_ids }] }
+                - { merge: [{ var: accumulator }, { var: current }] }
+                - []
+            - map:
+                - { filter: [{ var: steps.filter.decisions }, { var: keep }] }
+                - { var: id }
+    retries: 2
+
+  - id: report
+    instructions: |
+      Sources:
+      {{steps.search.sources}}
+
+      Claims:
+      {{steps.analyse.claims}}
+
+      Write a Markdown report using only these claims, with the sections
+      "## Summary", "## Market position", "## Competitors", "## Risks" and
+      "## Sources", in that order. Cite every claim inline as [S-nn]. The
+      Sources section lists each cited id with its title and URL. Introduce no
+      claim that is not in the list.
+    produces:
+      type: object
+      required: [report]
+      properties:
+        report: { type: string }
+    gates:
+      - id: sections-in-order
+        schema:
+          properties:
+            report:
+              pattern: "## Summary[\\s\\S]*## Market position[\\s\\S]*## Competitors[\\s\\S]*## Risks[\\s\\S]*## Sources"
+      - id: not-padded
+        schema:
+          properties:
+            report: { maxLength: 16000 }
+      - id: citations-resolve
+        message: The report must cite at least one source, and only sources an analysed claim uses.
+        predicate:
+          and:
+            - ">":
+                - { length: { match_all: [{ var: output.report }, "\\[(S-\\d{2,})\\]"] } }
+                - 0
+            - subset:
+                - { match_all: [{ var: output.report }, "\\[(S-\\d{2,})\\]"] }
+                - reduce:
+                    - { map: [{ var: steps.analyse.claims }, { var: source_ids }] }
+                    - { merge: [{ var: accumulator }, { var: current }] }
+                    - []
+    retries: 2
+
+$defs:
+  sources:
+    type: array
+    items:
+      type: object
+      required: [id, url, title, snippet, query, fetched_at]
+      properties:
+        id: { type: string, pattern: "^S-[0-9]{2,}$" }
+        url: { type: string, pattern: "^https?://[^/\\s]+" }
+        title: { type: string }
+        snippet: { type: string }
+        query: { type: string }
+        fetched_at: { type: string, format: date-time }

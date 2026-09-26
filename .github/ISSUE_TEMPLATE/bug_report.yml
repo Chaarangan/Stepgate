@@ -1,0 +1,34 @@
+name: Bug report
+description: Something in stepgate or the format does not behave as the spec says.
+labels: [bug]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: stepfile
+    attributes:
+      label: Stepfile
+      description: The stepfile that shows the problem, or a minimal one. Remove any credentials.
+      render: yaml
+  - type: textarea
+    id: ledger
+    attributes:
+      label: Ledger or error output
+      description: The ledger records or the tool error text around the failure.
+      render: text
+  - type: input
+    id: version
+    attributes:
+      label: stepgate version
+    validations:
+      required: true
+  - type: input
+    id: client
+    attributes:
+      label: MCP client and model
+      description: Which client connected, and which model answered sampling.

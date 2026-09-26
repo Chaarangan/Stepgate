@@ -1,0 +1,8 @@
+.env*
+node_modules/
+dist/
+coverage/
+.DS_Store
+# Copied in by `npm pack` from the repository root.
+server/LICENSE
+server/README.md

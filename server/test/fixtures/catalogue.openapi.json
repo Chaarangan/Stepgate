@@ -1,0 +1,61 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Catalogue",
+    "version": "1"
+  },
+  "paths": {
+    "/items/{id}": {
+      "get": {
+        "operationId": "getItem",
+        "summary": "Fetch one catalogue item.",
+        "security": [
+          {
+            "key": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/flaky": {
+      "get": {
+        "operationId": "getFlaky",
+        "summary": "Answers 503 a configured number of times, then 200.",
+        "security": [
+          {
+            "key": []
+          }
+        ]
+      }
+    },
+    "/revoked": {
+      "get": {
+        "operationId": "getRevoked",
+        "summary": "Always answers as if the grant were revoked.",
+        "security": [
+          {
+            "key": []
+          }
+        ]
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "key": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Api-Key"
+      }
+    }
+  }
+}

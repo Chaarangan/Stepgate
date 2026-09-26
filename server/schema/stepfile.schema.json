@@ -1,0 +1,401 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Chaarangan/stepgate/main/server/schema/stepfile.schema.json",
+  "title": "Stepfile",
+  "description": "An API-only agent procedure. Names no model, provider or framework.",
+  "type": "object",
+  "required": [
+    "stepgate",
+    "id",
+    "inputs",
+    "steps"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "stepgate": {
+      "const": "1"
+    },
+    "id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "title": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    },
+    "inputs": {
+      "allOf": [
+        {
+          "$ref": "https://json-schema.org/draft/2020-12/schema"
+        },
+        {
+          "type": "object",
+          "required": [
+            "type"
+          ],
+          "properties": {
+            "type": {
+              "const": "object"
+            }
+          }
+        }
+      ]
+    },
+    "credentials": {
+      "type": "object",
+      "propertyNames": {
+        "$ref": "#/$defs/identifier"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/credential"
+      }
+    },
+    "tools": {
+      "type": "object",
+      "propertyNames": {
+        "$ref": "#/$defs/identifier"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/tool"
+      }
+    },
+    "steps": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/step"
+      }
+    },
+    "$defs": {
+      "description": "Shared JSON Schemas that step outputs reference as #/$defs/<name>.",
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "https://json-schema.org/draft/2020-12/schema"
+      }
+    }
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$",
+      "maxLength": 64
+    },
+    "host": {
+      "type": "string",
+      "pattern": "^[a-z0-9.-]+(:[0-9]+)?$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "credential": {
+      "type": "object",
+      "required": [
+        "kind",
+        "hosts",
+        "description"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "api_key",
+            "bearer",
+            "oauth2"
+          ]
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "hosts": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/host"
+          },
+          "uniqueItems": true
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "oauth2"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "scopes"
+        ]
+      },
+      "else": {
+        "not": {
+          "required": [
+            "scopes"
+          ]
+        }
+      }
+    },
+    "tool": {
+      "type": "object",
+      "oneOf": [
+        {
+          "required": [
+            "openapi"
+          ]
+        },
+        {
+          "required": [
+            "mcp"
+          ]
+        },
+        {
+          "required": [
+            "verifier"
+          ]
+        }
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "openapi": {
+          "type": "object",
+          "oneOf": [
+            {
+              "required": [
+                "document"
+              ]
+            },
+            {
+              "required": [
+                "url",
+                "sha256"
+              ]
+            }
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "server": {
+              "$ref": "#/$defs/url"
+            },
+            "document": {
+              "type": "object",
+              "required": [
+                "openapi",
+                "paths"
+              ]
+            },
+            "url": {
+              "$ref": "#/$defs/url"
+            },
+            "sha256": {
+              "$ref": "#/$defs/sha256"
+            }
+          },
+          "required": [
+            "server"
+          ]
+        },
+        "mcp": {
+          "type": "object",
+          "required": [
+            "url"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "url": {
+              "$ref": "#/$defs/url"
+            }
+          }
+        },
+        "verifier": {
+          "type": "object",
+          "required": [
+            "url"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "url": {
+              "$ref": "#/$defs/url"
+            }
+          }
+        },
+        "credential": {
+          "$ref": "#/$defs/identifier"
+        },
+        "exposes": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/toolName"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "name",
+                  "schema_sha256"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "name": {
+                    "$ref": "#/$defs/toolName"
+                  },
+                  "schema_sha256": {
+                    "$ref": "#/$defs/sha256"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      "if": {
+        "required": [
+          "verifier"
+        ]
+      },
+      "then": {
+        "not": {
+          "required": [
+            "exposes"
+          ]
+        }
+      },
+      "else": {
+        "required": [
+          "exposes"
+        ]
+      }
+    },
+    "step": {
+      "type": "object",
+      "required": [
+        "id",
+        "instructions",
+        "produces",
+        "gates"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "instructions": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tools": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/toolName"
+          },
+          "uniqueItems": true
+        },
+        "produces": {
+          "allOf": [
+            {
+              "$ref": "https://json-schema.org/draft/2020-12/schema"
+            },
+            {
+              "type": "object"
+            }
+          ]
+        },
+        "gates": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/gate"
+          }
+        },
+        "retries": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 5,
+          "default": 0
+        },
+        "when": {
+          "$ref": "#/$defs/predicate"
+        }
+      }
+    },
+    "gate": {
+      "type": "object",
+      "required": [
+        "id"
+      ],
+      "oneOf": [
+        {
+          "required": [
+            "schema"
+          ]
+        },
+        {
+          "required": [
+            "predicate",
+            "message"
+          ]
+        },
+        {
+          "required": [
+            "http"
+          ]
+        }
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "schema": {
+          "$ref": "https://json-schema.org/draft/2020-12/schema"
+        },
+        "predicate": {
+          "$ref": "#/$defs/predicate"
+        },
+        "http": {
+          "type": "object",
+          "required": [
+            "tool"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "tool": {
+              "$ref": "#/$defs/identifier"
+            }
+          }
+        }
+      }
+    },
+    "predicate": {
+      "description": "A JSONLogic rule plus the operators length, unique, subset, host and match_all.",
+      "type": "object",
+      "minProperties": 1,
+      "maxProperties": 1
+    },
+    "url": {
+      "description": "HTTPS, or plain HTTP to a loopback address for local development.",
+      "type": "string",
+      "pattern": "^(https://[^\\s{}]+|http://(localhost|127\\.0\\.0\\.1|\\[::1\\])(:[0-9]+)?(/[^\\s{}]*)?)$"
+    },
+    "toolName": {
+      "description": "Accepted as a tool name by both the Anthropic and OpenAI APIs.",
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9_-]{1,64}$"
+    }
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.Chaarangan/stepgate",
+  "title": "Stepgate",
+  "description": "Agents can't skip steps: runs gated stepfiles on the client's own model.",
+  "repository": {
+    "url": "https://github.com/Chaarangan/stepgate",
+    "source": "github",
+    "subfolder": "server"
+  },
+  "version": "0.1.0",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "stepgate",
+      "version": "0.1.0",
+      "transport": {
+        "type": "stdio"
+      }
+    }
+  ]
+}

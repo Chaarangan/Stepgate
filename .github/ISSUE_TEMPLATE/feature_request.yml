@@ -1,0 +1,20 @@
+name: Feature or format change
+description: Propose a new capability, gate type, operator or field.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What you are trying to express or do that stepfiles cannot today.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: How it could look in a stepfile, and what Stepgate would do with it.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered

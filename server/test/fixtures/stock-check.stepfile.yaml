@@ -1,0 +1,56 @@
+# Base stepfile for the server tests. ${...} tokens are replaced with the fixture servers' addresses.
+stepgate: "1"
+id: stock-check
+description: Checks an item's stock and its supplier.
+inputs:
+  type: object
+  required: [item]
+  properties:
+    item: { type: string }
+credentials:
+  catalogue:
+    kind: api_key
+    hosts: ["${catalogue.host}"]
+    description: Reads the catalogue.
+  suppliers:
+    kind: bearer
+    hosts: ["${suppliers.host}"]
+    description: Looks up suppliers.
+tools:
+  catalogue:
+    openapi:
+      server: "${catalogue.origin}"
+      url: "${catalogue.origin}/openapi.json"
+      sha256: "sha256:dbde8c70c369ce6ac2a7d1549f5aa7158329df8e3a8dd96da5f10ba5db4c5cc3"
+    credential: catalogue
+    exposes: [getItem, getFlaky, getRevoked]
+  suppliers:
+    mcp: { url: "${suppliers.origin}/mcp" }
+    credential: suppliers
+    exposes: [lookup]
+steps:
+  - id: stock
+    tools: [getItem, lookup]
+    instructions: Find item {{inputs.item}} and its supplier.
+    produces:
+      type: object
+      required: [name, count, supplier]
+      properties:
+        name: { type: string }
+        count: { type: integer }
+        supplier: { type: string }
+    gates:
+      - id: count-positive
+        predicate: { ">": [{ var: output.count }, 0] }
+        message: count must be positive
+    retries: 1
+  - id: summary
+    instructions: "Summarise: {{steps.stock.name}} has {{steps.stock.count}} in stock."
+    produces:
+      type: object
+      required: [summary]
+      properties:
+        summary: { type: string }
+    gates:
+      - id: mentions-name
+        schema: { properties: { summary: { pattern: Blue kettle } } }
