@@ -110,3 +110,25 @@ export class ModelTurnFailed extends StepgateError {
     this.step = step;
   }
 }
+
+/** No catalog entry has this name. */
+export class UnknownStepfile extends StepgateError {
+  override name = "UnknownStepfile";
+  readonly stepfile: string;
+  constructor(stepfile: string, available: string[]) {
+    super(`no catalog stepfile named ${stepfile}; available: ${available.join(", ") || "none"}`);
+    this.stepfile = stepfile;
+  }
+}
+
+/** A catalog folder breaks the catalog's rules. */
+export class CatalogEntryInvalid extends StepgateError {
+  override name = "CatalogEntryInvalid";
+  readonly entry: string;
+  readonly problems: string[];
+  constructor(entry: string, problems: string[]) {
+    super(`catalog entry ${entry} is invalid: ${problems.join("; ")}`);
+    this.entry = entry;
+    this.problems = problems;
+  }
+}

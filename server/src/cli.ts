@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 // Serves stepfiles as MCP tools that run on the client's model through sampling.
 //
-//   stepgate [--http <port>] [--ledger-dir <dir>] <stepfile.yaml>...
+//   stepgate [--http <port>] [--ledger-dir <dir>] <stepfile.yaml | catalog name>...
 //
-// Without --http it speaks stdio, which is how desktop MCP clients launch servers. Credential
+// An argument ending in .yaml, .yml or .json is a file; anything else names a stepfile in the
+// bundled catalog. Without --http it speaks stdio, which is how desktop MCP clients launch servers. Credential
 // <name> is read from the environment variable <NAME>_API_KEY. Budgets default as shown in --help.
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
@@ -16,11 +17,14 @@ import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { CredentialUnavailable } from "./engine/errors.ts";
 import { load } from "./engine/load.ts";
+import { catalogDirectory, catalogFile, listCatalog } from "./catalog.ts";
 import { createStepgateServer, type StepgateServerOptions } from "./server.ts";
 import type { LedgerRecord } from "./engine/types.ts";
 
-const HELP = `usage: stepgate [options] <stepfile.yaml>...
+const HELP = `usage: stepgate [options] <stepfile.yaml | catalog name>...
+       stepgate --list
 
+  --list                     show the stepfiles in the bundled catalog
   --http <port>              serve Streamable HTTP on 127.0.0.1:<port>/mcp instead of stdio
   --ledger-dir <dir>         write one ledger file per run there; otherwise records go to stderr
   --turns-per-step <n>       most model turns one step may take (30)
@@ -38,8 +42,16 @@ const { values, positionals } = parseArgs({
     "max-tokens": { type: "string", default: "16000" },
     "sampling-timeout-ms": { type: "string", default: "600000" },
     help: { type: "boolean" },
+    list: { type: "boolean" },
   },
 });
+
+if (values.list === true) {
+  for (const { id, stepfile } of listCatalog(catalogDirectory())) {
+    console.log(`${id}: ${(stepfile.document.description ?? stepfile.document.title ?? "").replace(/\s+/g, " ").trim()}`);
+  }
+  process.exit(0);
+}
 
 if (values.help === true || positionals.length === 0) {
   console.error(HELP);
@@ -54,8 +66,12 @@ function positiveInteger(flag: string, text: string): number {
   return value;
 }
 
+function stepfilePath(argument: string): URL | string {
+  return /\.(ya?ml|json)$/i.test(argument) ? argument : catalogFile(catalogDirectory(), argument);
+}
+
 // Loading every file first means a bad stepfile stops the server at start, not at first call.
-const stepfiles = positionals.map((path) => load(readFileSync(path, "utf8")));
+const stepfiles = positionals.map((argument) => load(readFileSync(stepfilePath(argument), "utf8")));
 const ledgerDir = values["ledger-dir"];
 if (ledgerDir !== undefined) {
   mkdirSync(ledgerDir, { recursive: true });

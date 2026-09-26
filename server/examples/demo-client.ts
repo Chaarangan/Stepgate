@@ -76,7 +76,7 @@ client.setRequestHandler(CreateMessageRequestSchema, (request) => sample(request
 // The client's MCP configuration: the command to launch, and the environment it gets.
 await client.connect(new StdioClientTransport({
   command: "node",
-  args: ["src/cli.ts", "../examples/market-research.stepfile.yaml"],
+  args: ["src/cli.ts", "market-research"],
   env: { ...getDefaultEnvironment(), TAVILY_API_KEY: required("TAVILY_API_KEY") },
 }) as Transport);
 

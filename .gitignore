@@ -6,3 +6,4 @@ coverage/
 # Copied in by `npm pack` from the repository root.
 server/LICENSE
 server/README.md
+server/stepfiles/

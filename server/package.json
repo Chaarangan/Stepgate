@@ -30,16 +30,18 @@
   "files": [
     "dist",
     "!dist/**/*.d.ts",
-    "schema"
+    "schema",
+    "stepfiles"
   ],
   "scripts": {
     "build": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\" && tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "check": "npm run typecheck && npm run test",
-    "prepack": "npm run build && cp ../LICENSE ../README.md .",
-    "postpack": "rm LICENSE README.md",
-    "demo": "node examples/demo-client.ts"
+    "prepack": "npm run build && cp ../LICENSE ../README.md . && cp -R ../stepfiles .",
+    "postpack": "rm -rf LICENSE README.md stepfiles",
+    "demo": "node examples/demo-client.ts",
+    "new-stepfile": "node scripts/new-stepfile.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.30.1",
