@@ -164,22 +164,26 @@ A predicate can check the output against the evidence. This one passes only if e
             - map: [{ var: result.docs }, { var: key }]
 ```
 
-The same rule written as a `filter` makes a good `explain`. This one lists the books no search returned:
+For a `subset` rule, `difference` over the same two arrays makes a good `explain`. This one lists the books no search returned:
 
 ```yaml
   explain:
-    filter:
-      - { var: output.books }
-      - "!": { in: [{ var: key }, { flatten: { map: [{ filter: [{ var: calls }, { "==": [{ var: tool }, searchBooks] }] }, { map: [{ var: result.docs }, { var: key }] }] } }] }
+    difference:
+      - { map: [{ var: output.books }, { var: key }] }
+      - flatten:
+          map:
+            - filter: [{ var: calls }, { "==": [{ var: tool }, searchBooks] }]
+            - map: [{ var: result.docs }, { var: key }]
 ```
 
-Besides the standard JSONLogic operators, nine more are available:
+Besides the standard JSONLogic operators, ten more are available:
 
 | Operator | Arguments | Result |
 |---|---|---|
 | `length` | array or string | Number of elements, or of Unicode code points |
 | `unique` | array | Distinct elements by JSON equality, in first-seen order |
 | `subset` | array `a`, array `b` | `true` if every element of `a` is in `b` |
+| `difference` | array `a`, array `b` | The elements of `a` that are not in `b`, in order |
 | `lower` | string | The string in lowercase, for case-insensitive comparisons |
 | `get` | object or array, key | The value under one key, read literally; use it for keys that contain dots, such as email addresses, which `var` cannot reach |
 | `join` | array `left`, array `right`, path `l`, path `r` | Each item of `left` as `{ left, right }`, where `right` is the first item of `right` whose value at `r` equals the left item's value at `l`, or `null` |
@@ -187,7 +191,7 @@ Besides the standard JSONLogic operators, nine more are available:
 | `host` | string | Lowercased host of an absolute URL, with port if present; `null` if not a URL |
 | `match_all` | string, pattern | Capture group 1 of every match, or the whole match if the pattern has no group |
 
-`subset` and `join` exist because JSONLogic's `all`, `map` and `filter` cannot see data outside the current array element. `subset` answers "is every cited id a kept source"; `join` lines each output row up with its evidence so a rule can compare them field by field, for example `none` over `join(output.rows, calls.0.result.items, "id", "id")` of rows whose `right` is `null` or whose `left.stock` differs from `right.stock`. Note that JSONLogic's `all` is false on an empty array; use `none`, or a count of violations, when the list may be empty. Patterns in `match_all`, in a setting's `pattern`, and in the `pattern` and `patternProperties` keywords of `inputs`, `produces`, `$defs` and `schema` gates run on RE2, which matches in time linear in the input, so no pattern can stall a run on a large API response. RE2 accepts the ECMA-262 subset JSON Schema recommends plus lookbehind, but not lookahead or backreferences; a pattern it cannot compile fails at load time. End a match with a consumed group such as `(?:[^0-9]|$)` where you would write `(?![0-9])`. Schemas published by a remote tool keep their own patterns, since they only check the client's arguments.
+`subset`, `difference` and `join` exist because JSONLogic's `all`, `map` and `filter` cannot see data outside the current array element. `subset` answers "is every cited id a kept source"; `join` lines each output row up with its evidence so a rule can compare them field by field, for example `none` over `join(output.rows, calls.0.result.items, "id", "id")` of rows whose `right` is `null` or whose `left.stock` differs from `right.stock`. Note that JSONLogic's `all` is false on an empty array; use `none`, or a count of violations, when the list may be empty. Patterns in `match_all`, in a setting's `pattern`, and in the `pattern` and `patternProperties` keywords of `inputs`, `produces`, `$defs` and `schema` gates run on RE2, which matches in time linear in the input, so no pattern can stall a run on a large API response. RE2 accepts the ECMA-262 subset JSON Schema recommends plus lookbehind, but not lookahead or backreferences; a pattern it cannot compile fails at load time. End a match with a consumed group such as `(?:[^0-9]|$)` where you would write `(?![0-9])`. Schemas published by a remote tool keep their own patterns, since they only check the client's arguments.
 
 **`http`** posts `{ stepfile, step, gate, inputs, steps, output, calls }` as JSON to a `verifier` tool. A 2xx response of `{ "pass": true }` passes; `{ "pass": false, "message": "..." }` fails with that message. Any other response is treated as an outage rather than a verdict and stops the run. This is how a check that needs code runs: you operate the verifier.
 

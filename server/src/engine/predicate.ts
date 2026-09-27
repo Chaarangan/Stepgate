@@ -16,6 +16,10 @@ jsonLogic.add_operation("unique", (value: unknown) =>
 jsonLogic.add_operation("subset", (a: unknown, b: unknown) =>
   Array.isArray(a) && Array.isArray(b) && a.every((item) => b.some((other) => isDeepStrictEqual(other, item))),
 );
+// `difference` is what `subset` found missing: the items of `a` that are not in `b`, which is what an `explain` reports.
+jsonLogic.add_operation("difference", (a: unknown, b: unknown) =>
+  Array.isArray(a) && Array.isArray(b) ? a.filter((item) => !b.some((other) => isDeepStrictEqual(other, item))) : null,
+);
 jsonLogic.add_operation("host", (value: unknown) => {
   if (typeof value !== "string" || !URL.canParse(value)) {
     return null;

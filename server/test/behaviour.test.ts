@@ -149,12 +149,13 @@ describe("evidence", () => {
   });
 
   it("adds what explain evaluates to after a failed gate's message, naming what broke the rule", async () => {
+    const found = { match_all: [{ reduce: [{ var: "calls" }, { cat: [{ var: "accumulator" }, { var: "current.result" }, "\n"] }, ""] }, "Supplier ([A-Za-z]+):"] };
     const { call, seen } = await start({
       edit: (stepfile) => void ((steps(stepfile)[0] as JsonObject).gates = [{
         id: "suppliers-from-lookup",
         message: "every supplier must be one the lookup returned; these were not:",
-        predicate: { none: [{ var: "output.suppliers" }, { "!": { in: [{ var: "" }, { reduce: [{ var: "calls" }, { cat: [{ var: "accumulator" }, { var: "current.result" }] }, ""] }] } }] },
-        explain: { filter: [{ var: "output.suppliers" }, { "!": { in: [{ var: "" }, { reduce: [{ var: "calls" }, { cat: [{ var: "accumulator" }, { var: "current.result" }] }, ""] }] } }] },
+        predicate: { subset: [{ var: "output.suppliers" }, found] },
+        explain: { difference: [{ var: "output.suppliers" }, found] },
       }]),
       actions: [use("lookup", { query: "Acme" }), submit({ name: "Blue kettle", count: 4, supplier: "Acme", suppliers: ["Acme", "Globex", "Initech"] })],
     });
