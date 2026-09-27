@@ -76,8 +76,7 @@ steps:
   - id: decode
     tools: [decodeVin]
     instructions: |
-      Decode VIN {{inputs.vin}} by calling decodeVin once with that exact VIN
-      and format: json.
+      Decode VIN {{inputs.vin}} by calling decodeVin once with that exact VIN.
 
       Submit the VIN you sent and these fields copied exactly from Results[0]:
       Make as make, Model as model, ModelYear as model_year, BodyClass as
