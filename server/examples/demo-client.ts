@@ -1,8 +1,11 @@
 // A plain MCP client that launches stepgate over stdio, answers its sampling requests with any
-// OpenAI-compatible model, and calls the market-research stepfile. It only speaks MCP.
+// OpenAI-compatible model, and calls one catalog stepfile. It only speaks MCP.
 //
 //   MODEL_BASE_URL=https://openrouter.ai/api/v1 MODEL_NAME=<model> MODEL_API_KEY=... \
-//   TAVILY_API_KEY=... npm run demo
+//   npm run demo -- <catalog name> '<inputs as JSON>' [ledger directory]
+//
+// Credentials the stepfile needs (<NAME>_API_KEY) and STEPGATE_CONTACT are passed through, and
+// STEPGATE_EXTRA_ARGS (space-separated) is added to stepgate's command line.
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { getDefaultEnvironment, StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
@@ -70,29 +73,39 @@ async function sample(params: CreateMessageRequest["params"]): Promise<CreateMes
   return { role: "assistant", model, stopReason: calls.length > 0 ? "toolUse" : "endTurn", content };
 }
 
+const [name, inputsJson, ledgerDir] = process.argv.slice(2);
+if (name === undefined || inputsJson === undefined) {
+  throw new Error("usage: npm run demo -- <catalog name> '<inputs as JSON>' [ledger directory]");
+}
+
+// Pass through only what stepgate needs: credentials (<NAME>_API_KEY) and the operator contact.
+const passThrough = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] =>
+  entry[1] !== undefined && entry[0].endsWith("_API_KEY") && entry[0] !== "MODEL_API_KEY"));
+const contact = process.env.STEPGATE_CONTACT;
+const extraArgs = (process.env.STEPGATE_EXTRA_ARGS ?? "").split(" ").filter((arg) => arg !== "");
+
 const client = new Client({ name: "stepgate-demo", version: "1.0.0" }, { capabilities: { sampling: { tools: {} } } });
 client.setRequestHandler(CreateMessageRequestSchema, (request) => sample(request.params));
 
 // The client's MCP configuration: the command to launch, and the environment it gets.
 await client.connect(new StdioClientTransport({
   command: "node",
-  args: ["src/cli.ts", "market-research"],
-  env: { ...getDefaultEnvironment(), TAVILY_API_KEY: required("TAVILY_API_KEY") },
+  args: ["src/cli.ts", ...(contact === undefined ? [] : ["--contact", contact]), ...(ledgerDir === undefined ? [] : ["--ledger-dir", ledgerDir]), ...extraArgs, name],
+  env: { ...getDefaultEnvironment(), ...passThrough },
 }) as Transport);
 
-const { tools } = await client.listTools();
-console.log(`stepgate offers: ${tools.map((tool) => tool.name).join(", ")}`);
-
-const result = await client.callTool({ name: "market-research", arguments: { brand: "Oatly", market: "UK plant-based milk" } }, undefined, {
+const started = Date.now();
+const result = await client.callTool({ name, arguments: JSON.parse(inputsJson) as Record<string, unknown> }, undefined, {
   timeout: 120_000,
   resetTimeoutOnProgress: true,
   onprogress: (update) => console.log(`progress: ${update.message ?? ""}`),
 });
 
+console.log(`\n${name} finished in ${Math.round((Date.now() - started) / 1000)}s`);
 if (result.isError === true) {
-  console.log(`stepfile failed: ${JSON.stringify(result.content)}`);
+  console.log(`FAILED: ${JSON.stringify(result.content)}`);
+  process.exitCode = 1;
 } else {
-  const outputs = (result.structuredContent as { outputs: { report?: { report?: string } } }).outputs;
-  console.log(`\n${outputs.report?.report ?? JSON.stringify(outputs)}`);
+  console.log(JSON.stringify((result.structuredContent as { outputs: unknown }).outputs, null, 2));
 }
 await client.close();

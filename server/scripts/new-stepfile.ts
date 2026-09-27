@@ -1,23 +1,24 @@
-// Scaffolds stepfiles/<id>/ with a working stepfile and a README to fill in.
+// Scaffolds stepfiles/<domain>/<id>/ with a working stepfile and a README to fill in.
 //
-//   npm run new-stepfile -- <id>
+//   npm run new-stepfile -- <domain>/<id>
 //
 // The files carry TODO(<id>) markers, which the catalog rules reject until they are replaced.
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 
-const id = process.argv[2];
-if (id === undefined || !/^[a-z][a-z0-9-]{0,63}$/.test(id)) {
-  console.error("usage: npm run new-stepfile -- <id>   (lowercase letters, digits and hyphens, starting with a letter)");
+const [domain, id, extra] = (process.argv[2] ?? "").split("/");
+const NAME = /^[a-z][a-z0-9-]{0,63}$/;
+if (domain === undefined || id === undefined || extra !== undefined || !NAME.test(domain) || !NAME.test(id)) {
+  console.error("usage: npm run new-stepfile -- <domain>/<id>   (each lowercase letters, digits and hyphens, starting with a letter)");
   process.exit(2);
 }
 
-const folder = new URL(`../../stepfiles/${id}/`, import.meta.url);
+const folder = new URL(`../../stepfiles/${domain}/${id}/`, import.meta.url);
 if (existsSync(folder)) {
-  console.error(`stepfiles/${id}/ already exists`);
+  console.error(`stepfiles/${domain}/${id}/ already exists`);
   process.exit(1);
 }
 
-const stepfile = `# yaml-language-server: $schema=../../server/schema/stepfile.schema.json
+const stepfile = `# yaml-language-server: $schema=../../../server/schema/stepfile.schema.json
 stepgate: "1"
 id: ${id}
 title: TODO(${id}) a short title
@@ -30,7 +31,7 @@ inputs:
     topic: { type: string, minLength: 1 }
 
 # Declare remote APIs under tools: and the secrets they need under credentials:.
-# See docs/stepfile.md for the fields, and stepfiles/market-research/ for a full example.
+# See docs/stepfile.md for the fields, and stepfiles/marketing/market-research/ for a full example.
 
 steps:
   - id: summarise
@@ -77,4 +78,4 @@ Then call the \`${id}\` tool with \`{ "topic": "..." }\`.
 mkdirSync(folder, { recursive: true });
 writeFileSync(new URL(`${id}.stepfile.yaml`, folder), stepfile);
 writeFileSync(new URL("README.md", folder), readme);
-console.log(`created stepfiles/${id}/: replace every TODO(${id}), then run npm run check`);
+console.log(`created stepfiles/${domain}/${id}/: replace every TODO(${id}), then run npm run check`);

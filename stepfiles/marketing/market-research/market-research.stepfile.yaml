@@ -1,4 +1,4 @@
-# yaml-language-server: $schema=../../server/schema/stepfile.schema.json
+# yaml-language-server: $schema=../../../server/schema/stepfile.schema.json
 stepgate: "1"
 id: market-research
 title: Market research report for a brand

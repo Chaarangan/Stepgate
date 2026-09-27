@@ -1,0 +1,190 @@
+{
+  "market-research": {
+    "inputs": {
+      "brand": "Oatly",
+      "market": "UK plant-based milk"
+    }
+  },
+  "drug-shortage-watch": {
+    "inputs": {
+      "formulary": [
+        "lidocaine",
+        "methotrexate",
+        "sodium chloride",
+        "albuterol",
+        "amoxicillin"
+      ]
+    }
+  },
+  "auto-claim-vin-validation": {
+    "inputs": {
+      "vin": "JTDKB20U693456789",
+      "claimed_make": "Toyota",
+      "claimed_model": "Camry",
+      "claimed_year": 2010
+    }
+  },
+  "reference-list-validation": {
+    "inputs": {
+      "references": [
+        "LeCun, Y., Bengio, Y., & Hinton, G. (2015). Deep learning. Nature, 521(7553), 436-444. https://doi.org/10.1038/nature14539",
+        "He, K., Zhang, X., Ren, S., & Sun, J. (2016). Deep residual learning for image recognition. In Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (pp. 770-778).",
+        "Smith, J., & Patel, R. (2021). Neural citation grounding for large language models. Journal of Machine Learning Research, 22(1), 1-30. https://doi.org/10.5555/jmlr.2021.88412",
+        "Silver, D., Huang, A., Maddison, C. J., et al. (2016). Mastering the game of Go with deep neural networks and tree search. Nature, 529(7587), 484-489. https://doi.org/10.1038/nature14539"
+      ]
+    }
+  },
+  "book-list-verification": {
+    "inputs": {
+      "books": [
+        {
+          "title": "Klara and the Sun",
+          "author": "Kazuo Ishiguro"
+        },
+        {
+          "title": "Beach Read",
+          "author": "Emily Henry"
+        },
+        {
+          "title": "The Last Algorithm",
+          "author": "Andy Weir"
+        },
+        {
+          "title": "Tidewater Dreams",
+          "author": "Isabel Allende"
+        },
+        {
+          "title": "The Road",
+          "author": "Stephen King"
+        }
+      ]
+    }
+  },
+  "dependency-upgrade-risk": {
+    "inputs": {
+      "packages": [
+        {
+          "name": "lodash",
+          "version": "4.17.20"
+        },
+        {
+          "name": "express",
+          "version": "4.17.1"
+        },
+        {
+          "name": "minimist",
+          "version": "1.2.5"
+        },
+        {
+          "name": "ms",
+          "version": "2.1.3"
+        }
+      ]
+    }
+  },
+  "cve-triage-prioritisation": {
+    "inputs": {
+      "cves": [
+        "CVE-2021-44228",
+        "CVE-2024-3094",
+        "CVE-2021-23337",
+        "CVE-2020-28500",
+        "CVE-2024-43796"
+      ]
+    }
+  },
+  "event-weather-contingency": {
+    "inputs": {
+      "place": "Edinburgh",
+      "country_code": "GB",
+      "date": "2026-09-29"
+    }
+  },
+  "disaster-declaration-brief": {
+    "inputs": {
+      "state": "TX",
+      "start_date": "2024-01-01",
+      "end_date": "2025-12-31"
+    }
+  },
+  "regulatory-change-monitor": {
+    "inputs": {
+      "topic": "drone",
+      "agency": "federal-aviation-administration",
+      "start_date": "2026-01-01",
+      "end_date": "2026-09-25"
+    }
+  },
+  "sec-10k-ratio-extraction": {
+    "inputs": {
+      "ticker": "AAPL"
+    },
+    "args": [
+      "--tool-result-chars",
+      "80000"
+    ]
+  },
+  "zendesk-jira-escalation": {
+    "inputs": {
+      "escalation_tag": "escalate_eng",
+      "priority": "urgent",
+      "max_tickets": 5,
+      "jira_project": "SUP",
+      "jira_issue_type": "Bug"
+    }
+  },
+  "snowflake-metric-to-jira": {
+    "inputs": {
+      "sql": "SELECT COUNT_IF(status = 'error') AS ERRORS, COUNT(*) AS TOTAL, ROUND(ERRORS / NULLIF(TOTAL, 0), 4) AS ERROR_RATE FROM analytics.checkout.events WHERE event_date = CURRENT_DATE()",
+      "metric_name": "Checkout error rate",
+      "metric_column": "ERROR_RATE",
+      "threshold": 0.02,
+      "breach_when": "above",
+      "warehouse": "REPORTING_WH",
+      "role": "METRICS_READER",
+      "jira_project": "DATA",
+      "jira_issue_type": "Task"
+    }
+  },
+  "servicenow-incident-review": {
+    "inputs": {
+      "incident_number": "INC0010042",
+      "owner": "cli",
+      "repo": "cli",
+      "branch": "trunk",
+      "lookback_hours": 24
+    }
+  },
+  "github-release-to-customers": {
+    "inputs": {
+      "owner": "cli",
+      "repo": "cli",
+      "tag": "v2.100.0",
+      "previous_tag": "v2.99.0",
+      "contact_property": "lifecyclestage",
+      "contact_value": "customer",
+      "operator_email": "you@example.com"
+    }
+  },
+  "hubspot-deal-to-monday": {
+    "inputs": {
+      "deal_id": "21678228008",
+      "board_id": "1234567890"
+    }
+  },
+  "meeting-scheduler": {
+    "inputs": {
+      "attendees": [
+        "alice@example.com",
+        "bob@example.com"
+      ],
+      "title": "Q4 planning",
+      "duration_minutes": 30,
+      "start_date": "2026-10-06",
+      "end_date": "2026-10-08",
+      "work_start": "09:00",
+      "work_end": "17:00",
+      "utc_offset": "+01:00"
+    }
+  }
+}

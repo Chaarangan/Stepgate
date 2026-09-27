@@ -41,7 +41,9 @@
     "prepack": "npm run build && cp ../LICENSE ../README.md . && cp -R ../stepfiles .",
     "postpack": "rm -rf LICENSE README.md stepfiles",
     "demo": "node examples/demo-client.ts",
-    "new-stepfile": "node scripts/new-stepfile.ts"
+    "new-stepfile": "node scripts/new-stepfile.ts",
+    "check-stepfile": "node scripts/check-stepfile.ts",
+    "demo:catalog": "node examples/run-catalog.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.30.1",
