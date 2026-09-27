@@ -1,12 +1,13 @@
 import { parse as parseYaml } from "yaml";
-import { PreflightFailed, ToolCallFailed } from "../errors.ts";
+import { ApiDocumentInvalid, PreflightFailed, ToolCallFailed, type StepgateError } from "../errors.ts";
 import { guardedFetch, readText, type CredentialBinding, type HttpContext } from "../http.ts";
 import { textHash } from "../identity.ts";
 import { inlineLocalRefs, RefNotInlinable } from "../json-schema.ts";
 import type { Json, JsonObject, JsonSchema, ToolDeclaration, ToolDefinition } from "../types.ts";
-import type { ToolResult } from "./tool-result.ts";
+import { matchesSearch, oneLine, type InspectRequest, type PreparedTool, type ToolKind } from "./tool.ts";
 
 const METHODS = ["get", "put", "post", "delete", "patch", "head", "options"] as const;
+const MAX_LISTED = 150;
 
 type Parameter = { name: string; in: "path" | "query" | "header" | "cookie"; required: boolean; schema: JsonSchema; explode: boolean; description: string | null };
 
@@ -22,33 +23,28 @@ export type Operation = {
   security: JsonObject | null;
 };
 
-export type OpenApiTool = {
-  definitions: ToolDefinition[];
-  call: (operationId: string, args: JsonObject) => Promise<ToolResult>;
-  close: () => Promise<void>;
-};
-
 function isObject(value: Json | undefined): value is JsonObject {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-function inlineRefs(value: Json, document: JsonObject, toolName: string): Json {
+/** Inlines local `$ref`s; one that cannot be inlined raises the error `fail` builds, which differs for a run and for inspection. */
+function inlineRefs(value: Json, document: JsonObject, fail: (message: string) => StepgateError): Json {
   try {
     return inlineLocalRefs(value, document, []);
   } catch (error) {
     if (error instanceof RefNotInlinable) {
-      throw new PreflightFailed(`tool ${toolName}`, error.message, { cause: error });
+      throw fail(error.message);
     }
     throw error;
   }
 }
 
 /** Every operation in the document that has an operationId, with `$ref`s inlined. */
-export function findOperations(document: JsonObject, toolName: string): Map<string, Operation> {
+function findOperations(document: JsonObject, fail: (message: string) => StepgateError): Map<string, Operation> {
   const operations = new Map<string, Operation>();
   const paths = isObject(document.paths) ? document.paths : {};
   for (const [path, rawItem] of Object.entries(paths)) {
-    const item = inlineRefs(rawItem, document, toolName);
+    const item = inlineRefs(rawItem, document, fail);
     if (!isObject(item)) {
       continue;
     }
@@ -122,7 +118,7 @@ function constantValue(schema: JsonSchema): Json | undefined {
 }
 
 /** The operation as the client sees it; parameters with one allowed value are left out, since Stepgate sends them. */
-export function toDefinition(operation: Operation): ToolDefinition {
+function toDefinition(operation: Operation): ToolDefinition {
   const properties: JsonObject = {};
   const required: string[] = [];
   for (const parameter of operation.parameters) {
@@ -195,18 +191,18 @@ async function fetchDocument(context: HttpContext, toolName: string, declaration
 }
 
 /** Fetches and checks the document, then returns one tool per exposed operation. */
-export async function prepareOpenApiTool(
+async function prepareOpenApiTool(
   context: HttpContext,
   toolName: string,
   declaration: ToolDeclaration,
   credential: Omit<CredentialBinding, "place"> | null,
-): Promise<OpenApiTool> {
+): Promise<PreparedTool> {
   const openapi = declaration.openapi;
   if (openapi === undefined) {
     throw new TypeError(`tool ${toolName} is not an openapi tool`);
   }
   const document = await fetchDocument(context, toolName, openapi);
-  const operations = findOperations(document, toolName);
+  const operations = findOperations(document, (message) => new PreflightFailed(`tool ${toolName}`, message));
   const exposed = (declaration.exposes ?? []).map((entry) => (typeof entry === "string" ? entry : entry.name));
   const chosen = exposed.map((operationId) => {
     const operation = operations.get(operationId);
@@ -266,3 +262,86 @@ export async function prepareOpenApiTool(
     close: async () => {},
   };
 }
+
+type Unnamed = { key: string; method: string; path: string; operation: JsonObject; shared: Json[] };
+
+/** Operations with no operationId, which a stepfile cannot expose until an inline copy of the document gives them one. */
+function unnamedOperations(document: JsonObject): Unnamed[] {
+  const paths = isObject(document.paths) ? document.paths : {};
+  return Object.entries(paths).flatMap(([path, item]) => {
+    if (!isObject(item)) {
+      return [];
+    }
+    const shared = Array.isArray(item.parameters) ? item.parameters : [];
+    return METHODS.flatMap((method) => {
+      const operation = item[method];
+      return isObject(operation) && typeof operation.operationId !== "string"
+        ? [{ key: `${method.toUpperCase()} ${path}`, method: method.toUpperCase(), path, operation, shared }]
+        : [];
+    });
+  });
+}
+
+
+/** Describes an OpenAPI document for an author: the digest to pin, its servers and schemes, and its operations. */
+async function inspectOpenApi(context: HttpContext, url: URL, request: InspectRequest): Promise<string> {
+  const response = await guardedFetch(context, `inspect ${url}`, url, { method: "GET" }, null);
+  const text = await readText(response, `inspect ${url}`);
+  if (!response.ok) {
+    throw new ToolCallFailed(`inspect ${url}`, response.status, text);
+  }
+  let document: Json;
+  try {
+    document = parseYaml(text) as Json;
+  } catch (error) {
+    throw new ApiDocumentInvalid(url.href, `does not parse as JSON or YAML: ${(error as Error).message}`);
+  }
+  if (!isObject(document)) {
+    throw new ApiDocumentInvalid(url.href, "it is not an object");
+  }
+  const operations = findOperations(document, (message) => new ApiDocumentInvalid(url.href, message));
+  const servers = (Array.isArray(document.servers) ? document.servers : []).flatMap((server) => (isObject(server) && typeof server.url === "string" ? [server.url] : []));
+  const components = isObject(document.components) ? document.components : {};
+  const schemes = Object.entries(isObject(components.securitySchemes) ? components.securitySchemes : {}).map(([name, scheme]) =>
+    isObject(scheme) ? `${name} (${[scheme.type, scheme.scheme, scheme.in, scheme.name].filter((part) => typeof part === "string").join(" ")})` : name);
+  const header = [
+    `OpenAPI document ${url.href}`,
+    `sha256: ${textHash(text)} (pin this as openapi.sha256, with this URL as openapi.url)`,
+    `servers: ${servers.join(", ") || "none listed; set openapi.server to the API's base URL"}`,
+    `security schemes: ${schemes.join(", ") || "none"}`,
+  ].join("\n");
+
+  const unnamed = unnamedOperations(document);
+  if (request.operations !== undefined) {
+    const byKey = new Map(unnamed.map((entry) => [entry.key, entry]));
+    const unknown = request.operations.filter((id) => !operations.has(id) && !byKey.has(id));
+    const definitions = request.operations.flatMap((id) => {
+      const operation = operations.get(id);
+      return operation === undefined ? [] : [{ method: operation.method, path: operation.path, ...toDefinition(operation), response: operation.response }];
+    });
+    const raw = request.operations.flatMap((id) => {
+      const entry = byKey.get(id);
+      return entry === undefined ? [] : [{ method: entry.method, path: entry.path, parameters: inlineRefs(entry.shared, document, (message) => new ApiDocumentInvalid(url.href, message)), operation: inlineRefs(entry.operation, document, (message) => new ApiDocumentInvalid(url.href, message)) }];
+    });
+    const sections = [
+      definitions.length === 0 ? "" : `Each operation as a step will see it, with its success response; parameters with one allowed value are sent by Stepgate and left out:\n${JSON.stringify(definitions, null, 2)}`,
+      raw.length === 0 ? "" : `These have no operationId. To expose one, declare the tool with an inline openapi.document holding this path and method with an operationId added, instead of openapi.url and openapi.sha256:\n${JSON.stringify(raw, null, 2)}`,
+      unknown.length === 0 ? "" : `Not in the document: ${unknown.join(", ")}`,
+    ].filter((section) => section !== "");
+    return `${header}\n\n${sections.join("\n\n")}`;
+  }
+  const listed = [...operations.values()].filter((operation) => matchesSearch(request.search, operation.operationId, operation.path, operation.summary));
+  const lines = listed.slice(0, MAX_LISTED).map((operation) => {
+    const parameters = operation.parameters.map((parameter) => `${parameter.name}${parameter.required ? "*" : ""} (${parameter.in})`);
+    const body = operation.body === null ? "" : `; body ${operation.body.contentType}`;
+    return `- ${operation.operationId}: ${operation.method} ${operation.path}. ${oneLine(operation.summary)} [${parameters.join(", ")}${body}]`;
+  });
+  const more = listed.length > MAX_LISTED ? `\n\n${listed.length - MAX_LISTED} more; narrow the list with search.` : "";
+  const nameless = unnamed.filter((entry) => matchesSearch(request.search, entry.path, typeof entry.operation.summary === "string" ? entry.operation.summary : ""));
+  const without = nameless.length === 0
+    ? ""
+    : `\n\n${nameless.length} operations have no operationId, so a stepfile cannot expose them from this document as it is. Pass them to operations as "METHOD /path" to get their definitions to copy inline:\n${nameless.slice(0, MAX_LISTED).map((entry) => `- ${entry.key}${typeof entry.operation.summary === "string" ? `: ${oneLine(entry.operation.summary)}` : ""}`).join("\n")}`;
+  return `${header}\n\n${listed.length} operations${request.search === undefined ? "" : ` matching "${request.search}"`} with an operationId (* marks a required parameter):\n${lines.join("\n")}${more}${without}`;
+}
+
+export const openApiKind: ToolKind = { prepare: prepareOpenApiTool, inspect: inspectOpenApi };

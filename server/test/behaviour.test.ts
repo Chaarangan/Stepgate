@@ -476,6 +476,12 @@ describe("preflight", () => {
       item: "tool suppliers",
     },
     {
+      name: "an MCP tool whose input schema no longer matches its pin",
+      setup: { edit: (stepfile) => void (((stepfile.tools as JsonObject).suppliers as JsonObject).exposes = [{ name: "lookup", schema_sha256: `sha256:${"0".repeat(64)}` }]) },
+      inputs: { item: "K-1" },
+      item: "tool suppliers",
+    },
+    {
       name: "a credential missing from the environment",
       setup: { credentials: { catalogue: API_KEY } },
       inputs: { item: "K-1" },

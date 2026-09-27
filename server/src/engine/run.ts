@@ -18,12 +18,11 @@ import { declaredToolHost } from "./load.ts";
 import { renderInstructions } from "./placeholders.ts";
 import { evaluatePredicate, type EvidenceCall } from "./predicate.ts";
 import { resolveSettings } from "./settings.ts";
-import { prepareMcpTool } from "./tools/mcp.ts";
-import { prepareOpenApiTool } from "./tools/openapi.ts";
-import type { ToolResult } from "./tools/tool-result.ts";
+import { kindOf } from "./tools/kinds.ts";
+import type { ToolResult } from "./tools/tool.ts";
 import type { Json, JsonObject, JsonSchema, RunContext, RunResult, Stepfile, Step, ToolDefinition } from "./types.ts";
 
-type PreparedTool = {
+type StepOperation = {
   definition: ToolDefinition;
   validateArgs: ValidateFunction;
   toolName: string;
@@ -33,7 +32,7 @@ type PreparedTool = {
 };
 
 type Prepared = {
-  tools: Map<string, PreparedTool>;
+  tools: Map<string, StepOperation>;
   close: () => Promise<void>;
 };
 
@@ -73,7 +72,7 @@ async function preflight(stepfile: Stepfile, inputs: JsonObject, runContext: Run
   await checkCredentials(stepfile, runContext);
   const toolSchemas = createToolSchemaValidators();
 
-  const tools = new Map<string, PreparedTool>();
+  const tools = new Map<string, StepOperation>();
   const closers: Array<() => Promise<void>> = [];
   const close = async () => {
     await Promise.all(closers.map((closer) => closer()));
@@ -84,9 +83,7 @@ async function preflight(stepfile: Stepfile, inputs: JsonObject, runContext: Run
         continue;
       }
       const credential = credentialFor(stepfile, toolName);
-      const prepared = declaration.mcp !== undefined
-        ? await prepareMcpTool(http, toolName, declaration, credential)
-        : await prepareOpenApiTool(http, toolName, declaration, credential);
+      const prepared = await kindOf(declaration).prepare(http, toolName, declaration, credential);
       closers.push(prepared.close);
       for (const definition of prepared.definitions) {
         let validateArgs: ValidateFunction;
@@ -129,7 +126,7 @@ function parseResult(content: string): Json {
 }
 
 /** Runs one tool call. `evidence` is what gates see; it is null when the call never reached the tool. */
-async function callTool(prepared: PreparedTool, operation: string, args: Json | undefined, stepId: string, append: AppendRecord, limit: number): Promise<{ shown: ToolResult; evidence: EvidenceCall | null }> {
+async function callTool(prepared: StepOperation, operation: string, args: Json | undefined, stepId: string, append: AppendRecord, limit: number): Promise<{ shown: ToolResult; evidence: EvidenceCall | null }> {
   if (!isObject(args) || !prepared.validateArgs(args)) {
     return { shown: { content: `Invalid arguments for ${operation}: ${describeErrors(prepared.validateArgs.errors) || "arguments must be an object"}`, isError: true, status: null }, evidence: null };
   }
@@ -181,7 +178,7 @@ export type Run = {
 type Current = {
   step: Step;
   index: number;
-  allowed: Map<string, PreparedTool>;
+  allowed: Map<string, StepOperation>;
   instructions: string;
   attempt: number;
   callsMade: number;

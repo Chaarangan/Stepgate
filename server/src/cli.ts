@@ -18,6 +18,7 @@ import { parseArgs } from "node:util";
 import { CredentialUnavailable, SettingUnavailable } from "./engine/errors.ts";
 import { isPublicHttpsUrl } from "./engine/http.ts";
 import { settingVariable } from "./engine/settings.ts";
+import { oneLine } from "./engine/tools/tool.ts";
 import { load } from "./engine/load.ts";
 import { catalogDirectory, catalogFile, listCatalog } from "./catalog.ts";
 import { createStepgateServer, type StepgateServerOptions } from "./server.ts";
@@ -62,7 +63,7 @@ if (values.list === true) {
       console.log(`${domain === undefined ? "" : "\n"}${entry.domain}`);
       domain = entry.domain;
     }
-    const summary = (entry.stepfile.document.description ?? entry.stepfile.document.title ?? "").replace(/\s+/g, " ").trim();
+    const summary = oneLine(entry.stepfile.document.description ?? entry.stepfile.document.title ?? "");
     console.log(`  ${entry.id}: ${summary}`);
   }
   process.exit(0);
