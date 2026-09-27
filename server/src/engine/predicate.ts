@@ -67,6 +67,11 @@ export type PredicateContext = {
   calls?: EvidenceCall[];
 };
 
+/** What a rule evaluates to, for a gate's `explain`. */
+export function evaluateExpression(rule: JsonObject, context: PredicateContext): Json {
+  return (jsonLogic.apply(rule, context) ?? null) as Json;
+}
+
 /** True only when the rule evaluates to exactly `true`, as docs/stepfile.md specifies. */
 export function evaluatePredicate(rule: JsonObject, context: PredicateContext): boolean {
   return jsonLogic.apply(rule, context) === true;

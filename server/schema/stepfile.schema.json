@@ -402,11 +402,20 @@
               "$ref": "#/$defs/identifier"
             }
           }
+        },
+        "explain": {
+          "$ref": "#/$defs/predicate",
+          "description": "A JSONLogic expression evaluated only when the predicate fails; its result, such as the items that broke the rule, is added to the diagnosis."
         }
+      },
+      "dependentRequired": {
+        "explain": [
+          "predicate"
+        ]
       }
     },
     "predicate": {
-      "description": "A JSONLogic rule plus the operators length, unique, subset, host and match_all.",
+      "description": "A JSONLogic rule plus Stepgate's operators (docs/stepfile.md).",
       "type": "object",
       "minProperties": 1,
       "maxProperties": 1

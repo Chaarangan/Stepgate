@@ -3,8 +3,10 @@ import { ToolCallFailed } from "./errors.ts";
 import { guardedFetch, readText, type HttpContext } from "./http.ts";
 import { compileWithDefs, describeErrors } from "./json-schema.ts";
 import { credentialOf, toolUrl } from "./load.ts";
-import { evaluatePredicate, type PredicateContext } from "./predicate.ts";
-import type { Gate, Json, Step, StepfileDocument } from "./types.ts";
+import { evaluateExpression, evaluatePredicate, type PredicateContext } from "./predicate.ts";
+import type { Gate, Json, JsonObject, Step, StepfileDocument } from "./types.ts";
+
+const MAX_EXPLANATION = 2_000;
 
 /** What gates see: the run's inputs, earlier outputs, the submission and this step's calls. */
 export type GateContext = PredicateContext & { output: Json; calls: NonNullable<PredicateContext["calls"]> };
@@ -53,6 +55,16 @@ async function askVerifier(document: StepfileDocument, http: HttpContext, step: 
   throw new ToolCallFailed(operation, response.status, `response has no boolean pass: ${text.slice(0, 500)}`);
 }
 
+/** The message, followed by what `explain` evaluates to unless that is null or empty, cut to a length a model can act on. */
+function explained(message: string, explain: JsonObject | undefined, context: GateContext): string {
+  const detail = explain === undefined ? null : evaluateExpression(explain, context);
+  if (detail === null || (Array.isArray(detail) && detail.length === 0) || detail === "") {
+    return message;
+  }
+  const text = typeof detail === "string" ? detail : JSON.stringify(detail);
+  return `${message} ${text.length > MAX_EXPLANATION ? `${text.slice(0, MAX_EXPLANATION)} [cut at ${MAX_EXPLANATION} characters]` : text}`;
+}
+
 function compileGate(document: StepfileDocument, http: HttpContext, step: Step, gate: Gate, ajv: Ajv2020): (context: GateContext) => Promise<GateVerdict> {
   const defs = document.$defs ?? {};
   if ("schema" in gate) {
@@ -60,7 +72,7 @@ function compileGate(document: StepfileDocument, http: HttpContext, step: Step, 
     return async (context) => verdict(gate.id, validate(context.output) ? null : describeErrors(validate.errors));
   }
   if ("predicate" in gate) {
-    return async (context) => verdict(gate.id, evaluatePredicate(gate.predicate, context) ? null : gate.message);
+    return async (context) => verdict(gate.id, evaluatePredicate(gate.predicate, context) ? null : explained(gate.message, gate.explain, context));
   }
   return async (context) => verdict(gate.id, await askVerifier(document, http, step, gate.id, gate.http.tool, context));
 }

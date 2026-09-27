@@ -119,7 +119,7 @@ function checkCrossFieldRules(document: StepfileDocument): ValidationIssue[] {
     ...Object.entries(document.settings ?? {}).flatMap(([name, setting]) => (setting.pattern === undefined ? [] : [[`/settings/${name}/pattern`, setting.pattern] as [string, string]])),
     ...document.steps.flatMap((step, index) => [
       ...schemaPatterns(step.produces).map((pattern): [string, string] => [`/steps/${index}/produces`, pattern]),
-      ...step.gates.flatMap((gate) => ("schema" in gate ? schemaPatterns(gate.schema) : "predicate" in gate ? matchAllPatterns(gate.predicate) : []).map((pattern): [string, string] => [`/steps/${index}/gates/${gate.id}`, pattern])),
+      ...step.gates.flatMap((gate) => ("schema" in gate ? schemaPatterns(gate.schema) : "predicate" in gate ? matchAllPatterns([gate.predicate, gate.explain ?? null]) : []).map((pattern): [string, string] => [`/steps/${index}/gates/${gate.id}`, pattern])),
     ]),
   ];
   for (const [path, pattern] of patterns) {
@@ -155,7 +155,7 @@ function checkCrossFieldRules(document: StepfileDocument): ValidationIssue[] {
 
     const references = [
       ...placeholderPaths(step.instructions),
-      ...step.gates.flatMap((gate) => ("predicate" in gate ? varPaths(gate.predicate) : [])),
+      ...step.gates.flatMap((gate) => ("predicate" in gate ? [...varPaths(gate.predicate), ...(gate.explain === undefined ? [] : varPaths(gate.explain))] : [])),
       ...(step.when === undefined ? [] : varPaths(step.when)),
     ];
     for (const reference of references) {

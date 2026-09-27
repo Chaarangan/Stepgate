@@ -139,7 +139,7 @@ Each entry in `calls` is `{ tool, arguments, result, is_error }`, where `tool` i
   schema: { properties: { sources: { minItems: 12 } } }
 ```
 
-**`predicate`** evaluates a [JSONLogic](https://jsonlogic.com/operations.html) rule and passes only if it returns exactly `true`. Its `message` is the diagnosis the model sees on failure.
+**`predicate`** evaluates a [JSONLogic](https://jsonlogic.com/operations.html) rule and passes only if it returns exactly `true`. Its `message` is the diagnosis the model sees on failure. An optional `explain` is a second JSONLogic expression, evaluated only when the rule fails, whose result is added after the message, so the model is told which items broke the rule instead of guessing. A `null`, empty string or empty array adds nothing, and the addition is cut at 2,000 characters.
 
 ```yaml
 - id: domain-breadth
@@ -162,6 +162,15 @@ A predicate can check the output against the evidence. This one passes only if e
           map:
             - filter: [{ var: calls }, { "==": [{ var: tool }, searchBooks] }]
             - map: [{ var: result.docs }, { var: key }]
+```
+
+The same rule written as a `filter` makes a good `explain`. This one lists the books no search returned:
+
+```yaml
+  explain:
+    filter:
+      - { var: output.books }
+      - "!": { in: [{ var: key }, { flatten: { map: [{ filter: [{ var: calls }, { "==": [{ var: tool }, searchBooks] }] }, { map: [{ var: result.docs }, { var: key }] }] } }] }
 ```
 
 Besides the standard JSONLogic operators, nine more are available:

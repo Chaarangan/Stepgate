@@ -27,7 +27,7 @@ export type ToolDeclaration = {
 
 export type Gate =
   | { id: string; schema: JsonSchema }
-  | { id: string; predicate: JsonObject; message: string }
+  | { id: string; predicate: JsonObject; message: string; explain?: JsonObject }
   | { id: string; http: { tool: string } };
 
 export type Step = {
