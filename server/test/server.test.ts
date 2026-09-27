@@ -67,7 +67,7 @@ describe("Stepgate MCP server", () => {
         ((stepfile.steps as JsonObject[])[0] as JsonObject).tools = ["postSlow"];
       },
       actions: [],
-      runIdleMs: 50,
+      runIdleMs: 150,
     });
 
     await call({ item: "K-1" });
