@@ -1,4 +1,5 @@
 import { PreflightFailed, SettingUnavailable } from "./errors.ts";
+import { linearRegExp } from "./regex.ts";
 import type { RunContext, SettingDeclaration, StepfileDocument } from "./types.ts";
 
 // A single DNS label: enough for a site, subdomain or account name, and nothing that could redirect
@@ -37,7 +38,7 @@ export async function resolveSettings(document: StepfileDocument, runContext: Ru
       throw error;
     }
     const pattern = declaration.pattern ?? DEFAULT_PATTERN;
-    if (!new RegExp(pattern).test(value)) {
+    if (!linearRegExp(pattern).test(value)) {
       throw new PreflightFailed(`setting ${name}`, `value ${JSON.stringify(value)} does not match ${pattern}`);
     }
     values.set(name, value);

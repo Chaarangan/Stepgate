@@ -4,7 +4,8 @@ import { StepfileInvalid, type ValidationIssue } from "./errors.ts";
 import { canonicalHash } from "./identity.ts";
 import { createValidator } from "./json-schema.ts";
 import { placeholderPaths } from "./placeholders.ts";
-import { varPaths } from "./predicate.ts";
+import { matchAllPatterns, varPaths } from "./predicate.ts";
+import { patternProblem, schemaPatterns } from "./regex.ts";
 import { settingNames } from "./settings.ts";
 import type { CredentialDeclaration, Stepfile, StepfileDocument, ToolDeclaration } from "./types.ts";
 
@@ -109,6 +110,22 @@ function checkCrossFieldRules(document: StepfileDocument): ValidationIssue[] {
   for (const [name, credential] of Object.entries(credentials)) {
     if (credential.token_url !== undefined && settingNames(credential.token_url).length > 0) {
       issues.push({ path: `/credentials/${name}/token_url`, message: "token_url cannot use {setting} placeholders; the refresh token is sent there, so it must be fixed in the file" });
+    }
+  }
+
+  const patterns: Array<[string, string]> = [
+    ...schemaPatterns(document.inputs).map((pattern): [string, string] => ["/inputs", pattern]),
+    ...Object.entries(document.$defs ?? {}).flatMap(([name, schema]) => schemaPatterns(schema).map((pattern): [string, string] => [`/$defs/${name}`, pattern])),
+    ...Object.entries(document.settings ?? {}).flatMap(([name, setting]) => (setting.pattern === undefined ? [] : [[`/settings/${name}/pattern`, setting.pattern] as [string, string]])),
+    ...document.steps.flatMap((step, index) => [
+      ...schemaPatterns(step.produces).map((pattern): [string, string] => [`/steps/${index}/produces`, pattern]),
+      ...step.gates.flatMap((gate) => ("schema" in gate ? schemaPatterns(gate.schema) : "predicate" in gate ? matchAllPatterns(gate.predicate) : []).map((pattern): [string, string] => [`/steps/${index}/gates/${gate.id}`, pattern])),
+    ]),
+  ];
+  for (const [path, pattern] of patterns) {
+    const problem = patternProblem(pattern);
+    if (problem !== null) {
+      issues.push({ path, message: problem });
     }
   }
 

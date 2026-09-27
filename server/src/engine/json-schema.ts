@@ -1,10 +1,12 @@
 import { Ajv } from "ajv";
 import { Ajv2020, type ErrorObject, type ValidateFunction } from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
+import { ajvRegExp } from "./regex.ts";
 import type { Json, JsonObject, JsonSchema } from "./types.ts";
 
+/** A 2020-12 validator for schemas a stepfile author wrote, whose patterns run on RE2. */
 export function createValidator(): Ajv2020 {
-  const ajv = new Ajv2020({ allErrors: true, strict: false });
+  const ajv = new Ajv2020({ allErrors: true, strict: false, code: { regExp: ajvRegExp } });
   addFormats.default(ajv);
   return ajv;
 }
@@ -14,10 +16,13 @@ const DRAFT_2020_12 = /^https:\/\/json-schema\.org\/draft\/2020-12\/schema$/;
 
 export type ToolSchemaValidators = { draft2020: Ajv2020; draft07: Ajv };
 
+/** Validators for schemas a remote tool published, which may use lookaround, so they keep the native engine; they only check the client's arguments. */
 export function createToolSchemaValidators(): ToolSchemaValidators {
   const draft07 = new Ajv({ allErrors: true, strict: false });
   addFormats.default(draft07);
-  return { draft2020: createValidator(), draft07 };
+  const draft2020 = new Ajv2020({ allErrors: true, strict: false });
+  addFormats.default(draft2020);
+  return { draft2020, draft07 };
 }
 
 /**

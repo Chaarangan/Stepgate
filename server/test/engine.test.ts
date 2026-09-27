@@ -7,7 +7,7 @@ import { parse as parseYaml } from "yaml";
 import { directorySink } from "../src/engine/ledger.ts";
 import { load } from "../src/engine/load.ts";
 import { evaluatePredicate } from "../src/engine/predicate.ts";
-import type { Json } from "../src/engine/types.ts";
+import type { Json, JsonObject } from "../src/engine/types.ts";
 import { userAgent, VERSION } from "../src/version.ts";
 import { GOOD_STOCK, GOOD_SUMMARY, startHarness, type Harness } from "./harness.ts";
 
@@ -42,6 +42,13 @@ describe("load", () => {
     expect(() => load(JSON.stringify(document))).toThrow("setting region is declared but no tool URL or credential host uses it");
   });
 
+  it("refuses a pattern RE2 cannot run, naming where it is", () => {
+    const document = parseYaml(readFileSync(MARKET_RESEARCH, "utf8")) as { steps: Array<{ produces: JsonObject }> };
+    (document.steps[0] as { produces: JsonObject }).produces = { type: "object", properties: { id: { type: "string", pattern: "^S-(?!00)[0-9]{2}$" } } };
+
+    expect(() => load(JSON.stringify(document))).toThrow(/\/steps\/0\/produces pattern "\^S-\(\?!00\)\[0-9\]\{2\}\$" is not supported/);
+  });
+
   it("gives the YAML and JSON forms of a stepfile the same identity", () => {
     const yaml = readFileSync(MARKET_RESEARCH, "utf8");
     expect(load(yaml).identity).toBe(load(JSON.stringify(parseYaml(yaml))).identity);
@@ -55,6 +62,15 @@ describe("gate operators", () => {
     const context = { inputs: { attendee: "bob@example.com" }, steps: {}, output: { calendars } };
     expect(evaluatePredicate({ "==": [{ length: { var: "busy" } }, 1] }, { ...context, output: { calendars } })).toBe(false);
     expect(evaluatePredicate({ "==": [{ length: { get: [{ get: [{ var: "output.calendars" }, { var: "inputs.attendee" }] }, "busy"] } }, 1] }, context)).toBe(true);
+  });
+
+  it("runs match_all in linear time, so a backtracking pattern cannot stall a run on a hostile response", () => {
+    const started = performance.now();
+
+    const result = evaluatePredicate({ "==": [{ length: { match_all: [{ var: "output.text" }, "(a+)+$"] } }, 0] }, { inputs: {}, steps: {}, output: { text: `${"a".repeat(50_000)}!` } });
+
+    expect(result).toBe(true);
+    expect(performance.now() - started).toBeLessThan(1_000);
   });
 
   it("join pairs each row with its evidence so a gate can compare them field by field", () => {
