@@ -331,6 +331,8 @@ cases:
         expect: { fail: [docs-match-searches] }   # or: pass
 ```
 
+Rather than write the recorded calls by hand, run Stepgate with `--record-cases <dir>`: every run that finishes or fails is written there in this format, one entry per attempt with the calls the step had made, what it submitted and which gates failed. The file holds the APIs' full responses, so trim them to what the gates read and remove anything personal before committing it.
+
 Steps run in the order listed, and a step expected to `pass` becomes `steps.<id>` for the ones after it. `http` gates need their verifier and `approve` gates a person, so both are skipped and named in the report. [media/book-list-verification](../stepfiles/media/book-list-verification/) has a complete cases file.
 
 ## When a gate fails

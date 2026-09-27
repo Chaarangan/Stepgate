@@ -28,6 +28,7 @@ async function start(): Promise<number> {
       throw new SettingUnavailable(name, "none in this test");
     },
     ledger: () => undefined,
+    recordCases: null,
     limits: { callsPerStep: 8, toolResultChars: 10_000, requestTimeoutMs: 5_000, responseBytes: 1_000_000 },
     runIdleMs: 60_000,
     userAgent: userAgent(null),

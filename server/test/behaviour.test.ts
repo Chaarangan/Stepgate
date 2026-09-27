@@ -1,5 +1,9 @@
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { parseCases, testGates } from "../src/gate-test.ts";
 import type { JsonObject } from "../src/engine/types.ts";
 import { environmentCredentials } from "../src/operator.ts";
 import { userAgent, VERSION } from "../src/version.ts";
@@ -723,5 +727,53 @@ describe("automatic diagnoses", () => {
 
     expect(textOf(result)).toContain("every item must be known [\"missing-item-0\"");
     expect(textOf(result)).toContain("[cut at 2000 characters]");
+  });
+});
+
+describe("recording cases", () => {
+  it("records a mechanical step with its calls and computed output", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "stepgate-cases-"));
+    try {
+      const { call, stepfile } = await start({
+        edit: (document) => {
+          const stock = steps(document)[0] as JsonObject;
+          for (const field of ["instructions", "tools", "retries"]) {
+            delete stock[field];
+          }
+          stock.do = { calls: [{ id: "item", operation: "getItem", arguments: { id: { var: "inputs.item" } } }], output: { name: { var: "responses.item.name" }, count: { var: "responses.item.stock" }, supplier: "Acme" } };
+        },
+        actions: [GOOD_SUMMARY],
+        recordCases: directory,
+      });
+
+      await call({ item: "K-1" });
+
+      const [file] = readdirSync(directory);
+      const cases = parseCases(stepfile, readFileSync(join(directory, file as string), "utf8"));
+      expect(cases[0]?.steps[0]).toMatchObject({ step: "stock", calls: [{ tool: "getItem", arguments: { id: "K-1" } }], output: { name: "Blue kettle", count: 4, supplier: "Acme" }, expect: "pass" });
+      expect((await testGates(stepfile, cases)).every((report) => report.ok)).toBe(true);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("writes a finished run as a cases file that the offline gate test passes, with no credential in it", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "stepgate-cases-"));
+    try {
+      const { call, stepfile } = await start({ actions: [use("getItem", { id: "K-1" }), badCount, GOOD_STOCK, GOOD_SUMMARY], recordCases: directory });
+
+      await call({ item: "K-1" });
+
+      const [file, ...others] = readdirSync(directory);
+      expect(others).toEqual([]);
+      expect(file).toMatch(/^stock-check-[0-9a-f-]+\.cases\.yaml$/);
+      const text = readFileSync(join(directory, file as string), "utf8");
+      expect(text).not.toContain(API_KEY);
+      const cases = parseCases(stepfile, text);
+      expect(cases[0]?.steps.map((step) => [step.step, step.expect])).toEqual([["stock", { fail: ["count-positive"] }], ["stock", "pass"], ["summary", "pass"]]);
+      expect((await testGates(stepfile, cases)).every((report) => report.ok)).toBe(true);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 });

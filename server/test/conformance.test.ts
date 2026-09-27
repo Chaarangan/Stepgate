@@ -48,6 +48,7 @@ async function play(item: Case): Promise<{ replies: CallToolResult[]; records: L
       throw new SettingUnavailable(name, "conformance cases declare no settings");
     },
     ledger: (record) => void records.push(record),
+    recordCases: null,
     limits: { callsPerStep: 8, toolResultChars: 10_000, requestTimeoutMs: 5_000, responseBytes: 1_000_000 },
     runIdleMs: 60_000,
     userAgent: userAgent(null),

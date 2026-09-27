@@ -22,7 +22,7 @@ import { evaluateExpression, evaluatePredicate, evaluateTemplate, type EvidenceC
 import { resolveSettings } from "./settings.ts";
 import { kindOf } from "./tools/kinds.ts";
 import type { ToolResult } from "./tools/tool.ts";
-import type { Json, JsonObject, JsonSchema, MechanicalWork, RunContext, RunResult, Stepfile, Step, ToolDefinition } from "./types.ts";
+import type { Json, JsonObject, JsonSchema, MechanicalWork, RecordedStep, RunContext, RunResult, Stepfile, Step, ToolDefinition } from "./types.ts";
 
 type StepOperation = {
   definition: ToolDefinition;
@@ -205,10 +205,17 @@ export async function startRun(written: Stepfile, inputs: JsonObject, runContext
   const append = createLedger(runContext.ledger, { run: id, stepfile: written.document.id });
   let prepared: Prepared | undefined;
   let ended = false;
+  const recorded: RecordedStep[] = [];
   const end = async (type: string, fields: JsonObject) => {
     ended = true;
     await append(type, fields);
     await prepared?.close();
+    if (runContext.recordCases !== null && type !== "run_abandoned") {
+      await runContext.recordCases({ stepfile: written.document.id, run: id, inputs, steps: recorded });
+    }
+  };
+  const record = (step: string, calls: EvidenceCall[], output: Json, failures: GateDiagnosis[]) => {
+    recorded.push({ step, calls, output, expect: failures.length === 0 ? "pass" : { fail: failures.map((failure) => failure.gate) } });
   };
   const guarded = async <T>(work: () => Promise<T>): Promise<T> => {
     if (ended) {
@@ -293,6 +300,7 @@ export async function startRun(written: Stepfile, inputs: JsonObject, runContext
       await append("gate", { step: step.id, attempt: 1, gate, verdict: passed ? "pass" : "fail", diagnosis: diagnosis === null ? null : textHash(diagnosis) });
     }
     const failures = checked.verdicts.flatMap(({ gate, passed, diagnosis }) => (passed ? [] : [{ gate, diagnosis: diagnosis ?? "" }]));
+    record(step.id, calls, output, failures);
     if (failures.length > 0) {
       throw new GateFailed(step.id, failures);
     }
@@ -362,6 +370,7 @@ export async function startRun(written: Stepfile, inputs: JsonObject, runContext
         await append("gate", { step: step.id, attempt, gate, verdict: passed ? "pass" : "fail", diagnosis: diagnosis === null ? null : textHash(diagnosis) });
       }
       const failures = verdicts.flatMap(({ gate, passed, diagnosis }) => (passed ? [] : [{ gate, diagnosis: diagnosis ?? "" }]));
+      record(step.id, open.calls, output ?? null, failures);
       if (failures.length === 0) {
         await append("step_passed", { step: step.id, attempt });
         outputs[step.id] = checked.output as JsonObject;

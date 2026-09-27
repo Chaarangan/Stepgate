@@ -15,6 +15,8 @@ export type StepgateServerOptions = {
   settings: RunContext["settings"];
   /** Receives every ledger record; each carries the run and stepfile it belongs to. */
   ledger: LedgerSink;
+  /** Where finished and failed runs are written as cases, or null when the operator does not record them. */
+  recordCases: RunContext["recordCases"];
   limits: RunContext["limits"];
   /** How long a run may wait for the client's next call before it is abandoned, in milliseconds. */
   runIdleMs: number;

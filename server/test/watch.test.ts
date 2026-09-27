@@ -51,6 +51,7 @@ async function serveWatched(text: string): Promise<{ client: Client; file: strin
       throw new SettingUnavailable(name, "this test declares no settings");
     },
     ledger: (record) => void records.push(record),
+    recordCases: null,
     limits: { callsPerStep: 8, toolResultChars: 10_000, requestTimeoutMs: 5_000, responseBytes: 1_000_000 },
     runIdleMs: 60_000,
     userAgent: userAgent(null),

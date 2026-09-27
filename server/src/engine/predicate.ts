@@ -1,7 +1,7 @@
 import jsonLogic, { type AdditionalOperation, type RulesLogic } from "json-logic-js";
 import { isDeepStrictEqual } from "node:util";
 import { linearRegExp } from "./regex.ts";
-import type { Json, JsonObject } from "./types.ts";
+import type { EvidenceCall, Json, JsonObject } from "./types.ts";
 
 // The operators docs/stepfile.md adds to standard JSONLogic. json-logic-js keeps
 // operators in module state, so they are registered once when this module loads.
@@ -99,8 +99,7 @@ export function evaluateTemplate(template: Json, data: Json | PredicateContext):
   return Object.fromEntries(Object.entries(template).map(([key, value]) => [key, evaluateTemplate(value, data)]));
 }
 
-/** One tool call a step made, as gates see it: the full result, parsed as JSON where it is JSON. */
-export type EvidenceCall = { tool: string; arguments: JsonObject; result: Json; is_error: boolean };
+export type { EvidenceCall } from "./types.ts";
 
 export type PredicateContext = {
   inputs: JsonObject;

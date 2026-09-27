@@ -4,10 +4,10 @@ import { compileStepGates, type GateVerdict } from "./engine/gates.ts";
 import type { HttpContext } from "./engine/http.ts";
 import { createValidator, describeErrors } from "./engine/json-schema.ts";
 import type { EvidenceCall } from "./engine/predicate.ts";
-import type { Approvals, Json, JsonObject, Stepfile } from "./engine/types.ts";
+import type { Approvals, Json, JsonObject, RecordedStep, Stepfile } from "./engine/types.ts";
 
 /** One step of a case: the calls it made, what it submitted, and whether every gate should pass or which should fail. */
-export type CaseStep = { step: string; calls: EvidenceCall[]; output: Json; expect: "pass" | { fail: string[] } };
+export type CaseStep = RecordedStep;
 export type GateCase = { name: string; inputs: JsonObject; steps: CaseStep[] };
 
 /** A case step's outcome: whether the verdicts matched the expectation, and what ran. */
@@ -81,7 +81,7 @@ export function parseCases(stepfile: Stepfile, text: string): GateCase[] {
     if (gates === undefined) {
       return [`case "${item.name}": ${step.step} is not a step of ${stepfile.document.id}`];
     }
-    const unknown = typeof step.expect === "string" ? [] : step.expect.fail.filter((gate) => gate !== "produces" && !gates.has(gate));
+    const unknown = typeof step.expect === "string" ? [] : step.expect.fail.filter((gate) => gate !== "produces" && gate !== "derive" && !gates.has(gate));
     return unknown.map((gate) => `case "${item.name}", step ${step.step}: ${gate} is not one of its gates`);
   }));
   if (problems.length > 0) {

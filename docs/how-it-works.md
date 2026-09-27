@@ -63,6 +63,7 @@ Limits depend on the client and its model, so they are command-line options rath
 | `--contact` | none | Your contact email, sent in the User-Agent; SEC EDGAR and USAJOBS require one |
 | `--draft-credential` | none | `<name>=<host>[,<host>...]`: let drafts use this credential, sent only to these hosts; repeatable |
 | `--draft-setting` | none | Let drafts use this setting from the environment; repeatable |
+| `--record-cases` | none | Write each finished or failed run here as `<stepfile>-<run>.cases.yaml`, which `stepgate --test` runs; the file holds the APIs' full responses |
 | `--watch` | off | Reload a stepfile when its file changes; a run in progress keeps the version it started with |
 
 ## Errors

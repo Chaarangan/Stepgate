@@ -103,6 +103,15 @@ export type Approvals = {
   ask: (request: ApprovalRequest) => Promise<{ approved: boolean; reason: string | null }>;
 };
 
+/** One call a step made, as gates see it: the full result, parsed as JSON where it is JSON. */
+export type EvidenceCall = { tool: string; arguments: JsonObject; result: Json; is_error: boolean };
+
+/** One attempt at a step, as a cases file records it for `stepgate --test`. */
+export type RecordedStep = { step: string; calls: EvidenceCall[]; output: Json; expect: "pass" | { fail: string[] } };
+
+/** Receives a run's attempts once it finishes or fails, when the operator records cases. */
+export type CaseSink = (run: { stepfile: string; run: string; inputs: JsonObject; steps: RecordedStep[] }) => Promise<void>;
+
 /** What a run needs from Stepgate: credentials, settings, a ledger sink and limits. */
 export type RunContext = {
   approvals: Approvals;
@@ -110,6 +119,8 @@ export type RunContext = {
   /** The operator's value for a setting, such as a site name; raises SettingUnavailable when unset. */
   settings: (name: string, declaration: SettingDeclaration) => Promise<string>;
   ledger: (record: LedgerRecord) => void | Promise<void>;
+  /** Where finished and failed runs are written as cases, or null when the operator does not record them. */
+  recordCases: CaseSink | null;
   /** Budgets: tool calls one step may make, the longest tool result passed to the client, and the time and size one request may take. */
   limits: { callsPerStep: number; toolResultChars: number; requestTimeoutMs: number; responseBytes: number };
   /** Sent on every outgoing request that does not set its own. */

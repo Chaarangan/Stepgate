@@ -19,6 +19,7 @@ import { catalogDirectory, catalogFile, listCatalog } from "./catalog.ts";
 import { parseCases, testGates } from "./gate-test.ts";
 import { serveHttp } from "./http-server.ts";
 import { environmentCredentials, environmentSettings } from "./operator.ts";
+import { directoryCaseSink } from "./record-cases.ts";
 import { fixedStepfiles, watchStepfiles } from "./served.ts";
 import { createStepgateServer, type StepgateServerOptions } from "./server.ts";
 import { userAgent } from "./version.ts";
@@ -45,6 +46,7 @@ With no stepfiles it serves only the tools for writing new ones.
   --draft-credential <name>=<host>[,<host>...]
                              let drafts use credential <name>, sent only to these hosts; repeatable
   --draft-setting <name>     let drafts use setting <name> from the environment; repeatable
+  --record-cases <dir>       write each finished or failed run there as a cases file for --test; it holds the APIs' full responses
   --watch                    reload a stepfile when its file changes; runs in progress keep the version they started with`;
 
 const { values, positionals } = parseArgs({
@@ -65,6 +67,7 @@ const { values, positionals } = parseArgs({
     "draft-credential": { type: "string", multiple: true },
     "draft-setting": { type: "string", multiple: true },
     watch: { type: "boolean" },
+    "record-cases": { type: "string" },
   },
 });
 
@@ -165,6 +168,7 @@ const options: StepgateServerOptions = {
   credentials: environmentCredentials(process.env, { userAgent: agent, limits }),
   settings: environmentSettings(process.env),
   ledger: ledgerDir === undefined ? streamSink(process.stderr) : directorySink(ledgerDir),
+  recordCases: values["record-cases"] === undefined ? null : directoryCaseSink(values["record-cases"]),
   limits,
   runIdleMs: positiveInteger("run-idle-ms", values["run-idle-ms"]),
   userAgent: agent,
@@ -178,6 +182,10 @@ const options: StepgateServerOptions = {
 function served(): string {
   const ids = stepfiles.entries().map((entry) => entry.id);
   return `${ids.length === 0 ? "the authoring tools only" : ids.join(", ")}${values.watch === true ? ", reloading edited files" : ""}`;
+}
+
+if (values["record-cases"] !== undefined) {
+  console.error(`stepgate: recording cases in ${values["record-cases"]}; each file holds the APIs' full responses, so trim them before sharing`);
 }
 
 if (values.http === undefined) {

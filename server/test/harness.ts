@@ -8,7 +8,8 @@ import type { DraftPolicy } from "../src/authoring.ts";
 import { SettingUnavailable } from "../src/engine/errors.ts";
 import { isLoopbackHttpUrl, isPublicHttpsUrl } from "../src/engine/http.ts";
 import { load } from "../src/engine/load.ts";
-import type { CredentialSource, RunContext, JsonObject, LedgerRecord } from "../src/engine/types.ts";
+import type { CredentialSource, RunContext, JsonObject, LedgerRecord, Stepfile } from "../src/engine/types.ts";
+import { directoryCaseSink } from "../src/record-cases.ts";
 import { fixedStepfiles } from "../src/served.ts";
 import { createStepgateServer } from "../src/server.ts";
 import { userAgent } from "../src/version.ts";
@@ -49,12 +50,16 @@ export type Setup = {
   limits?: Partial<RunContext["limits"]>;
   flakyFailures?: number;
   runIdleMs?: number;
+  /** A directory to record finished and failed runs in as cases files. */
+  recordCases?: string;
   /** Defaults to letting drafts reach the loopback fixture servers as well as public https, with no credentials or settings. */
   drafts?: (addresses: { catalogueHost: string }) => DraftPolicy;
 };
 
 export type Harness = {
   client: Client;
+  /** The stepfile the server runs, after the setup's edits and the fixture addresses. */
+  stepfile: Stepfile;
   /** Starts a run with these inputs, plays the actions, and returns the last response. */
   call: (args: JsonObject) => Promise<CallToolResult>;
   /** The message of every approval the client was asked for. */
@@ -79,7 +84,8 @@ export async function startHarness(setup: Setup): Promise<Harness> {
   const settings = setup.settings?.({ cataloguePort }) ?? {};
 
   const records: LedgerRecord[] = [];
-  const server = createStepgateServer(fixedStepfiles([load(JSON.stringify(stepfile))]), {
+  const loaded = load(JSON.stringify(stepfile));
+  const server = createStepgateServer(fixedStepfiles([loaded]), {
     credentials: setup.credentialSource ?? secretsFrom(setup.credentials ?? { catalogue: API_KEY, suppliers: MCP_TOKEN }),
     settings: async (name) => {
       const value = settings[name];
@@ -89,6 +95,7 @@ export async function startHarness(setup: Setup): Promise<Harness> {
       return value;
     },
     ledger: (record) => void records.push(record),
+    recordCases: setup.recordCases === undefined ? null : directoryCaseSink(setup.recordCases),
     limits: { callsPerStep: 8, toolResultChars: 10_000, requestTimeoutMs: 5_000, responseBytes: 1_000_000, ...setup.limits },
     runIdleMs: setup.runIdleMs ?? 60_000,
     userAgent: userAgent(null),
@@ -119,6 +126,7 @@ export async function startHarness(setup: Setup): Promise<Harness> {
 
   return {
     client,
+    stepfile: loaded,
     call: async (args) => {
       let result = await respond("stock-check", args);
       const { run } = stateOf(result);
