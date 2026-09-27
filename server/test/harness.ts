@@ -1,17 +1,21 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
-import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { ElicitRequestSchema, type CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { readFileSync } from "node:fs";
 import { parse as parseYaml } from "yaml";
+import type { DraftPolicy } from "../src/authoring.ts";
 import { SettingUnavailable } from "../src/engine/errors.ts";
+import { isLoopbackHttpUrl, isPublicHttpsUrl } from "../src/engine/http.ts";
 import { load } from "../src/engine/load.ts";
-import type { RunContext, JsonObject, LedgerRecord } from "../src/engine/types.ts";
+import type { CredentialSource, RunContext, JsonObject, LedgerRecord } from "../src/engine/types.ts";
 import { createStepgateServer } from "../src/server.ts";
 import { userAgent } from "../src/version.ts";
 import { API_KEY, MCP_TOKEN, secretsFrom, startApi, startMcp, type Fixture } from "./fixtures.ts";
 
 const BASE = readFileSync(new URL("fixtures/stock-check.stepfile.yaml", import.meta.url), "utf8");
+
+export const loopbackOrPublic = (url: string): boolean => isPublicHttpsUrl(url) || isLoopbackHttpUrl(url);
 
 /** One scripted client action: a call to one of the step's operations, or a submission. */
 export type Action = { operation: string; arguments: JsonObject } | { submit: JsonObject };
@@ -36,17 +40,24 @@ export type Setup = {
   /** What the client does after starting the run, in order, until the run finishes or fails. */
   actions: Action[];
   credentials?: Record<string, string>;
+  /** How the person answers each approve gate, in order; when absent the client declares no elicitation support. */
+  approvals?: Array<{ action: "accept" | "decline" | "cancel"; reason?: string }>;
+  /** Replaces `credentials` with a real source, such as the operator's environment adapter. */
+  credentialSource?: CredentialSource;
   settings?: (addresses: { cataloguePort: string }) => Record<string, string>;
-  limits?: RunContext["limits"];
+  limits?: Partial<RunContext["limits"]>;
   flakyFailures?: number;
   runIdleMs?: number;
-  draftsMayUseLoopback?: boolean;
+  /** Defaults to letting drafts reach the loopback fixture servers as well as public https, with no credentials or settings. */
+  drafts?: (addresses: { catalogueHost: string }) => DraftPolicy;
 };
 
 export type Harness = {
   client: Client;
   /** Starts a run with these inputs, plays the actions, and returns the last response. */
   call: (args: JsonObject) => Promise<CallToolResult>;
+  /** The message of every approval the client was asked for. */
+  asked: string[];
   /** Every response the client received, starting with the run's first step. */
   seen: CallToolResult[];
   records: LedgerRecord[];
@@ -68,7 +79,7 @@ export async function startHarness(setup: Setup): Promise<Harness> {
 
   const records: LedgerRecord[] = [];
   const server = createStepgateServer([load(JSON.stringify(stepfile))], {
-    credentials: secretsFrom(setup.credentials ?? { catalogue: API_KEY, suppliers: MCP_TOKEN }),
+    credentials: setup.credentialSource ?? secretsFrom(setup.credentials ?? { catalogue: API_KEY, suppliers: MCP_TOKEN }),
     settings: async (name) => {
       const value = settings[name];
       if (value === undefined) {
@@ -76,13 +87,25 @@ export async function startHarness(setup: Setup): Promise<Harness> {
       }
       return value;
     },
-    ledger: (_call, record) => void records.push(record),
-    limits: setup.limits ?? { callsPerStep: 8, toolResultChars: 10_000 },
+    ledger: (record) => void records.push(record),
+    limits: { callsPerStep: 8, toolResultChars: 10_000, requestTimeoutMs: 5_000, responseBytes: 1_000_000, ...setup.limits },
     runIdleMs: setup.runIdleMs ?? 60_000,
     userAgent: userAgent(null),
-    draftsMayUseLoopback: setup.draftsMayUseLoopback ?? true,
+    drafts: setup.drafts?.({ catalogueHost: api.host }) ?? { urlAllowed: loopbackOrPublic, credentials: new Map(), settings: new Set() },
   });
-  const client = new Client({ name: "platform", version: "1.0.0" });
+  const client = new Client({ name: "platform", version: "1.0.0" }, { capabilities: setup.approvals === undefined ? {} : { elicitation: { form: {} } } });
+  const answers = [...(setup.approvals ?? [])];
+  const asked: string[] = [];
+  if (setup.approvals !== undefined) {
+    client.setRequestHandler(ElicitRequestSchema, async (request) => {
+      asked.push(request.params.message);
+      const answer = answers.shift();
+      if (answer === undefined) {
+        throw new Error("the test scripted no more approval answers");
+      }
+      return answer.reason === undefined ? { action: answer.action } : { action: answer.action, content: { reason: answer.reason } };
+    });
+  }
   const seen: CallToolResult[] = [];
   const respond = async (name: string, args: JsonObject) => {
     const result = (await client.callTool({ name, arguments: args })) as CallToolResult;
@@ -109,6 +132,7 @@ export async function startHarness(setup: Setup): Promise<Harness> {
       return result;
     },
     seen,
+    asked,
     records,
     api,
     mcp,

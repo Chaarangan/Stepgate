@@ -1,0 +1,48 @@
+name: a GET is retried after a 503 with a retry record, and a POST is not
+api:
+  routes:
+    - method: GET
+      path: /busy-once
+      answers: [{ status: 503, json: { error: busy } }, { status: 200, json: { ok: true } }]
+    - method: POST
+      path: /busy
+      answers: [{ status: 503, json: { error: busy } }]
+stepfile:
+  stepgate: "1"
+  id: retrying
+  inputs: { type: object, properties: {} }
+  tools:
+    api:
+      openapi:
+        server: "${api.origin}"
+        document:
+          openapi: 3.1.0
+          info: { title: Busy, version: "1" }
+          paths:
+            /busy-once: { get: { operationId: getBusyOnce } }
+            /busy: { post: { operationId: postBusy } }
+      exposes: [getBusyOnce, postBusy]
+  steps:
+    - id: call
+      tools: [getBusyOnce, postBusy]
+      instructions: Call both operations.
+      produces: { type: object }
+      gates: [{ id: any, schema: { type: object } }]
+inputs: {}
+actions:
+  - call: getBusyOnce
+    arguments: {}
+  - call: postBusy
+    arguments: {}
+  - submit: {}
+expect:
+  replies:
+    - { state: running, step: call }
+    - { state: running, is_error: false, contain: '"ok":true' }
+    - { state: running, is_error: true, contain: "HTTP 503" }
+    - { state: finished }
+  ledger: [run_started, step_started, retry, tool_call, tool_call, submit, gate, step_passed, run_finished]
+  requests:
+    - { method: GET, path: /busy-once }
+    - { method: GET, path: /busy-once }
+    - { method: POST, path: /busy }

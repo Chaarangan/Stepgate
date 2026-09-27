@@ -215,6 +215,107 @@
       "get": {
         "summary": "Report whether the catalogue is up."
       }
+    },
+    "/redirect-away": {
+      "get": {
+        "operationId": "getRedirectAway",
+        "summary": "Redirects to the same server under another host name.",
+        "security": [
+          {
+            "key": []
+          }
+        ]
+      }
+    },
+    "/redirect-home": {
+      "get": {
+        "operationId": "getRedirectHome",
+        "summary": "Redirects to /items/K-1 on the same host.",
+        "security": [
+          {
+            "key": []
+          }
+        ]
+      }
+    },
+    "/busy": {
+      "post": {
+        "operationId": "postBusy",
+        "summary": "Always answers 503.",
+        "security": [
+          {
+            "key": []
+          }
+        ]
+      }
+    },
+    "/slow": {
+      "post": {
+        "operationId": "postSlow",
+        "summary": "Answers after one second.",
+        "security": [
+          {
+            "key": []
+          }
+        ]
+      }
+    },
+    "/huge": {
+      "get": {
+        "operationId": "getHuge",
+        "summary": "Answers with two megabytes.",
+        "security": [
+          {
+            "key": []
+          }
+        ]
+      }
+    },
+    "/oauth-items/{id}": {
+      "get": {
+        "operationId": "getOAuthItem",
+        "summary": "Fetch one item with an OAuth access token.",
+        "security": [
+          {
+            "oauth": [
+              "read:items"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/oauth-strict-items/{id}": {
+      "get": {
+        "operationId": "getStrictOAuthItem",
+        "summary": "Fetch one item; the first access token issued is refused as expired.",
+        "security": [
+          {
+            "oauth": [
+              "read:items"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
     }
   },
   "components": {
@@ -227,6 +328,18 @@
       "basic": {
         "type": "http",
         "scheme": "basic"
+      },
+      "oauth": {
+        "type": "oauth2",
+        "flows": {
+          "authorizationCode": {
+            "authorizationUrl": "https://example.com/authorize",
+            "tokenUrl": "https://example.com/token",
+            "scopes": {
+              "read:items": "Read items."
+            }
+          }
+        }
       }
     }
   }

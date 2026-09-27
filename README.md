@@ -13,10 +13,10 @@ A **stepfile** declares its inputs, the remote APIs and MCP servers it may call,
 
 When an agent is handed a plan as text, it decides how much of the plan to follow, a step counts as done when the agent says so, and nothing records afterwards what actually ran. A stepfile moves those decisions out of the model:
 
-- **Steps run in order, one at a time.** The agent sees only the current step's instructions and operations, never the whole plan, so it cannot skip ahead.
+- **Steps run in order, one at a time.** The agent is shown only the current step's instructions and operations, never a later step, so it cannot skip ahead. Earlier steps stay in its own conversation.
 - **Gates decide, not the model.** A step passes only when its output satisfies JSON Schema, JSONLogic or an HTTP verifier, and gates can check that output against what the APIs actually returned, so a fabricated value fails. A failed gate's diagnosis goes back to the model for a bounded number of retries.
 - **The model never holds a key.** The server makes every tool call and attaches credentials itself, and it refuses requests to hosts the stepfile does not declare.
-- **Every run leaves a record.** A hash-chained ledger lists each step, tool call, gate verdict and retry, and editing it afterwards breaks the chain.
+- **Every run leaves a record.** A hash-chained ledger lists each step, tool call, gate verdict and retry, and editing it afterwards breaks the chain, which `stepgate --verify` detects.
 - **Nothing to install on the client side.** Stepfiles call remote APIs only, and the client adds one MCP server to its configuration. Stepgate needs no model key: the client's own model does the reasoning.
 
 ## Quick start

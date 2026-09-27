@@ -9,11 +9,14 @@ export type SettingDeclaration = { description: string; pattern?: string };
 export type CredentialDeclaration = {
   kind: CredentialKind;
   scopes?: string[];
+  /** For oauth2: where Stepgate exchanges the operator's refresh token for an access token. */
+  token_url?: string;
   hosts: string[];
   description: string;
 };
 
-export type ExposedName = string | { name: string; schema_sha256: string };
+/** An exposed operation: its name, or the name with an MCP schema pin and a `select` over its result. */
+export type ExposedName = string | { name: string; schema_sha256?: string; select?: JsonObject };
 
 export type ToolDeclaration = {
   openapi?: { server: string; document?: JsonObject; url?: string; sha256?: string };
@@ -25,8 +28,9 @@ export type ToolDeclaration = {
 
 export type Gate =
   | { id: string; schema: JsonSchema }
-  | { id: string; predicate: JsonObject; message: string }
-  | { id: string; http: { tool: string } };
+  | { id: string; predicate: JsonObject; message: string; explain?: JsonObject }
+  | { id: string; http: { tool: string } }
+  | { id: string; approve: { message: string } };
 
 export type Step = {
   id: string;
@@ -67,14 +71,32 @@ export type ToolDefinition = {
 
 export type LedgerRecord = { seq: number; type: string; at: string; prev: string | null } & JsonObject;
 
+/** Where credential values come from. Stepgate asks again on every attempt, so a source may rotate them. */
+export type CredentialSource = {
+  /** The value to send now; raises CredentialUnavailable when the operator supplied none. */
+  value: (name: string, declaration: CredentialDeclaration) => Promise<string>;
+  /** Told that an API answered 401 to the value; true when a fresh one was obtained and the request is worth sending once more. */
+  rejected: (name: string, declaration: CredentialDeclaration) => Promise<boolean>;
+};
+
+/** What an approve gate asks a person: the gate's message, with the output shown beneath it. */
+export type ApprovalRequest = { stepfile: string; step: string; gate: string; message: string; output: Json };
+
+/** A person's decision on approve gates, reached through the client; `available` is false when the client cannot ask one. */
+export type Approvals = {
+  available: boolean;
+  ask: (request: ApprovalRequest) => Promise<{ approved: boolean; reason: string | null }>;
+};
+
 /** What a run needs from Stepgate: credentials, settings, a ledger sink and limits. */
 export type RunContext = {
-  credentials: (name: string, declaration: CredentialDeclaration) => Promise<string>;
+  approvals: Approvals;
+  credentials: CredentialSource;
   /** The operator's value for a setting, such as a site name; raises SettingUnavailable when unset. */
   settings: (name: string, declaration: SettingDeclaration) => Promise<string>;
   ledger: (record: LedgerRecord) => void | Promise<void>;
-  /** Budgets: tool calls one step may make, and the longest tool result passed to the client. */
-  limits: { callsPerStep: number; toolResultChars: number };
+  /** Budgets: tool calls one step may make, the longest tool result passed to the client, and the time and size one request may take. */
+  limits: { callsPerStep: number; toolResultChars: number; requestTimeoutMs: number; responseBytes: number };
   /** Sent on every outgoing request that does not set its own. */
   userAgent: string;
 };

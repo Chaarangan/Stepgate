@@ -32,7 +32,7 @@ npx -y stepgate /Users/me/flows/invoice-check.stepfile.yaml market-research
 - **Each file becomes one tool named after its `id`,** so every file you serve needs its own `id`.
 - **Mistakes show when the server starts.** Every file is validated at startup, and a broken one stops the server with the reason, such as `StepfileInvalid: stepfile invalid: /stepgate must be equal to constant`. The client shows this as a server that failed to start; Claude Code's `/mcp` and Claude Desktop's logs carry the message.
 - **Restart after editing.** Files are read once, at startup. In Claude Code, reconnect the server from `/mcp`.
-- **Credentials and settings work as for catalog entries:** credential `my-api` is read from `MY_API_API_KEY` and setting `erp-host` from `ERP_HOST`.
+- **Credentials and settings work as for catalog entries:** credential `my-api` is read from `MY_API_API_KEY` and setting `erp-host` from `ERP_HOST`. An `oauth2` credential with a `token_url` can take `MY_API_REFRESH_TOKEN` and `MY_API_CLIENT_ID` instead, and Stepgate refreshes the access token itself ([stepfile.md](stepfile.md#credentials)).
 - **Your own files may call `http://localhost`,** which helps while testing against a local API. Catalog entries must use public `https` URLs.
 
 To have your editor check the file as you type, start it with this line; editors using `yaml-language-server`, such as VS Code with the YAML extension, then validate every field:
@@ -57,7 +57,13 @@ Every Stepgate server also offers tools for writing new stepfiles, so you can as
 
 `npx -y stepgate` with no stepfiles starts a server that offers only these tools.
 
-Drafts are written by a model, so `stepgate_try` holds them to stricter rules than files you load yourself. A draft may not declare credentials or settings, because Stepgate would read their values from your environment and send them wherever the draft's author chose. Its tools must use public `https` URLs. Inspection sends no credentials either, and only to public `https` URLs. To try a stepfile that needs a key, save it and add its path to the server's configuration, as in [your own stepfiles](#your-own-stepfiles).
+Drafts are written by a model, so `stepgate_try` holds them to stricter rules than files you load yourself. Its tools must use public `https` URLs. A draft may declare only the credentials and settings you grant to drafts, because Stepgate would otherwise read their values from your environment and send them wherever the draft's author chose:
+
+```
+npx -y stepgate --draft-credential jira=acme.atlassian.net --draft-setting jira-site
+```
+
+A granted credential is refused if the draft lists any host you did not name, or a `token_url`, so a draft can only send it where you said. Inspection sends no credentials, and only to public `https` URLs. Any other stepfile that needs a key is tried by saving it and adding its path to the server's configuration, as in [your own stepfiles](#your-own-stepfiles).
 
 "Public" is decided from the URL's host name: loopback, private and link-local addresses and names without a dot are refused, but a public name that resolves to a private address is not caught. Run Stepgate where reaching any public host is acceptable.
 

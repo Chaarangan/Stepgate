@@ -1,73 +1,105 @@
-import type { Ajv2020 } from "ajv/dist/2020.js";
+import type { Ajv2020, ValidateFunction } from "ajv/dist/2020.js";
 import { ToolCallFailed } from "./errors.ts";
-import type { GateDiagnosis } from "./errors.ts";
-import { guardedFetch, type CredentialBinding, type HttpContext } from "./http.ts";
+import { guardedFetch, readText, type HttpContext } from "./http.ts";
 import { compileWithDefs, describeErrors } from "./json-schema.ts";
-import { toolUrl } from "./load.ts";
-import { evaluatePredicate, type PredicateContext } from "./predicate.ts";
-import type { Json, StepfileDocument, Step } from "./types.ts";
+import { credentialOf, toolUrl } from "./load.ts";
+import { evaluateExpression, evaluatePredicate, type PredicateContext } from "./predicate.ts";
+import type { Approvals, Gate, Json, JsonObject, Step, StepfileDocument } from "./types.ts";
 
-export type GateInput = {
-  document: StepfileDocument;
-  step: Step;
-  context: PredicateContext & { output: Json; calls: NonNullable<PredicateContext["calls"]> };
-  ajv: Ajv2020;
-  http: HttpContext;
-  verifierCredential: (toolName: string) => Omit<CredentialBinding, "place"> | null;
-};
+const MAX_EXPLANATION = 2_000;
 
-async function runHttpGate(input: GateInput, gateId: string, toolName: string): Promise<string | null> {
-  const tool = input.document.tools?.[toolName];
+/** What gates see: the run's inputs, earlier outputs, the submission and this step's calls. */
+export type GateContext = PredicateContext & { output: Json; calls: NonNullable<PredicateContext["calls"]> };
+
+/** One gate's verdict on one submission. `produces` is the step's output schema, checked before any gate. */
+export type GateVerdict = { gate: string; passed: boolean; diagnosis: string | null };
+
+/** A step's gates, compiled once per run. `check` returns a verdict per gate in file order, or only `produces` when the output breaks it. */
+export type StepGates = { check: (context: GateContext) => Promise<GateVerdict[]> };
+
+function verdict(gate: string, diagnosis: string | null): GateVerdict {
+  return { gate, passed: diagnosis === null, diagnosis };
+}
+
+async function askVerifier(document: StepfileDocument, http: HttpContext, step: Step, gateId: string, toolName: string, context: GateContext): Promise<string | null> {
+  const tool = document.tools?.[toolName];
   if (tool === undefined) {
     throw new TypeError(`verifier ${toolName} was not declared; load should have rejected this stepfile`);
   }
-  const credential = input.verifierCredential(toolName);
-  const body = JSON.stringify({ stepfile: input.document.id, step: input.step.id, gate: gateId, ...input.context });
+  const operation = `verifier ${toolName}`;
+  const credential = credentialOf(document, toolName);
+  const body = JSON.stringify({ stepfile: document.id, step: step.id, gate: gateId, ...context });
   const response = await guardedFetch(
-    input.http,
-    `verifier ${toolName}`,
+    http,
+    operation,
     new URL(toolUrl(tool)),
     { method: "POST", headers: { "content-type": "application/json" }, body },
     credential === null ? null : { ...credential, place: (secret, headers) => headers.set("Authorization", `Bearer ${secret}`) },
   );
-  const text = await response.text();
+  const text = await readText(response, operation);
   if (!response.ok) {
-    throw new ToolCallFailed(`verifier ${toolName}`, response.status, text);
+    throw new ToolCallFailed(operation, response.status, text);
   }
-  const verdict = JSON.parse(text) as { pass?: unknown; message?: unknown };
-  if (verdict.pass === true) {
+  let reply: { pass?: unknown; message?: unknown };
+  try {
+    reply = JSON.parse(text) as { pass?: unknown; message?: unknown };
+  } catch {
+    throw new ToolCallFailed(operation, response.status, `response is not JSON: ${text.slice(0, 500)}`);
+  }
+  if (reply.pass === true) {
     return null;
   }
-  if (verdict.pass === false) {
-    return typeof verdict.message === "string" ? verdict.message : "verifier returned pass: false";
+  if (reply.pass === false) {
+    return typeof reply.message === "string" ? reply.message : "verifier returned pass: false";
   }
-  throw new ToolCallFailed(`verifier ${toolName}`, response.status, `response has no boolean pass: ${text.slice(0, 500)}`);
+  throw new ToolCallFailed(operation, response.status, `response has no boolean pass: ${text.slice(0, 500)}`);
 }
 
-/** Validates the submission against `produces`, then runs every gate. Returns the failures, empty when all pass. */
-export async function evaluateGates(input: GateInput): Promise<GateDiagnosis[]> {
-  const defs = input.document.$defs ?? {};
-  const validateOutput = compileWithDefs(input.ajv, input.step.produces, defs);
-  if (!validateOutput(input.context.output)) {
-    return [{ gate: "produces", diagnosis: describeErrors(validateOutput.errors) }];
+/** The message, followed by what `explain` evaluates to unless that is null or empty, cut to a length a model can act on. */
+function explained(message: string, explain: JsonObject | undefined, context: GateContext): string {
+  const detail = explain === undefined ? null : evaluateExpression(explain, context);
+  if (detail === null || (Array.isArray(detail) && detail.length === 0) || detail === "") {
+    return message;
   }
-  const failures: GateDiagnosis[] = [];
-  for (const gate of input.step.gates) {
-    if ("schema" in gate) {
-      const validate = compileWithDefs(input.ajv, gate.schema, defs);
-      if (!validate(input.context.output)) {
-        failures.push({ gate: gate.id, diagnosis: describeErrors(validate.errors) });
-      }
-    } else if ("predicate" in gate) {
-      if (!evaluatePredicate(gate.predicate, input.context)) {
-        failures.push({ gate: gate.id, diagnosis: gate.message });
-      }
-    } else {
-      const diagnosis = await runHttpGate(input, gate.id, gate.http.tool);
-      if (diagnosis !== null) {
-        failures.push({ gate: gate.id, diagnosis });
-      }
-    }
+  const text = typeof detail === "string" ? detail : JSON.stringify(detail);
+  return `${message} ${text.length > MAX_EXPLANATION ? `${text.slice(0, MAX_EXPLANATION)} [cut at ${MAX_EXPLANATION} characters]` : text}`;
+}
+
+function compileGate(document: StepfileDocument, services: GateServices, step: Step, gate: Gate, ajv: Ajv2020): (context: GateContext) => Promise<GateVerdict> {
+  const defs = document.$defs ?? {};
+  if ("schema" in gate) {
+    const validate: ValidateFunction = compileWithDefs(ajv, gate.schema, defs);
+    return async (context) => verdict(gate.id, validate(context.output) ? null : describeErrors(validate.errors));
   }
-  return failures;
+  if ("predicate" in gate) {
+    return async (context) => verdict(gate.id, evaluatePredicate(gate.predicate, context) ? null : explained(gate.message, gate.explain, context));
+  }
+  if ("approve" in gate) {
+    return async (context) => {
+      const { approved, reason } = await services.approvals.ask({ stepfile: document.id, step: step.id, gate: gate.id, message: gate.approve.message, output: context.output });
+      return verdict(gate.id, approved ? null : `a person declined to approve this output${reason === null ? "" : `: ${reason}`}`);
+    };
+  }
+  return async (context) => verdict(gate.id, await askVerifier(document, services.http, step, gate.id, gate.http.tool, context));
+}
+
+/** What gates reach outside the process: verifiers over HTTP, and people through the client. */
+export type GateServices = { http: HttpContext; approvals: Approvals };
+
+/** Compiles the step's output schema and gates against the document's settings-resolved tools. */
+export function compileStepGates(document: StepfileDocument, services: GateServices, step: Step, ajv: Ajv2020): StepGates {
+  const validateOutput = compileWithDefs(ajv, step.produces, document.$defs ?? {});
+  const gates = step.gates.map((gate) => compileGate(document, services, step, gate, ajv));
+  return {
+    check: async (context) => {
+      if (!validateOutput(context.output)) {
+        return [verdict("produces", describeErrors(validateOutput.errors))];
+      }
+      const verdicts: GateVerdict[] = [];
+      for (const gate of gates) {
+        verdicts.push(await gate(context));
+      }
+      return verdicts;
+    },
+  };
 }

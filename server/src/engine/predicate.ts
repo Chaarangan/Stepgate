@@ -1,5 +1,6 @@
 import jsonLogic from "json-logic-js";
 import { isDeepStrictEqual } from "node:util";
+import { linearRegExp } from "./regex.ts";
 import type { Json, JsonObject } from "./types.ts";
 
 // The operators docs/stepfile.md adds to standard JSONLogic. json-logic-js keeps
@@ -14,6 +15,14 @@ jsonLogic.add_operation("unique", (value: unknown) =>
 );
 jsonLogic.add_operation("subset", (a: unknown, b: unknown) =>
   Array.isArray(a) && Array.isArray(b) && a.every((item) => b.some((other) => isDeepStrictEqual(other, item))),
+);
+// `difference` is what `subset` found missing: the items of `a` that are not in `b`, which is what an `explain` reports.
+jsonLogic.add_operation("difference", (a: unknown, b: unknown) =>
+  Array.isArray(a) && Array.isArray(b) ? a.filter((item) => !b.some((other) => isDeepStrictEqual(other, item))) : null,
+);
+// `keys` lists an object's own keys, so a rule can ask which fields an API response left out, as Airtable omits empty ones.
+jsonLogic.add_operation("keys", (value: unknown) =>
+  value !== null && typeof value === "object" && !Array.isArray(value) ? Object.keys(value) : null,
 );
 jsonLogic.add_operation("host", (value: unknown) => {
   if (typeof value !== "string" || !URL.canParse(value)) {
@@ -53,7 +62,7 @@ jsonLogic.add_operation("match_all", (value: unknown, pattern: unknown) => {
   if (typeof value !== "string" || typeof pattern !== "string") {
     return null;
   }
-  return [...value.matchAll(new RegExp(pattern, "gu"))].map((match) => match[1] ?? match[0]);
+  return [...linearRegExp(pattern).matchAll(value)].map((match) => match[1] ?? match[0]);
 });
 
 /** One tool call a step made, as gates see it: the full result, parsed as JSON where it is JSON. */
@@ -66,9 +75,28 @@ export type PredicateContext = {
   calls?: EvidenceCall[];
 };
 
+/** What a rule evaluates to over some data: a gate's context for `explain`, a tool result for `select`. */
+export function evaluateExpression(rule: JsonObject, data: PredicateContext | Json): Json {
+  return (jsonLogic.apply(rule, data) ?? null) as Json;
+}
+
 /** True only when the rule evaluates to exactly `true`, as docs/stepfile.md specifies. */
 export function evaluatePredicate(rule: JsonObject, context: PredicateContext): boolean {
   return jsonLogic.apply(rule, context) === true;
+}
+
+/** Every literal pattern given to `match_all` in a rule, checked at load time. */
+export function matchAllPatterns(rule: Json): string[] {
+  if (Array.isArray(rule)) {
+    return rule.flatMap(matchAllPatterns);
+  }
+  if (rule === null || typeof rule !== "object") {
+    return [];
+  }
+  return Object.entries(rule).flatMap(([operator, argument]) => [
+    ...(operator === "match_all" && Array.isArray(argument) && typeof argument[1] === "string" ? [argument[1]] : []),
+    ...matchAllPatterns(argument),
+  ]);
 }
 
 /** Every `var` path in a rule, used to check `steps.<id>` references before running. */

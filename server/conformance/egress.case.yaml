@@ -1,0 +1,36 @@
+name: a redirect to an undeclared host is refused before any request reaches it, and ends the run
+api:
+  routes:
+    - method: GET
+      path: /moved
+      answers: [{ status: 302, headers: { location: "http://localhost:{port}/items/K-1" } }]
+stepfile:
+  stepgate: "1"
+  id: redirected
+  inputs: { type: object, properties: {} }
+  tools:
+    catalogue:
+      openapi:
+        server: "${api.origin}"
+        document:
+          openapi: 3.1.0
+          info: { title: Catalogue, version: "1" }
+          paths: { /moved: { get: { operationId: getMoved } } }
+      exposes: [getMoved]
+  steps:
+    - id: fetch
+      tools: [getMoved]
+      instructions: Fetch the moved item.
+      produces: { type: object }
+      gates: [{ id: any, schema: { type: object } }]
+inputs: {}
+actions:
+  - call: getMoved
+    arguments: {}
+expect:
+  replies:
+    - { state: running, step: fetch }
+    - { state: failed, error: EgressDenied }
+  ledger: [run_started, step_started, run_failed]
+  requests:
+    - { method: GET, path: /moved }

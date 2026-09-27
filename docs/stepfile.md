@@ -60,6 +60,14 @@ tools:
 
 Exposed names match `^[a-zA-Z0-9_-]{1,64}$`, which the major model APIs accept as tool names. A tool binds at most one credential. An MCP tool takes a `bearer` or `oauth2` credential, sent as an `Authorization: Bearer` header. An OpenAPI tool places its credential where the operation's security scheme says, and always as HTTP Basic for a `basic` credential.
 
+An `exposes` entry may also be an object with a `select`: a JSONLogic expression over the operation's result (parsed as JSON where it is JSON), whose value is all the client is shown. Gates still see the whole result in `calls`, so a large response can be narrowed to the fields a step needs without the model losing evidence to truncation or the gates losing what the API returned. An error result is shown whole.
+
+```yaml
+exposes:
+  - name: searchBooks
+    select: { map: [{ var: docs }, { cat: [{ var: key }, " ", { var: title }] }] }
+```
+
 An OpenAPI parameter whose schema allows exactly one value (`const`, or an `enum` with one entry) is sent with that value on every call and is not shown to the model. Use it for fixed headers and query values an API requires, such as `format: json`.
 
 An array query parameter is sent the way OpenAPI specifies by default, repeating the name (`tag=red&tag=blue`); with `explode: false` it is sent comma-separated (`fields=name,stock`). A request body is sent as JSON when the operation accepts `application/json`. Otherwise, for a `text/*` or `message/*` content type, the model supplies the body as a plain string and Stepgate sends it with that content type, which is how a raw email reaches Gmail's `message/rfc822` upload without any encoding by the model.
@@ -95,11 +103,14 @@ credentials:
   notion:
     kind: oauth2               # api_key | bearer | oauth2 | basic
     scopes: [read_content]     # required for oauth2, not allowed otherwise
+    token_url: https://api.notion.com/v1/oauth/token   # oauth2 only, optional
     hosts: [api.notion.com]
     description: Reads the target database. Never writes.
 ```
 
 A stepfile declares what it needs and never where a secret lives: there is no value field and no environment-variable name. Whoever runs Stepgate supplies the value, as `<NAME>_API_KEY` in its environment. A `basic` credential's value is `user:secret`, for example an Atlassian or Zendesk email and API token, and is sent as HTTP Basic. `description` is required; it is what a person reads before handing the stepfile a credential.
+
+An `oauth2` credential with a `token_url` can also be refreshed: whoever runs Stepgate sets `<NAME>_REFRESH_TOKEN` and `<NAME>_CLIENT_ID` (and `<NAME>_CLIENT_SECRET` for a confidential client) instead of an access token, and Stepgate exchanges them at `token_url` with the declared `scopes`, refreshes the access token before it expires, and once more when an API answers 401. The refresh token is sent to `token_url`, so it is fixed in the file and cannot use a `{setting}`; read it before handing a stepfile a refresh token.
 
 A credential is attached only to requests whose host is in its `hosts`, and never reaches the model, a placeholder or the ledger.
 
@@ -123,7 +134,7 @@ Steps run in file order. There is no branching, looping or parallel block; `when
 
 ## Gates
 
-A gate is a mechanical check on the submitted output. Every gate blocks; there are no advisory gates and no gates judged by a model.
+A gate is a mechanical check on the submitted output, or a person's approval of it. Every gate blocks; there are no advisory gates and no gates judged by a model.
 
 Gates see `{ inputs, steps, output, calls }`: the run's inputs, each earlier step's accepted output under `steps.<id>`, the submission being checked as `output`, and `calls`, every tool call this step has made. The output is validated against `produces` first; a mismatch fails like a gate.
 
@@ -136,7 +147,7 @@ Each entry in `calls` is `{ tool, arguments, result, is_error }`, where `tool` i
   schema: { properties: { sources: { minItems: 12 } } }
 ```
 
-**`predicate`** evaluates a [JSONLogic](https://jsonlogic.com/operations.html) rule and passes only if it returns exactly `true`. Its `message` is the diagnosis the model sees on failure.
+**`predicate`** evaluates a [JSONLogic](https://jsonlogic.com/operations.html) rule and passes only if it returns exactly `true`. Its `message` is the diagnosis the model sees on failure. An optional `explain` is a second JSONLogic expression, evaluated only when the rule fails, whose result is added after the message, so the model is told which items broke the rule instead of guessing. A `null`, empty string or empty array adds nothing, and the addition is cut at 2,000 characters.
 
 ```yaml
 - id: domain-breadth
@@ -161,13 +172,27 @@ A predicate can check the output against the evidence. This one passes only if e
             - map: [{ var: result.docs }, { var: key }]
 ```
 
-Besides the standard JSONLogic operators, nine more are available:
+For a `subset` rule, `difference` over the same two arrays makes a good `explain`. This one lists the books no search returned:
+
+```yaml
+  explain:
+    difference:
+      - { map: [{ var: output.books }, { var: key }] }
+      - flatten:
+          map:
+            - filter: [{ var: calls }, { "==": [{ var: tool }, searchBooks] }]
+            - map: [{ var: result.docs }, { var: key }]
+```
+
+Besides the standard JSONLogic operators, eleven more are available:
 
 | Operator | Arguments | Result |
 |---|---|---|
 | `length` | array or string | Number of elements, or of Unicode code points |
 | `unique` | array | Distinct elements by JSON equality, in first-seen order |
 | `subset` | array `a`, array `b` | `true` if every element of `a` is in `b` |
+| `difference` | array `a`, array `b` | The elements of `a` that are not in `b`, in order |
+| `keys` | object | Its own keys, in order; `null` if not an object. APIs that omit empty fields, such as Airtable, make this the list of filled fields |
 | `lower` | string | The string in lowercase, for case-insensitive comparisons |
 | `get` | object or array, key | The value under one key, read literally; use it for keys that contain dots, such as email addresses, which `var` cannot reach |
 | `join` | array `left`, array `right`, path `l`, path `r` | Each item of `left` as `{ left, right }`, where `right` is the first item of `right` whose value at `r` equals the left item's value at `l`, or `null` |
@@ -175,7 +200,7 @@ Besides the standard JSONLogic operators, nine more are available:
 | `host` | string | Lowercased host of an absolute URL, with port if present; `null` if not a URL |
 | `match_all` | string, pattern | Capture group 1 of every match, or the whole match if the pattern has no group |
 
-`subset` and `join` exist because JSONLogic's `all`, `map` and `filter` cannot see data outside the current array element. `subset` answers "is every cited id a kept source"; `join` lines each output row up with its evidence so a rule can compare them field by field, for example `none` over `join(output.rows, calls.0.result.items, "id", "id")` of rows whose `right` is `null` or whose `left.stock` differs from `right.stock`. Note that JSONLogic's `all` is false on an empty array; use `none`, or a count of violations, when the list may be empty. Use the ECMA-262 regex subset that JSON Schema recommends in `match_all` and `pattern`, so a pattern behaves the same in your editor and in Stepgate.
+`subset`, `difference` and `join` exist because JSONLogic's `all`, `map` and `filter` cannot see data outside the current array element. `subset` answers "is every cited id a kept source"; `join` lines each output row up with its evidence so a rule can compare them field by field, for example `none` over `join(output.rows, calls.0.result.items, "id", "id")` of rows whose `right` is `null` or whose `left.stock` differs from `right.stock`. Note that JSONLogic's `all` is false on an empty array; use `none`, or a count of violations, when the list may be empty. Patterns in `match_all`, in a setting's `pattern`, and in the `pattern` and `patternProperties` keywords of `inputs`, `produces`, `$defs` and `schema` gates run on RE2, which matches in time linear in the input, so no pattern can stall a run on a large API response. RE2 accepts the ECMA-262 subset JSON Schema recommends plus lookbehind, but not lookahead or backreferences; a pattern it cannot compile fails at load time. End a match with a consumed group such as `(?:[^0-9]|$)` where you would write `(?![0-9])`. Schemas published by a remote tool keep their own patterns, since they only check the client's arguments.
 
 **`http`** posts `{ stepfile, step, gate, inputs, steps, output, calls }` as JSON to a `verifier` tool. A 2xx response of `{ "pass": true }` passes; `{ "pass": false, "message": "..." }` fails with that message. Any other response is treated as an outage rather than a verdict and stops the run. This is how a check that needs code runs: you operate the verifier.
 
@@ -189,6 +214,35 @@ steps:
       - id: citations-resolve
         http: { tool: checker }
 ```
+
+**`approve`** asks a person. Stepgate sends the client an MCP [elicitation](https://modelcontextprotocol.io/specification/2025-06-18/client/elicitation) with the gate's `message` and the submitted output beneath it; the gate passes when the person accepts, and fails with their reason, which the model sees, when they decline. Put it on the step before anything irreversible, such as sending the email a draft step prepared. A run whose stepfile has an `approve` gate fails preflight on a client that does not support elicitation.
+
+```yaml
+- id: reviewed
+  approve: { message: Send this email to the customer list? }
+```
+
+It is still mechanical: a person decides, never a model. How long Stepgate waits for the answer is `--run-idle-ms`.
+
+## Testing gates offline
+
+`stepgate --test <stepfile> [<cases.yaml>]` runs a stepfile's gates over recorded calls and outputs, with no model and no network, and exits 1 when a verdict differs from what the case expects. The cases default to `<id>.cases.yaml` beside the stepfile, and the catalog's CI runs every entry's cases.
+
+```yaml
+cases:
+  - name: a doc no search returned is rejected
+    inputs: { books: [{ title: Dune, author: Frank Herbert }] }
+    steps:
+      - step: search
+        calls:                        # what the step's operations returned, as gates see them in calls
+          - tool: searchByTitleAndAuthor
+            arguments: { title: Dune, author: Frank Herbert, limit: 5 }
+            result: { docs: [{ key: /works/OL893415W, title: Dune, author_name: [Frank Herbert] }] }
+        output: { books: [...] }      # what the step submits
+        expect: { fail: [docs-match-searches] }   # or: pass
+```
+
+Steps run in the order listed, and a step expected to `pass` becomes `steps.<id>` for the ones after it. `http` gates need their verifier and `approve` gates a person, so both are skipped and named in the report. [media/book-list-verification](../stepfiles/media/book-list-verification/) has a complete cases file.
 
 ## When a gate fails
 

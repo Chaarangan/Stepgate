@@ -1,4 +1,5 @@
 import { PreflightFailed, SettingUnavailable } from "./errors.ts";
+import { linearRegExp } from "./regex.ts";
 import type { RunContext, SettingDeclaration, StepfileDocument } from "./types.ts";
 
 // A single DNS label: enough for a site, subdomain or account name, and nothing that could redirect
@@ -12,9 +13,9 @@ export function settingNames(text: string): string[] {
   return [...text.matchAll(PLACEHOLDER)].map((match) => match[1] ?? "");
 }
 
-/** The environment variable a setting is read from: `jira-site` is JIRA_SITE. */
-export function settingVariable(name: string): string {
-  return name.toUpperCase().replaceAll("-", "_");
+/** The URL with each {setting} as an ordinary label or port, for checking a URL before the operator's values are known. */
+export function withSampleSettings(url: string): string {
+  return url.replace(/:\{[a-z][a-z0-9-]*\}/g, ":443").replace(PLACEHOLDER, "setting");
 }
 
 function fill(text: string, values: Map<string, string>): string {
@@ -42,7 +43,7 @@ export async function resolveSettings(document: StepfileDocument, runContext: Ru
       throw error;
     }
     const pattern = declaration.pattern ?? DEFAULT_PATTERN;
-    if (!new RegExp(pattern).test(value)) {
+    if (!linearRegExp(pattern).test(value)) {
       throw new PreflightFailed(`setting ${name}`, `value ${JSON.stringify(value)} does not match ${pattern}`);
     }
     values.set(name, value);

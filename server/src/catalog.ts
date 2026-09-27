@@ -1,6 +1,9 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { CatalogEntryInvalid, StepfileInvalid, UnknownStepfile } from "./engine/errors.ts";
-import { declaredToolHost, load, toolUrl } from "./engine/load.ts";
+import { CasesInvalid, CatalogEntryInvalid, StepfileInvalid, UnknownStepfile } from "./engine/errors.ts";
+import { parseCases } from "./gate-test.ts";
+import { isPublicHttpsUrl } from "./engine/http.ts";
+import { load, toolUrl } from "./engine/load.ts";
+import { withSampleSettings } from "./engine/settings.ts";
 import type { Stepfile } from "./engine/types.ts";
 
 export type CatalogEntry = { domain: string; id: string; file: URL; stepfile: Stepfile };
@@ -11,20 +14,7 @@ type Location = { domain: string; id: string };
 // higher. The packaged location is tried first, so an installed package never looks outside itself.
 const LOCATIONS = [new URL("../stepfiles/", import.meta.url), new URL("../../stepfiles/", import.meta.url)];
 
-const PRIVATE_IPV4 = /^(0|10|127)\.|^169\.254\.|^172\.(1[6-9]|2\d|3[01])\.|^192\.168\./;
 const FOLDER_NAME = /^[a-z][a-z0-9-]{0,63}$/;
-
-/**
- * True for a host with a dot that is not a loopback, private or link-local address or a local-only name.
- * It reads the name only; a public name that resolves to a private address still passes.
- */
-export function isPublicHost(authority: string): boolean {
-  const host = authority.toLowerCase().replace(/:\d+$/, "");
-  if (host.startsWith("[") || !host.includes(".") || /\.(local|localhost|internal)$/.test(host)) {
-    return false;
-  }
-  return !(/^\d+\.\d+\.\d+\.\d+$/.test(host) && PRIVATE_IPV4.test(host));
-}
 
 export function catalogDirectory(): URL {
   const found = LOCATIONS.find((location) => existsSync(location));
@@ -100,13 +90,25 @@ export function entryProblems(directory: URL, domain: string, id: string): strin
     }
     throw error;
   }
+  const cases = new URL(`${id}.cases.yaml`, folder);
+  if (existsSync(cases)) {
+    try {
+      parseCases(stepfile, readFileSync(cases, "utf8"));
+    } catch (error) {
+      if (!(error instanceof CasesInvalid)) {
+        throw error;
+      }
+      problems.push(...error.problems.map((problem) => `${id}.cases.yaml: ${problem}`));
+    }
+  }
   if (stepfile.document.id !== id) {
     problems.push(`id is ${stepfile.document.id}, but the folder is ${id}`);
   }
   for (const [toolName, tool] of Object.entries(stepfile.document.tools ?? {})) {
-    const url = toolUrl(tool);
-    if (!url.startsWith("https://") || !isPublicHost(declaredToolHost(tool))) {
-      problems.push(`tool ${toolName} must use a public https URL, not ${url}`);
+    for (const url of [toolUrl(tool), ...(tool.openapi?.url === undefined ? [] : [tool.openapi.url])]) {
+      if (!isPublicHttpsUrl(withSampleSettings(url))) {
+        problems.push(`tool ${toolName} must use a public https URL, not ${url}`);
+      }
     }
   }
   return problems;

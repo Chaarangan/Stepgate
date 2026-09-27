@@ -5,36 +5,45 @@
 //
 // An argument ending in .yaml, .yml or .json is a file; anything else names a stepfile in the
 // bundled catalog. Without --http it speaks stdio, which is how desktop MCP clients launch servers. Credential
-// <name> is read from the environment variable <NAME>_API_KEY. Budgets default as shown in --help.
+// <name> is read from <NAME>_API_KEY, or refreshed from <NAME>_REFRESH_TOKEN for oauth2 (src/operator.ts). Budgets default as shown in --help.
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
-import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
-import { randomUUID } from "node:crypto";
-import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
-import { createServer, type IncomingMessage } from "node:http";
-import { join } from "node:path";
+import { readFileSync } from "node:fs";
+import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
-import { CredentialUnavailable, SettingUnavailable } from "./engine/errors.ts";
-import { settingVariable } from "./engine/settings.ts";
+import { isPublicHttpsUrl } from "./engine/http.ts";
+import { oneLine } from "./engine/tools/tool.ts";
+import { directorySink, firstBreak, streamSink } from "./engine/ledger.ts";
 import { load } from "./engine/load.ts";
 import { catalogDirectory, catalogFile, listCatalog } from "./catalog.ts";
+import { parseCases, testGates } from "./gate-test.ts";
+import { serveHttp } from "./http-server.ts";
+import { environmentCredentials, environmentSettings } from "./operator.ts";
 import { createStepgateServer, type StepgateServerOptions } from "./server.ts";
 import { userAgent } from "./version.ts";
 import type { LedgerRecord } from "./engine/types.ts";
 
 const HELP = `usage: stepgate [options] [<stepfile.yaml | catalog name>...]
        stepgate --list
+       stepgate --verify <ledger.jsonl>...
+       stepgate --test <stepfile.yaml | catalog name> [<cases.yaml>]
 
 With no stepfiles it serves only the tools for writing new ones.
 
   --list                     show the stepfiles in the bundled catalog
+  --verify                   check that each ledger file's hash chain is intact; exits 1 if one is broken
+  --test                     run a stepfile's gates over recorded cases, offline; the cases default to <id>.cases.yaml beside it
   --contact <email>          your contact email, sent in the User-Agent (SEC EDGAR and USAJOBS require one)
   --http <port>              serve Streamable HTTP on 127.0.0.1:<port>/mcp instead of stdio
   --ledger-dir <dir>         write one ledger file per run there; otherwise records go to stderr
   --calls-per-step <n>       most tool calls one step may make (100)
   --tool-result-chars <n>    longest tool result passed to the client (20000)
-  --run-idle-ms <n>          how long a run waits for the client's next call before it is abandoned (1800000)`;
+  --run-idle-ms <n>          how long a run waits for the client's next call before it is abandoned (1800000)
+  --request-timeout-ms <n>   how long one outgoing request may take, body included (60000)
+  --response-bytes <n>       largest response Stepgate reads from an API (10485760)
+  --draft-credential <name>=<host>[,<host>...]
+                             let drafts use credential <name>, sent only to these hosts; repeatable
+  --draft-setting <name>     let drafts use setting <name> from the environment; repeatable`;
 
 const { values, positionals } = parseArgs({
   allowPositionals: true,
@@ -44,9 +53,15 @@ const { values, positionals } = parseArgs({
     "calls-per-step": { type: "string", default: "100" },
     "tool-result-chars": { type: "string", default: "20000" },
     "run-idle-ms": { type: "string", default: "1800000" },
+    "request-timeout-ms": { type: "string", default: "60000" },
+    "response-bytes": { type: "string", default: "10485760" },
     help: { type: "boolean" },
     list: { type: "boolean" },
+    verify: { type: "boolean" },
+    test: { type: "boolean" },
     contact: { type: "string" },
+    "draft-credential": { type: "string", multiple: true },
+    "draft-setting": { type: "string", multiple: true },
   },
 });
 
@@ -57,10 +72,40 @@ if (values.list === true) {
       console.log(`${domain === undefined ? "" : "\n"}${entry.domain}`);
       domain = entry.domain;
     }
-    const summary = (entry.stepfile.document.description ?? entry.stepfile.document.title ?? "").replace(/\s+/g, " ").trim();
+    const summary = oneLine(entry.stepfile.document.description ?? entry.stepfile.document.title ?? "");
     console.log(`  ${entry.id}: ${summary}`);
   }
   process.exit(0);
+}
+
+if (values.verify === true) {
+  let broken = false;
+  for (const file of positionals) {
+    const records = readFileSync(file, "utf8").split("\n").filter((line) => line.trim() !== "").map((line) => JSON.parse(line) as LedgerRecord);
+    const found = firstBreak(records);
+    broken ||= found !== null;
+    console.log(found === null ? `${file}: intact, ${records.length} records` : `${file}: broken at seq ${found.seq}: ${found.reason}`);
+  }
+  process.exit(broken ? 1 : 0);
+}
+
+if (values.test === true) {
+  const [target, casesArgument] = positionals;
+  if (target === undefined) {
+    throw new Error("--test needs a stepfile path or catalog name");
+  }
+  const file = stepfilePath(target);
+  const stepfile = load(readFileSync(file, "utf8"));
+  const casesFile = casesArgument ?? new URL(`${stepfile.document.id}.cases.yaml`, typeof file === "string" ? pathToFileURL(file) : file);
+  const reports = await testGates(stepfile, parseCases(stepfile, readFileSync(casesFile, "utf8")));
+  for (const report of reports) {
+    const skipped = report.skipped.length === 0 ? "" : ` (verifier gates not run offline: ${report.skipped.join(", ")})`;
+    console.log(`${report.ok ? "ok" : "FAIL"}  ${report.case} / ${report.step}${skipped}${report.problem === null ? "" : `\n      ${report.problem}`}`);
+    for (const failure of report.ok ? [] : report.failed) {
+      console.log(`      ${failure.gate}: ${failure.diagnosis ?? ""}`);
+    }
+  }
+  process.exit(reports.every((report) => report.ok) ? 0 : 1);
 }
 
 if (values.help === true) {
@@ -86,6 +131,15 @@ function positiveInteger(flag: string, text: string): number {
   return value;
 }
 
+/** `--draft-credential jira=acme.atlassian.net,api.atlassian.com`: the credential and the only hosts a draft may send it to. */
+function draftCredential(grant: string): [string, string[]] {
+  const [name, hosts] = grant.split("=", 2);
+  if (name === undefined || name === "" || hosts === undefined || hosts === "") {
+    throw new Error(`--draft-credential must be <name>=<host>[,<host>...], got ${grant}`);
+  }
+  return [name, hosts.split(",").map((host) => host.trim().toLowerCase())];
+}
+
 function stepfilePath(argument: string): URL | string {
   return /\.(ya?ml|json)$/i.test(argument) ? argument : catalogFile(catalogDirectory(), argument);
 }
@@ -93,55 +147,31 @@ function stepfilePath(argument: string): URL | string {
 // Loading every file first means a bad stepfile stops the server at start, not at first call.
 const stepfiles = positionals.map((argument) => load(readFileSync(stepfilePath(argument), "utf8")));
 const ledgerDir = values["ledger-dir"];
-if (ledgerDir !== undefined) {
-  mkdirSync(ledgerDir, { recursive: true });
-}
+
+const limits = {
+  callsPerStep: positiveInteger("calls-per-step", values["calls-per-step"]),
+  toolResultChars: positiveInteger("tool-result-chars", values["tool-result-chars"]),
+  requestTimeoutMs: positiveInteger("request-timeout-ms", values["request-timeout-ms"]),
+  responseBytes: positiveInteger("response-bytes", values["response-bytes"]),
+};
+const agent = userAgent(contactEmail(values.contact));
 
 const options: StepgateServerOptions = {
-  credentials: async (name) => {
-    const variable = `${name.toUpperCase().replaceAll("-", "_")}_API_KEY`;
-    const value = process.env[variable];
-    if (value === undefined || value === "") {
-      throw new CredentialUnavailable(name, `set ${variable} in the server's environment`);
-    }
-    return value;
-  },
-  settings: async (name) => {
-    const variable = settingVariable(name);
-    const value = process.env[variable];
-    if (value === undefined || value === "") {
-      throw new SettingUnavailable(name, `set ${variable} in the server's environment`);
-    }
-    return value;
-  },
-  ledger: (call: { stepfile: string; call: string }, record: LedgerRecord) => {
-    const line = `${JSON.stringify({ stepfile: call.stepfile, ...record })}\n`;
-    if (ledgerDir === undefined) {
-      process.stderr.write(line);
-    } else {
-      appendFileSync(join(ledgerDir, `${call.stepfile}-${call.call}.jsonl`), line);
-    }
-  },
-  limits: {
-    callsPerStep: positiveInteger("calls-per-step", values["calls-per-step"]),
-    toolResultChars: positiveInteger("tool-result-chars", values["tool-result-chars"]),
-  },
+  credentials: environmentCredentials(process.env, { userAgent: agent, limits }),
+  settings: environmentSettings(process.env),
+  ledger: ledgerDir === undefined ? streamSink(process.stderr) : directorySink(ledgerDir),
+  limits,
   runIdleMs: positiveInteger("run-idle-ms", values["run-idle-ms"]),
-  userAgent: userAgent(contactEmail(values.contact)),
-  draftsMayUseLoopback: false,
+  userAgent: agent,
+  drafts: {
+    urlAllowed: isPublicHttpsUrl,
+    credentials: new Map((values["draft-credential"] ?? []).map(draftCredential)),
+    settings: new Set(values["draft-setting"] ?? []),
+  },
 };
 
 function served(): string {
   return stepfiles.length === 0 ? "the authoring tools only" : stepfiles.map((stepfile) => stepfile.document.id).join(", ");
-}
-
-async function readJson(request: IncomingMessage): Promise<unknown> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of request) {
-    chunks.push(chunk as Buffer);
-  }
-  const text = Buffer.concat(chunks).toString("utf8");
-  return text === "" ? undefined : JSON.parse(text);
 }
 
 if (values.http === undefined) {
@@ -149,33 +179,6 @@ if (values.http === undefined) {
   await createStepgateServer(stepfiles, options).connect(new StdioServerTransport() as Transport);
   console.error(`stepgate: serving ${served()} over stdio`);
 } else {
-  const port = positiveInteger("http", values.http);
-  const sessions = new Map<string, StreamableHTTPServerTransport>();
-  createServer(async (request, response) => {
-    if (request.url !== "/mcp") {
-      response.writeHead(404).end();
-      return;
-    }
-    const body = request.method === "POST" ? await readJson(request) : undefined;
-    const sessionId = request.headers["mcp-session-id"];
-    const existing = typeof sessionId === "string" ? sessions.get(sessionId) : undefined;
-    if (existing !== undefined) {
-      await existing.handleRequest(request, response, body);
-      return;
-    }
-    if (!isInitializeRequest(body)) {
-      response.writeHead(400, { "content-type": "application/json" }).end(JSON.stringify({ error: "unknown session; start with initialize" }));
-      return;
-    }
-    // Stateful sessions, because a run lives in the session's server between calls.
-    const transport = new StreamableHTTPServerTransport({
-      sessionIdGenerator: randomUUID,
-      onsessioninitialized: (id) => void sessions.set(id, transport),
-      onsessionclosed: (id) => void sessions.delete(id),
-    });
-    await createStepgateServer(stepfiles, options).connect(transport as Transport);
-    await transport.handleRequest(request, response, body);
-  }).listen(port, "127.0.0.1", () => {
-    console.error(`stepgate: serving ${served()} at http://127.0.0.1:${port}/mcp`);
-  });
+  const { port } = await serveHttp(stepfiles, options, positiveInteger("http", values.http));
+  console.error(`stepgate: serving ${served()} at http://127.0.0.1:${port}/mcp`);
 }

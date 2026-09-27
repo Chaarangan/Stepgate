@@ -79,6 +79,18 @@ export class ToolCallFailed extends StepgateError {
   }
 }
 
+/** A response was larger than the operator lets Stepgate read. */
+export class ResponseTooLarge extends StepgateError {
+  override name = "ResponseTooLarge";
+  readonly operation: string;
+  readonly limit: number;
+  constructor(operation: string, limit: number) {
+    super(`${operation} returned more than the ${limit} bytes Stepgate reads (--response-bytes)`);
+    this.operation = operation;
+    this.limit = limit;
+  }
+}
+
 export class PlaceholderUnresolved extends StepgateError {
   override name = "PlaceholderUnresolved";
   readonly placeholder: string;
@@ -149,6 +161,16 @@ export class ApiDocumentInvalid extends StepgateError {
   constructor(url: string, reason: string) {
     super(`API document ${url} is invalid: ${reason}`);
     this.url = url;
+  }
+}
+
+/** A gate test cases file failed its schema, or names a step or gate the stepfile does not have. */
+export class CasesInvalid extends StepgateError {
+  override name = "CasesInvalid";
+  readonly problems: string[];
+  constructor(problems: string[]) {
+    super(`cases invalid: ${problems.join("; ")}`);
+    this.problems = problems;
   }
 }
 

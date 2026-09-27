@@ -1,0 +1,28 @@
+name: Stepgate's operators and explain report which items broke a rule
+stepfile:
+  stepgate: "1"
+  id: citations
+  inputs: { type: object, required: [sources], properties: { sources: { type: array, items: { type: string } } } }
+  steps:
+    - id: cite
+      instructions: "Cite only these sources: {{inputs.sources}}"
+      produces: { type: object, required: [cited], properties: { cited: { type: array, items: { type: string } } } }
+      gates:
+        - id: known-sources
+          message: "cite only the given sources; these are not among them:"
+          predicate: { subset: [{ var: output.cited }, { var: inputs.sources }] }
+          explain: { difference: [{ var: output.cited }, { var: inputs.sources }] }
+        - id: distinct
+          message: cite each source once
+          predicate: { "==": [{ length: { unique: { var: output.cited } } }, { length: { var: output.cited } }] }
+      retries: 1
+inputs: { sources: [S-01, S-02] }
+actions:
+  - submit: { cited: [S-01, S-09, S-01] }
+  - submit: { cited: [S-01, S-02] }
+expect:
+  replies:
+    - { state: running, step: cite }
+    - { state: running, failures: [known-sources, distinct], contain: 'these are not among them: ["S-09"]' }
+    - { state: finished }
+  ledger: [run_started, step_started, submit, gate, gate, submit, gate, gate, step_passed, run_finished]

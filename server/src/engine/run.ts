@@ -9,31 +9,32 @@ import {
   RunNotActive,
   type GateDiagnosis,
 } from "./errors.ts";
-import { evaluateGates } from "./gates.ts";
-import type { CredentialBinding, HttpContext } from "./http.ts";
+import { compileStepGates, type StepGates } from "./gates.ts";
+import type { HttpContext } from "./http.ts";
 import { canonicalHash, textHash } from "./identity.ts";
 import { compileToolSchema, createToolSchemaValidators, createValidator, describeErrors, inlineLocalRefs } from "./json-schema.ts";
 import { createLedger, type AppendRecord } from "./ledger.ts";
-import { declaredToolHost } from "./load.ts";
+import { credentialOf, declaredToolHost } from "./load.ts";
 import { renderInstructions } from "./placeholders.ts";
-import { evaluatePredicate, type EvidenceCall } from "./predicate.ts";
+import { evaluateExpression, evaluatePredicate, type EvidenceCall } from "./predicate.ts";
 import { resolveSettings } from "./settings.ts";
-import { prepareMcpTool } from "./tools/mcp.ts";
-import { prepareOpenApiTool } from "./tools/openapi.ts";
-import type { ToolResult } from "./tools/tool-result.ts";
+import { kindOf } from "./tools/kinds.ts";
+import type { ToolResult } from "./tools/tool.ts";
 import type { Json, JsonObject, JsonSchema, RunContext, RunResult, Stepfile, Step, ToolDefinition } from "./types.ts";
 
-type PreparedTool = {
+type StepOperation = {
   definition: ToolDefinition;
   validateArgs: ValidateFunction;
   toolName: string;
   host: string;
   credential: string | null;
+  /** What the client is shown of the result, when the stepfile narrows it; gates always see the whole result. */
+  select: JsonObject | null;
   call: (args: JsonObject) => Promise<ToolResult>;
 };
 
 type Prepared = {
-  tools: Map<string, PreparedTool>;
+  tools: Map<string, StepOperation>;
   close: () => Promise<void>;
 };
 
@@ -41,16 +42,10 @@ function isObject(value: unknown): value is JsonObject {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-function credentialFor(stepfile: Stepfile, toolName: string): Omit<CredentialBinding, "place"> | null {
-  const name = stepfile.document.tools?.[toolName]?.credential;
-  const declaration = name === undefined ? undefined : stepfile.document.credentials?.[name];
-  return name === undefined || declaration === undefined ? null : { name, declaration };
-}
-
 async function checkCredentials(stepfile: Stepfile, runContext: RunContext): Promise<void> {
   for (const [name, declaration] of Object.entries(stepfile.document.credentials ?? {})) {
     try {
-      const value = await runContext.credentials(name, declaration);
+      const value = await runContext.credentials.value(name, declaration);
       if (declaration.kind === "basic" && !value.includes(":")) {
         throw new PreflightFailed(`credential ${name}`, "a basic credential must be user:secret, for example you@example.com:api-token");
       }
@@ -71,9 +66,12 @@ async function preflight(stepfile: Stepfile, inputs: JsonObject, runContext: Run
     throw new PreflightFailed("inputs", describeErrors(validateInputs.errors));
   }
   await checkCredentials(stepfile, runContext);
+  if (!runContext.approvals.available && stepfile.document.steps.some((step) => step.gates.some((gate) => "approve" in gate))) {
+    throw new PreflightFailed("approval", "the stepfile has approve gates, which ask a person through MCP elicitation, and this client does not support elicitation");
+  }
   const toolSchemas = createToolSchemaValidators();
 
-  const tools = new Map<string, PreparedTool>();
+  const tools = new Map<string, StepOperation>();
   const closers: Array<() => Promise<void>> = [];
   const close = async () => {
     await Promise.all(closers.map((closer) => closer()));
@@ -83,10 +81,8 @@ async function preflight(stepfile: Stepfile, inputs: JsonObject, runContext: Run
       if (declaration.verifier !== undefined) {
         continue;
       }
-      const credential = credentialFor(stepfile, toolName);
-      const prepared = declaration.mcp !== undefined
-        ? await prepareMcpTool(http, toolName, declaration, credential)
-        : await prepareOpenApiTool(http, toolName, declaration, credential);
+      const credential = credentialOf(stepfile.document, toolName);
+      const prepared = await kindOf(declaration).prepare(http, toolName, declaration, credential);
       closers.push(prepared.close);
       for (const definition of prepared.definitions) {
         let validateArgs: ValidateFunction;
@@ -95,8 +91,10 @@ async function preflight(stepfile: Stepfile, inputs: JsonObject, runContext: Run
         } catch (error) {
           throw new PreflightFailed(`tool ${toolName}`, `input schema of ${definition.name} does not compile: ${(error as Error).message}`);
         }
+        const exposed = (declaration.exposes ?? []).find((entry) => typeof entry !== "string" && entry.name === definition.name);
         tools.set(definition.name, {
           definition,
+          select: typeof exposed === "object" ? exposed.select ?? null : null,
           validateArgs,
           toolName,
           host: declaredToolHost(declaration),
@@ -129,12 +127,14 @@ function parseResult(content: string): Json {
 }
 
 /** Runs one tool call. `evidence` is what gates see; it is null when the call never reached the tool. */
-async function callTool(prepared: PreparedTool, operation: string, args: Json | undefined, stepId: string, append: AppendRecord, limit: number): Promise<{ shown: ToolResult; evidence: EvidenceCall | null }> {
+async function callTool(prepared: StepOperation, operation: string, args: Json | undefined, stepId: string, append: AppendRecord, limit: number): Promise<{ shown: ToolResult; evidence: EvidenceCall | null }> {
   if (!isObject(args) || !prepared.validateArgs(args)) {
     return { shown: { content: `Invalid arguments for ${operation}: ${describeErrors(prepared.validateArgs.errors) || "arguments must be an object"}`, isError: true, status: null }, evidence: null };
   }
   const started = performance.now();
   const result = await prepared.call(args);
+  // An error result is shown whole, so the client can see what went wrong.
+  const shown = prepared.select === null || result.isError ? result.content : JSON.stringify(evaluateExpression(prepared.select, parseResult(result.content)));
   await append("tool_call", {
     step: stepId,
     tool: prepared.toolName,
@@ -145,11 +145,13 @@ async function callTool(prepared: PreparedTool, operation: string, args: Json | 
     duration_ms: Math.round(performance.now() - started),
     credential: prepared.credential,
     response: { sha256: textHash(result.content), length: result.content.length },
-    truncated_to: result.content.length > limit ? limit : null,
+    shown: { length: shown.length, selected: prepared.select !== null && !result.isError },
+    truncated_to: shown.length > limit ? limit : null,
   });
+  const parsed = parseResult(result.content);
   return {
-    shown: { ...result, content: truncate(result.content, limit) },
-    evidence: { tool: operation, arguments: args, result: parseResult(result.content), is_error: result.isError },
+    shown: { ...result, content: truncate(shown, limit) },
+    evidence: { tool: operation, arguments: args, result: parsed, is_error: result.isError },
   };
 }
 
@@ -181,7 +183,7 @@ export type Run = {
 type Current = {
   step: Step;
   index: number;
-  allowed: Map<string, PreparedTool>;
+  allowed: Map<string, StepOperation>;
   instructions: string;
   attempt: number;
   callsMade: number;
@@ -191,8 +193,7 @@ type Current = {
 /** Preflights and opens step 1; the client then drives each step with `call` and `submit`. */
 export async function startRun(written: Stepfile, inputs: JsonObject, runContext: RunContext): Promise<{ run: Run; progress: Progress }> {
   const id = randomUUID();
-  const append = createLedger(runContext.ledger);
-  await append("run_started", { run: id, stepfile: written.document.id, identity: written.identity, inputs: canonicalHash(inputs) });
+  const append = createLedger(runContext.ledger, { run: id, stepfile: written.document.id });
   let prepared: Prepared | undefined;
   let ended = false;
   const end = async (type: string, fields: JsonObject) => {
@@ -222,16 +223,18 @@ export async function startRun(written: Stepfile, inputs: JsonObject, runContext
   };
 
   const session = await guarded(async () => {
+    await append("run_started", { identity: written.identity, inputs: canonicalHash(inputs) });
     // Settings are filled in first, so the host allowlist below only ever holds concrete hosts.
     const stepfile: Stepfile = { ...written, document: await resolveSettings(written.document, runContext) };
-    const http: HttpContext = { runContext, allowedHosts: new Set(Object.values(stepfile.document.tools ?? {}).map(declaredToolHost)), append };
+    const http: HttpContext = { allowedHosts: new Set(Object.values(stepfile.document.tools ?? {}).map(declaredToolHost)), append, userAgent: runContext.userAgent, credentials: runContext.credentials, limits: runContext.limits };
     prepared = await preflight(stepfile, inputs, runContext, http);
-    return { stepfile, http, tools: prepared.tools };
+    const ajv = createValidator();
+    const gates = new Map<string, StepGates>(stepfile.document.steps.map((step) => [step.id, compileStepGates(stepfile.document, { http, approvals: runContext.approvals }, step, ajv)]));
+    return { stepfile, tools: prepared.tools, gates };
   });
   const steps = session.stepfile.document.steps;
   const defs = { $defs: { ...(session.stepfile.document.$defs ?? {}) } };
   const outputs: Record<string, JsonObject> = {};
-  const ajv = createValidator();
   let current: Current | null = null;
 
   const view = (open: Current): StepView => ({
@@ -290,19 +293,11 @@ export async function startRun(written: Stepfile, inputs: JsonObject, runContext
       const open = current as Current;
       const { step, attempt } = open;
       await append("submit", { step: step.id, attempt, output: { sha256: canonicalHash(output ?? null), length: JSON.stringify(output ?? null).length } });
-      const failures = await evaluateGates({
-        document: session.stepfile.document,
-        step,
-        context: { inputs, steps: outputs, output: output ?? null, calls: open.calls },
-        ajv,
-        http: session.http,
-        verifierCredential: (toolName) => credentialFor(session.stepfile, toolName),
-      });
-      const checked = failures.some((failure) => failure.gate === "produces") ? ["produces"] : step.gates.map((gate) => gate.id);
-      for (const gate of checked) {
-        const failure = failures.find((item) => item.gate === gate);
-        await append("gate", { step: step.id, attempt, gate, verdict: failure === undefined ? "pass" : "fail", diagnosis: failure === undefined ? null : textHash(failure.diagnosis) });
+      const verdicts = await (session.gates.get(step.id) as StepGates).check({ inputs, steps: outputs, output: output ?? null, calls: open.calls });
+      for (const { gate, passed, diagnosis } of verdicts) {
+        await append("gate", { step: step.id, attempt, gate, verdict: passed ? "pass" : "fail", diagnosis: diagnosis === null ? null : textHash(diagnosis) });
       }
+      const failures = verdicts.flatMap(({ gate, passed, diagnosis }) => (passed ? [] : [{ gate, diagnosis: diagnosis ?? "" }]));
       if (failures.length === 0) {
         await append("step_passed", { step: step.id, attempt });
         outputs[step.id] = output as JsonObject;
@@ -314,11 +309,14 @@ export async function startRun(written: Stepfile, inputs: JsonObject, runContext
       open.attempt += 1;
       return { state: "rejected", failures, attempts_left: view(open).attempts_left };
     }),
-    abandon: async () => {
-      if (!ended) {
-        await end("run_abandoned", {});
+    // Queued behind any call in flight, so its connections are not closed under it; request deadlines bound the wait.
+    abandon: () => serial(async () => {
+      await end("run_abandoned", {});
+    }).catch((error: unknown) => {
+      if (!(error instanceof RunNotActive)) {
+        throw error;
       }
-    },
+    }),
   };
   return { run, progress };
 }

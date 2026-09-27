@@ -375,16 +375,16 @@ steps:
         predicate:
           and:
             - subset:
-                - { match_all: [{ var: output.summary }, "(?:^|[^0-9-])([0-9]{4}-[0-9]{5})(?![0-9])"] }
+                - { match_all: [{ var: output.summary }, "(?<![0-9-])([0-9]{4}-[0-9]{5})(?:[^0-9]|$)"] }
                 - { map: [{ var: output.items }, { var: document_number }] }
             - subset:
                 - { map: [{ var: output.items }, { var: document_number }] }
-                - { match_all: [{ var: output.summary }, "(?:^|[^0-9-])([0-9]{4}-[0-9]{5})(?![0-9])"] }
+                - { match_all: [{ var: output.summary }, "(?<![0-9-])([0-9]{4}-[0-9]{5})(?:[^0-9]|$)"] }
       - id: dates-from-evidence
         message: Every YYYY-MM-DD date in the summary must be the run's start or end date or an item's publication, effective or comment-close date.
         predicate:
           subset:
-            - { match_all: [{ var: output.summary }, "(?:^|[^0-9-])([0-9]{4}-[0-9]{2}-[0-9]{2})(?![0-9-])"] }
+            - { match_all: [{ var: output.summary }, "(?<![0-9-])([0-9]{4}-[0-9]{2}-[0-9]{2})(?:[^0-9-]|$)"] }
             - merge:
                 - { var: inputs.start_date }
                 - { var: inputs.end_date }

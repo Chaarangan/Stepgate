@@ -1,7 +1,8 @@
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { afterEach, describe, expect, it } from "vitest";
 import type { JsonObject } from "../src/engine/types.ts";
-import { VERSION } from "../src/version.ts";
+import { environmentCredentials } from "../src/operator.ts";
+import { userAgent, VERSION } from "../src/version.ts";
 import { API_KEY, BASIC_CREDENTIAL, MCP_TOKEN } from "./fixtures.ts";
 import { GOOD_STOCK, GOOD_SUMMARY, resultText, startHarness, stateOf, stepViews, submit, use, type Harness, type Setup } from "./harness.ts";
 
@@ -109,6 +110,62 @@ describe("gates", () => {
   });
 });
 
+describe("approve gates", () => {
+  const approving = (stepfile: JsonObject) => {
+    const summary = steps(stepfile)[1] as JsonObject;
+    summary.gates = [{ id: "reviewed", approve: { message: "Send this summary to the customer?" } }];
+    summary.retries = 1;
+  };
+
+  it("asks a person through elicitation and continues when they approve", async () => {
+    const { call, asked, records } = await start({ edit: approving, approvals: [{ action: "accept" }], actions: [GOOD_STOCK, GOOD_SUMMARY] });
+
+    const result = await call({ item: "K-1" });
+
+    expect(stateOf(result)).toMatchObject({ state: "finished" });
+    expect(asked).toHaveLength(1);
+    expect(asked[0]).toMatch(/^Send this summary to the customer\?\n\nStep summary of stock-check submitted:\n[\s\S]*Blue kettle has 4 in stock/);
+    expect(records).toContainEqual(expect.objectContaining({ type: "gate", gate: "reviewed", verdict: "pass" }));
+  });
+
+  it("returns a person's reason for declining to the client as the gate's diagnosis", async () => {
+    const { call, seen } = await start({
+      edit: approving,
+      approvals: [{ action: "decline", reason: "Mention the supplier." }, { action: "accept" }],
+      actions: [GOOD_STOCK, GOOD_SUMMARY, submit({ summary: "Blue kettle has 4 in stock, from Acme." })],
+    });
+
+    const result = await call({ item: "K-1" });
+
+    expect(textOf(seen[2])).toContain("- reviewed: a person declined to approve this output: Mention the supplier.");
+    expect(stateOf(result)).toMatchObject({ state: "finished", outputs: { summary: { summary: "Blue kettle has 4 in stock, from Acme." } } });
+  });
+
+  it("fails preflight when the client cannot ask a person", async () => {
+    const { call, seen } = await start({ edit: approving, actions: [] });
+
+    expect(resultText(await call({ item: "K-1" }))).toContain("PreflightFailed: preflight failed for approval: the stepfile has approve gates");
+    expect(stepViews(seen)).toEqual([]);
+  });
+});
+
+describe("verifier outages", () => {
+  it("stops the run with ToolCallFailed when a verifier answers with something other than JSON", async () => {
+    const { call, records } = await start({
+      edit: (stepfile, addresses) => {
+        (stepfile.tools as JsonObject).checker = { verifier: { url: `${addresses.catalogue}/verify-garbage` } };
+        (steps(stepfile)[0] as JsonObject).gates = [{ id: "enough", http: { tool: "checker" } }];
+      },
+      actions: [GOOD_STOCK],
+    });
+
+    const result = await call({ item: "K-1" });
+
+    expect(resultText(result)).toMatch(/^ToolCallFailed: verifier checker failed with status 200: response is not JSON: <html>maintenance/);
+    expect(records.at(-1)).toMatchObject({ type: "run_failed", error: "ToolCallFailed" });
+  });
+});
+
 describe("evidence", () => {
   const countMatchesCatalogue = (stepfile: JsonObject) => {
     (steps(stepfile)[0] as JsonObject).gates = [{
@@ -128,6 +185,39 @@ describe("evidence", () => {
 
     expect(result.isError).toBeFalsy();
     expect(textOf(seen[2])).toContain("count must be the stock level the catalogue returned");
+  });
+
+  it("adds what explain evaluates to after a failed gate's message, naming what broke the rule", async () => {
+    const found = { match_all: [{ reduce: [{ var: "calls" }, { cat: [{ var: "accumulator" }, { var: "current.result" }, "\n"] }, ""] }, "Supplier ([A-Za-z]+):"] };
+    const { call, seen } = await start({
+      edit: (stepfile) => void ((steps(stepfile)[0] as JsonObject).gates = [{
+        id: "suppliers-from-lookup",
+        message: "every supplier must be one the lookup returned; these were not:",
+        predicate: { subset: [{ var: "output.suppliers" }, found] },
+        explain: { difference: [{ var: "output.suppliers" }, found] },
+      }]),
+      actions: [use("lookup", { query: "Acme" }), submit({ name: "Blue kettle", count: 4, supplier: "Acme", suppliers: ["Acme", "Globex", "Initech"] })],
+    });
+
+    await call({ item: "K-1" });
+
+    expect(textOf(seen[2])).toContain('- suppliers-from-lookup: every supplier must be one the lookup returned; these were not: ["Globex","Initech"]');
+  });
+
+  it("shows the client only what select keeps, while gates still check the whole result", async () => {
+    const { call, seen, records } = await start({
+      edit: (stepfile) => {
+        countMatchesCatalogue(stepfile);
+        ((stepfile.tools as JsonObject).catalogue as JsonObject).exposes = [{ name: "getItem", select: { cat: ["stock: ", { var: "stock" }] } }, "getFlaky", "getRevoked"];
+      },
+      actions: [use("getItem", { id: "K-1" }), GOOD_STOCK, GOOD_SUMMARY],
+    });
+
+    const result = await call({ item: "K-1" });
+
+    expect(textOf(seen[1])).toBe('"stock: 4"');
+    expect(result.isError).toBeFalsy();
+    expect(records.find((record) => record.type === "tool_call")).toMatchObject({ shown: { length: 10, selected: true } });
   });
 
   it("cannot pass an evidence gate without calling the tool", async () => {
@@ -274,6 +364,66 @@ describe("credential kinds and parameters", () => {
   });
 });
 
+describe("oauth2 refresh", () => {
+  const withOAuthTool = (stepfile: JsonObject, addresses: { catalogue: string }) => {
+    const catalogue = (stepfile.tools as JsonObject).catalogue as JsonObject;
+    (stepfile.tools as JsonObject)["catalogue-oauth"] = { openapi: catalogue.openapi as JsonObject, credential: "catalogue-oauth", exposes: ["getOAuthItem", "getStrictOAuthItem"] };
+    (stepfile.credentials as JsonObject)["catalogue-oauth"] = {
+      kind: "oauth2",
+      scopes: ["read:items"],
+      token_url: `${addresses.catalogue}/token`,
+      hosts: [new URL(addresses.catalogue).host],
+      description: "Reads the catalogue with OAuth.",
+    };
+    (steps(stepfile)[0] as JsonObject).tools = ["getOAuthItem", "getStrictOAuthItem"];
+  };
+  const operatorEnvironment = (refreshToken: string) => environmentCredentials({
+    CATALOGUE_API_KEY: API_KEY,
+    SUPPLIERS_API_KEY: MCP_TOKEN,
+    CATALOGUE_OAUTH_REFRESH_TOKEN: refreshToken,
+    CATALOGUE_OAUTH_CLIENT_ID: "stepgate-tests",
+  }, { userAgent: userAgent(null), limits: { requestTimeoutMs: 5_000, responseBytes: 1_000_000 } });
+  const tokenRequests = (api: Harness["api"]) => api.received.filter((request) => request.path === "/token").map((request) => new URLSearchParams(request.body));
+
+  it("exchanges the refresh token at token_url with the scopes, and reuses the access token until it expires", async () => {
+    const { call, api } = await start({
+      edit: withOAuthTool,
+      credentialSource: operatorEnvironment("refresh-1"),
+      actions: [use("getOAuthItem", { id: "K-1" }), use("getOAuthItem", { id: "K-2" }), GOOD_STOCK, GOOD_SUMMARY],
+    });
+
+    const result = await call({ item: "K-1" });
+
+    expect(result.isError).toBeFalsy();
+    const exchanges = tokenRequests(api);
+    expect(exchanges).toHaveLength(1);
+    expect(Object.fromEntries(exchanges[0] ?? [])).toEqual({ grant_type: "refresh_token", refresh_token: "refresh-1", client_id: "stepgate-tests", scope: "read:items" });
+    const authorizations = api.received.filter((request) => request.path.startsWith("/oauth-items/")).map((request) => request.headers.authorization);
+    expect(authorizations).toEqual(["Bearer fresh-1", "Bearer fresh-1"]);
+  });
+
+  it("refreshes with the rotated refresh token and resends once when an API rejects the access token", async () => {
+    const { call, api, seen } = await start({
+      edit: withOAuthTool,
+      credentialSource: operatorEnvironment("refresh-1"),
+      actions: [use("getStrictOAuthItem", { id: "K-1" }), GOOD_STOCK, GOOD_SUMMARY],
+    });
+
+    await call({ item: "K-1" });
+
+    expect(textOf(seen[1])).toContain('"stock":4');
+    expect(tokenRequests(api).map((form) => form.get("refresh_token"))).toEqual(["refresh-1", "rotated-1"]);
+  });
+
+  it("fails preflight with the provider's answer when the refresh token was revoked", async () => {
+    const { call } = await start({ edit: withOAuthTool, credentialSource: operatorEnvironment("revoked"), actions: [] });
+
+    const text = resultText(await call({ item: "K-1" }));
+
+    expect(text).toContain("PreflightFailed: preflight failed for credential catalogue-oauth: credential catalogue-oauth has an invalid grant");
+  });
+});
+
 describe("control flow", () => {
   it("skips a step whose when predicate is not true, without showing it to the client", async () => {
     const { call, seen, records } = await start({
@@ -351,6 +501,58 @@ describe("tool calls", () => {
   });
 });
 
+describe("egress limits", () => {
+  const exposing = (operation: string) => (stepfile: JsonObject) => {
+    ((stepfile.tools as JsonObject).catalogue as JsonObject).exposes = ["getItem", "getFlaky", "getRevoked", operation];
+    (steps(stepfile)[0] as JsonObject).tools = [operation];
+  };
+
+  it("refuses a redirect to a host no tool declares, and never sends it the credential", async () => {
+    const { call, api } = await start({ edit: exposing("getRedirectAway"), actions: [use("getRedirectAway", {})] });
+
+    const result = await call({ item: "K-1" });
+
+    expect(resultText(result)).toMatch(/^EgressDenied: egress denied: catalogue\.getRedirectAway targeted undeclared host localhost:\d+/);
+    expect(api.received.filter((request) => request.path === "/items/K-1")).toEqual([]);
+  });
+
+  it("follows a redirect on the declared host and sends the credential again", async () => {
+    const { call, api, seen } = await start({ edit: exposing("getRedirectHome"), actions: [use("getRedirectHome", {}), GOOD_STOCK, GOOD_SUMMARY] });
+
+    await call({ item: "K-1" });
+
+    expect(textOf(seen[1])).toContain('"stock":4');
+    expect(api.received.find((request) => request.path === "/items/K-1")?.headers["x-api-key"]).toBe(API_KEY);
+  });
+
+  it("does not retry a POST after a 5xx, since it may already have taken effect", async () => {
+    const { call, api, records, seen } = await start({ edit: exposing("postBusy"), actions: [use("postBusy", {}), GOOD_STOCK, GOOD_SUMMARY] });
+
+    await call({ item: "K-1" });
+
+    expect(textOf(seen[1])).toMatch(/^HTTP 503: /);
+    expect(api.received.filter((request) => request.path === "/busy")).toHaveLength(1);
+    expect(records.some((record) => record.type === "retry")).toBe(false);
+  });
+
+  it("ends a request that outlasts the deadline with ToolCallFailed", async () => {
+    const { call } = await start({ limits: { requestTimeoutMs: 100 }, edit: exposing("postSlow"), actions: [use("postSlow", {})] });
+
+    const text = resultText(await call({ item: "K-1" }));
+
+    expect(text).toMatch(/^ToolCallFailed: catalogue\.postSlow failed with status none: no response before the request deadline; not retried/);
+  });
+
+  it("stops reading a response larger than the limit with ResponseTooLarge", async () => {
+    const { call, records } = await start({ limits: { responseBytes: 100_000 }, edit: exposing("getHuge"), actions: [use("getHuge", {})] });
+
+    const text = resultText(await call({ item: "K-1" }));
+
+    expect(text).toMatch(/^ResponseTooLarge: catalogue\.getHuge returned more than the 100000 bytes Stepgate reads/);
+    expect(records.at(-1)).toMatchObject({ type: "run_failed", error: "ResponseTooLarge" });
+  });
+});
+
 describe("external call failures", () => {
   it("retries a busy API with a ledger record per retry, then succeeds", async () => {
     const { call, records } = await start({
@@ -420,6 +622,12 @@ describe("preflight", () => {
     {
       name: "an MCP tool the server does not offer",
       setup: { edit: (stepfile) => void (((stepfile.tools as JsonObject).suppliers as JsonObject).exposes = ["lookup", "delete-everything"]) },
+      inputs: { item: "K-1" },
+      item: "tool suppliers",
+    },
+    {
+      name: "an MCP tool whose input schema no longer matches its pin",
+      setup: { edit: (stepfile) => void (((stepfile.tools as JsonObject).suppliers as JsonObject).exposes = [{ name: "lookup", schema_sha256: `sha256:${"0".repeat(64)}` }]) },
       inputs: { item: "K-1" },
       item: "tool suppliers",
     },

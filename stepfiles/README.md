@@ -17,7 +17,7 @@ A stepfile is worth sharing when it turns a task people repeat into steps with r
 
 1. Fork the repository, then run `npm run new-stepfile -- <domain>/<id>` in `server/`, choosing an existing domain folder where one fits. It creates `stepfiles/<domain>/<id>/` with a working stepfile and a README.
 2. Write the procedure. [docs/stepfile.md](../docs/stepfile.md) explains every field, and [marketing/market-research](marketing/market-research/) is a complete example.
-3. Replace every `TODO(<id>)` marker, then run `npm run check` in `server/`.
+3. Replace every `TODO(<id>)` marker. Optionally add `<id>.cases.yaml` with recorded calls and outputs, so `stepgate --test <id>` and CI check your gates offline ([docs/stepfile.md](../docs/stepfile.md#testing-gates-offline)). Then run `npm run check` in `server/`.
 4. Run it once against a real model and API, and open a pull request that changes only your folder.
 
 A catalog entry must:

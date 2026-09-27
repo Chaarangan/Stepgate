@@ -1,24 +1,24 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { CallToolRequestSchema, ListToolsRequestSchema, type CallToolResult, type Tool } from "@modelcontextprotocol/sdk/types.js";
-import { randomUUID } from "node:crypto";
-import { draftProblems, examples, guide, inspectApi, validateDraft } from "./authoring.ts";
-import { DraftRefused, RunNotActive, StepgateError } from "./engine/errors.ts";
+import { draftProblems, examples, guide, inspectApi, validateDraft, type DraftPolicy } from "./authoring.ts";
+import { DraftRefused, RunNotActive, StepgateError, ToolCallFailed } from "./engine/errors.ts";
 import { load } from "./engine/load.ts";
-import { startRun, type Progress, type Run, type StepView } from "./engine/run.ts";
+import type { Progress, StepView } from "./engine/run.ts";
+import { createRuns } from "./engine/runs.ts";
+import type { LedgerSink } from "./engine/ledger.ts";
 import { VERSION } from "./version.ts";
-import type { Json, JsonObject, LedgerRecord, RunContext, Stepfile } from "./engine/types.ts";
+import type { Approvals, Json, JsonObject, RunContext, Stepfile } from "./engine/types.ts";
 
 export type StepgateServerOptions = {
   credentials: RunContext["credentials"];
   settings: RunContext["settings"];
-  /** Receives every ledger record, tagged with the stepfile and the run it belongs to. */
-  ledger: (run: { stepfile: string; call: string }, record: LedgerRecord) => void | Promise<void>;
+  /** Receives every ledger record; each carries the run and stepfile it belongs to. */
+  ledger: LedgerSink;
   limits: RunContext["limits"];
   /** How long a run may wait for the client's next call before it is abandoned, in milliseconds. */
   runIdleMs: number;
   userAgent: string;
-  /** Lets drafts and inspection reach http://localhost; only tests set it, against local fixture servers. */
-  draftsMayUseLoopback: boolean;
+  drafts: DraftPolicy;
 };
 
 const CALL = "stepgate_call";
@@ -99,7 +99,7 @@ const AUTHORING_TOOLS: Tool[] = [
   {
     name: TRY,
     title: "Try a draft stepfile",
-    description: `Starts a run of a draft stepfile from its text, without adding it to the server. Drive it with ${CALL} and ${SUBMIT}. Drafts may not declare credentials or settings and may call only public https URLs.`,
+    description: `Starts a run of a draft stepfile from its text, without adding it to the server. Drive it with ${CALL} and ${SUBMIT}. Drafts may call only public https URLs, and use only the credentials and settings the operator granted to drafts.`,
     inputSchema: {
       type: "object",
       properties: { stepfile: STEPFILE_TEXT, inputs: { type: "object", description: "Inputs matching the draft's inputs schema." } },
@@ -107,8 +107,6 @@ const AUTHORING_TOOLS: Tool[] = [
     },
   },
 ];
-
-type Active = { run: Run; timer: NodeJS.Timeout };
 
 /** A reply with no structuredContent, so clients that prefer it still show the text. */
 function plain(message: string, isError: boolean): CallToolResult {
@@ -166,27 +164,26 @@ function isObject(value: unknown): value is JsonObject {
 export function createStepgateServer(stepfiles: Stepfile[], options: StepgateServerOptions): Server {
   const byId = new Map(stepfiles.map((stepfile) => [stepfile.document.id, stepfile]));
   const server = new Server({ name: "stepgate", version: VERSION }, { capabilities: { tools: {} }, instructions: INSTRUCTIONS });
-  const active = new Map<string, Active>();
+  const runs = createRuns(options.runIdleMs);
 
-  const forget = (id: string) => {
-    const entry = active.get(id);
-    if (entry !== undefined) {
-      clearTimeout(entry.timer);
-      active.delete(id);
+  // An approve gate is answered by a person through the client's form elicitation, given as long as a run may idle.
+  const askPerson: Approvals["ask"] = async (request) => {
+    const shown = JSON.stringify(request.output, null, 2);
+    const output = shown.length > options.limits.toolResultChars ? `${shown.slice(0, options.limits.toolResultChars)}\n[cut at ${options.limits.toolResultChars} characters]` : shown;
+    let answer: Awaited<ReturnType<Server["elicitInput"]>>;
+    try {
+      answer = await server.elicitInput({
+        mode: "form",
+        message: `${request.message}\n\nStep ${request.step} of ${request.stepfile} submitted:\n${output}`,
+        requestedSchema: { type: "object", properties: { reason: { type: "string", title: "Reason", description: "If you decline, what should change." } } },
+      }, { timeout: options.runIdleMs });
+    } catch (error) {
+      throw new ToolCallFailed(`approval ${request.gate}`, null, `the client did not return a decision: ${(error as Error).message}`, { cause: error });
     }
+    const reason = typeof answer.content?.reason === "string" && answer.content.reason.trim() !== "" ? answer.content.reason.trim() : null;
+    return answer.action === "accept" ? { approved: true, reason } : { approved: false, reason: reason ?? (answer.action === "cancel" ? "the request was dismissed" : null) };
   };
-  const expire = (id: string) => setTimeout(() => {
-    const entry = active.get(id);
-    forget(id);
-    void entry?.run.abandon();
-  }, options.runIdleMs).unref();
-
-  server.onclose = () => {
-    for (const [id, entry] of active) {
-      forget(id);
-      void entry.run.abandon();
-    }
-  };
+  server.onclose = () => void runs.abandonAll();
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: [
@@ -203,38 +200,16 @@ export function createStepgateServer(stepfiles: Stepfile[], options: StepgateSer
   }));
 
   const started = async (stepfile: Stepfile, inputs: JsonObject): Promise<CallToolResult> => {
-    const call = randomUUID();
-    const { run, progress } = await startRun(stepfile, inputs, { ...options, ledger: (record) => options.ledger({ stepfile: stepfile.document.id, call }, record) });
-    if (progress.state !== "finished") {
-      active.set(run.id, { run, timer: expire(run.id) });
-    }
-    return progressResult(run.id, progress);
-  };
-
-  const continued = async (id: string, act: (run: Run) => Promise<CallToolResult>): Promise<CallToolResult> => {
-    const entry = active.get(id);
-    if (entry === undefined) {
-      throw new RunNotActive(id);
-    }
-    clearTimeout(entry.timer);
-    entry.timer = expire(id);
-    try {
-      const result = await act(entry.run);
-      if ((result.structuredContent as { state?: string } | undefined)?.state === "finished") {
-        forget(id);
-      }
-      return result;
-    } catch (error) {
-      forget(id);
-      throw error;
-    }
+    const approvals: Approvals = { available: server.getClientCapabilities()?.elicitation?.form !== undefined, ask: askPerson };
+    const { run, progress } = await runs.start(stepfile, inputs, { ...options, approvals });
+    return progressResult(run, progress);
   };
 
   const authoring: Record<string, (args: JsonObject) => Promise<{ report: string; isError: boolean }>> = {
     stepgate_guide: async () => ({ report: guide(), isError: false }),
     stepgate_examples: async (args) => ({ report: examples(typeof args.name === "string" ? args.name : undefined), isError: false }),
     stepgate_validate: async (args) => {
-      const { valid, report } = validateDraft(typeof args.stepfile === "string" ? args.stepfile : "", options.draftsMayUseLoopback);
+      const { valid, report } = validateDraft(typeof args.stepfile === "string" ? args.stepfile : "", options.drafts);
       return { report, isError: !valid };
     },
     stepgate_inspect_api: async (args) => ({
@@ -243,7 +218,7 @@ export function createStepgateServer(stepfiles: Stepfile[], options: StepgateSer
         url: typeof args.url === "string" ? args.url : "",
         search: typeof args.search === "string" ? args.search : undefined,
         operations: Array.isArray(args.operations) ? args.operations.map(String) : undefined,
-      }, options.userAgent, options.draftsMayUseLoopback),
+      }, options, options.drafts),
       isError: false,
     }),
   };
@@ -265,18 +240,18 @@ export function createStepgateServer(stepfiles: Stepfile[], options: StepgateSer
     }
     try {
       if (request.params.name === CALL) {
-        return await continued(String(args.run), async (run) => {
-          const result = await run.call(String(args.operation), args.arguments as Json | undefined);
-          // Some clients (Claude Code among them) show structuredContent in place of the text, so both carry the result.
-          return text(result.content, { run: run.id, state: "running", result: result.content }, result.isError);
-        });
+        const run = String(args.run);
+        const result = await runs.call(run, String(args.operation), args.arguments as Json | undefined);
+        // Some clients (Claude Code among them) show structuredContent in place of the text, so both carry the result.
+        return text(result.content, { run, state: "running", result: result.content }, result.isError);
       }
       if (request.params.name === SUBMIT) {
-        return await continued(String(args.run), async (run) => progressResult(run.id, await run.submit(isObject(args.output) ? args.output : null)));
+        const run = String(args.run);
+        return progressResult(run, await runs.submit(run, isObject(args.output) ? args.output : null));
       }
       if (request.params.name === TRY) {
         const draft = load(typeof args.stepfile === "string" ? args.stepfile : "");
-        const problems = draftProblems(draft, options.draftsMayUseLoopback);
+        const problems = draftProblems(draft, options.drafts);
         if (problems.length > 0) {
           throw new DraftRefused(problems);
         }

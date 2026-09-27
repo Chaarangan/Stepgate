@@ -4,9 +4,10 @@ import { StepfileInvalid, type ValidationIssue } from "./errors.ts";
 import { canonicalHash } from "./identity.ts";
 import { createValidator } from "./json-schema.ts";
 import { placeholderPaths } from "./placeholders.ts";
-import { varPaths } from "./predicate.ts";
+import { matchAllPatterns, varPaths } from "./predicate.ts";
+import { patternProblem, schemaPatterns } from "./regex.ts";
 import { settingNames } from "./settings.ts";
-import type { Stepfile, StepfileDocument, ToolDeclaration } from "./types.ts";
+import type { CredentialDeclaration, Stepfile, StepfileDocument, ToolDeclaration } from "./types.ts";
 
 // server/schema/ sits two levels above both src/engine/ and dist/engine/, and ships in the package.
 const SCHEMA_URL = new URL("../../schema/stepfile.schema.json", import.meta.url);
@@ -31,6 +32,13 @@ export function declaredToolHost(tool: ToolDeclaration): string {
     throw new TypeError(`tool url ${toolUrl(tool)} has no host; the schema should have rejected it`);
   }
   return authority.toLowerCase();
+}
+
+/** The credential a tool binds, with its declaration, or null when the tool takes none. */
+export function credentialOf(document: StepfileDocument, toolName: string): { name: string; declaration: CredentialDeclaration } | null {
+  const name = document.tools?.[toolName]?.credential;
+  const declaration = name === undefined ? undefined : document.credentials?.[name];
+  return name === undefined || declaration === undefined ? null : { name, declaration };
 }
 
 function parseText(text: string): unknown {
@@ -58,6 +66,17 @@ function checkCrossFieldRules(document: StepfileDocument): ValidationIssue[] {
         issues.push({ path: `/tools/${toolName}/exposes`, message: `${name} is already exposed by tool ${owner}` });
       }
       exposedOwners.set(name, toolName);
+      if (typeof entry !== "string" && entry.schema_sha256 !== undefined && tool.mcp === undefined) {
+        issues.push({ path: `/tools/${toolName}/exposes`, message: `${name}: schema_sha256 pins an MCP tool's schema; an OpenAPI operation is pinned by the document's sha256` });
+      }
+      if (typeof entry !== "string" && entry.select !== undefined) {
+        for (const pattern of matchAllPatterns(entry.select)) {
+          const problem = patternProblem(pattern);
+          if (problem !== null) {
+            issues.push({ path: `/tools/${toolName}/exposes`, message: `${name}: ${problem}` });
+          }
+        }
+      }
     }
 
     if (tool.credential !== undefined) {
@@ -99,6 +118,28 @@ function checkCrossFieldRules(document: StepfileDocument): ValidationIssue[] {
     }
   }
 
+  for (const [name, credential] of Object.entries(credentials)) {
+    if (credential.token_url !== undefined && settingNames(credential.token_url).length > 0) {
+      issues.push({ path: `/credentials/${name}/token_url`, message: "token_url cannot use {setting} placeholders; the refresh token is sent there, so it must be fixed in the file" });
+    }
+  }
+
+  const patterns: Array<[string, string]> = [
+    ...schemaPatterns(document.inputs).map((pattern): [string, string] => ["/inputs", pattern]),
+    ...Object.entries(document.$defs ?? {}).flatMap(([name, schema]) => schemaPatterns(schema).map((pattern): [string, string] => [`/$defs/${name}`, pattern])),
+    ...Object.entries(document.settings ?? {}).flatMap(([name, setting]) => (setting.pattern === undefined ? [] : [[`/settings/${name}/pattern`, setting.pattern] as [string, string]])),
+    ...document.steps.flatMap((step, index) => [
+      ...schemaPatterns(step.produces).map((pattern): [string, string] => [`/steps/${index}/produces`, pattern]),
+      ...step.gates.flatMap((gate) => ("schema" in gate ? schemaPatterns(gate.schema) : "predicate" in gate ? matchAllPatterns([gate.predicate, gate.explain ?? null]) : []).map((pattern): [string, string] => [`/steps/${index}/gates/${gate.id}`, pattern])),
+    ]),
+  ];
+  for (const [path, pattern] of patterns) {
+    const problem = patternProblem(pattern);
+    if (problem !== null) {
+      issues.push({ path, message: problem });
+    }
+  }
+
   const seenSteps = new Set<string>();
   document.steps.forEach((step, index) => {
     const path = `/steps/${index}`;
@@ -125,7 +166,7 @@ function checkCrossFieldRules(document: StepfileDocument): ValidationIssue[] {
 
     const references = [
       ...placeholderPaths(step.instructions),
-      ...step.gates.flatMap((gate) => ("predicate" in gate ? varPaths(gate.predicate) : [])),
+      ...step.gates.flatMap((gate) => ("predicate" in gate ? [...varPaths(gate.predicate), ...(gate.explain === undefined ? [] : varPaths(gate.explain))] : [])),
       ...(step.when === undefined ? [] : varPaths(step.when)),
     ];
     for (const reference of references) {
