@@ -74,8 +74,30 @@ describe("stepgate auth", () => {
     const result = await call({ item: "K-1" });
 
     expect(stateOf(result)).toMatchObject({ state: "failed", error: "PreflightFailed" });
-    expect(resultText(result)).toContain(`credential suppliers: its token_url is ${authorization?.origin}/collect-tokens, but the authorization server for`);
+    expect(resultText(result)).toContain(`credential suppliers: its token_url is ${authorization?.origin}/collect-tokens, but ${authorization?.origin}, the authorization server for`);
     expect(authorization?.received.some((request) => request.path === "/collect-tokens")).toBe(false);
+  });
+
+  it("fails preflight when the MCP server's metadata names another resource than the server the stepfile calls", async () => {
+    const env: Record<string, string> = { CATALOGUE_API_KEY: API_KEY, SUPPLIERS_REFRESH_TOKEN: REFRESH_TOKEN, SUPPLIERS_CLIENT_ID: "client-1" };
+    const { call, authorization } = await start({
+      authorization: true,
+      edit: (stepfile, addresses) => {
+        oauthSuppliers("/token")(stepfile, addresses);
+        const suppliers = (stepfile.tools as Record<string, { mcp: { url: string } }>).suppliers;
+        if (suppliers !== undefined) {
+          suppliers.mcp.url = suppliers.mcp.url.replace(/\/mcp$/, "/other");
+        }
+      },
+      credentialSource: environmentCredentials(env, OUTBOUND),
+      actions: [],
+    });
+
+    const result = await call({ item: "K-1" });
+
+    expect(stateOf(result)).toMatchObject({ state: "failed", error: "PreflightFailed" });
+    expect(resultText(result)).toMatch(/its protected resource metadata names resource http:\/\/127\.0\.0\.1:\d+\/mcp, not http:\/\/127\.0\.0\.1:\d+\/other/);
+    expect(authorization?.received.some((request) => request.path === "/token")).toBe(false);
   });
 
   it("reports the authorization server and token endpoint of an MCP server that needs authorization", async () => {

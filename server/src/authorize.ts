@@ -6,7 +6,7 @@ import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { AuthorizationFailed, StepgateError } from "./engine/errors.ts";
 import type { HttpContext } from "./engine/http.ts";
-import { discoverMcpAuthorization, type McpAuthorization } from "./engine/mcp-auth.ts";
+import { discoverMcpAuthorization, tokenEndpointProblem, type McpAuthorization } from "./engine/mcp-auth.ts";
 import { resolveSettings } from "./engine/settings.ts";
 import type { RunContext, Stepfile } from "./engine/types.ts";
 import { variableFor } from "./operator.ts";
@@ -15,7 +15,7 @@ import { variableFor } from "./operator.ts";
 const CALLBACK_WAIT_MS = 10 * 60_000;
 
 /** Listens on a loopback port for the authorization server's redirect, as RFC 8252 describes for native clients. */
-async function listenForCallback(subject: string): Promise<{ redirectUrl: string; next: Promise<URLSearchParams>; close: () => void }> {
+async function listenForCallback(subject: string, state: string): Promise<{ redirectUrl: string; next: Promise<URLSearchParams>; close: () => void }> {
   let resolve: (params: URLSearchParams) => void = () => undefined;
   const next = new Promise<URLSearchParams>((settle, fail) => {
     resolve = settle;
@@ -23,11 +23,13 @@ async function listenForCallback(subject: string): Promise<{ redirectUrl: string
   });
   const server = createServer((request, response) => {
     const url = new URL(request.url ?? "/", "http://127.0.0.1");
-    if (url.pathname !== "/callback") {
+    // Anything but the redirect for this request, such as another local page's probe, leaves the flow waiting.
+    if (url.pathname !== "/callback" || url.searchParams.get("state") !== state) {
       response.writeHead(404).end();
       return;
     }
-    response.writeHead(200, { "content-type": "text/plain" }).end("Stepgate received the authorization. You can close this tab.");
+    const outcome = url.searchParams.has("error") ? "Stepgate received the authorization server's refusal; see the terminal." : "Stepgate received the authorization. You can close this tab.";
+    response.writeHead(200, { "content-type": "text/plain" }).end(outcome);
     resolve(url.searchParams);
   });
   await new Promise<void>((ready) => server.listen(0, "127.0.0.1", ready));
@@ -42,8 +44,8 @@ function codeFrom(subject: string, params: URLSearchParams, state: string, found
   }
   const iss = params.get("iss");
   const required = (found.metadata as { authorization_response_iss_parameter_supported?: unknown }).authorization_response_iss_parameter_supported === true;
-  if ((iss === null && required) || (iss !== null && iss !== found.metadata.issuer)) {
-    throw new AuthorizationFailed(subject, `the redirect's issuer ${iss ?? "(none)"} is not ${found.metadata.issuer}, so its code is not used`);
+  if ((iss === null && required) || (iss !== null && iss !== found.issuer)) {
+    throw new AuthorizationFailed(subject, `the redirect's issuer ${iss ?? "(none)"} is not ${found.issuer}, so its code is not used`);
   }
   const error = params.get("error");
   if (error !== null) {
@@ -88,13 +90,14 @@ export async function authorizeCredential(
   if (found === null) {
     throw new AuthorizationFailed(subject, `${tool.mcp.url} publishes no protected resource metadata, so it does not use MCP authorization; set ${variableFor(credential, "API_KEY")} to its token instead`);
   }
-  const tokenEndpoint = found.metadata.token_endpoint;
-  if (declaration.token_url !== tokenEndpoint) {
-    throw new AuthorizationFailed(subject, `the stepfile must declare token_url: ${tokenEndpoint}, the token endpoint ${found.issuer} advertises, since Stepgate sends the refresh token there`);
+  const problem = declaration.token_url === undefined ? `the stepfile declares no token_url; declare token_url: ${found.metadata.token_endpoint}` : tokenEndpointProblem(found, declaration.token_url);
+  if (problem !== null) {
+    throw new AuthorizationFailed(subject, problem);
   }
   const offline = (found.metadata.scopes_supported ?? []).includes("offline_access") && !(declaration.scopes ?? []).includes("offline_access");
   const scope = [...(declaration.scopes ?? []), ...(offline ? ["offline_access"] : [])].join(" ");
-  const callback = await listenForCallback(subject);
+  const state = randomUUID();
+  const callback = await listenForCallback(subject, state);
   try {
     let client: OAuthClientInformationMixed;
     if (clientId !== null) {
@@ -106,7 +109,6 @@ export async function authorizeCredential(
       // TODO(mcp-auth-client-id): register through a Client ID Metadata Document once Stepgate hosts one.
       throw new AuthorizationFailed(subject, `${found.issuer} offers no dynamic client registration; pass --client-id with a client registered for http://127.0.0.1 redirects`);
     }
-    const state = randomUUID();
     const { authorizationUrl, codeVerifier } = await startAuthorization(found.issuer, { metadata: found.metadata, clientInformation: client, redirectUrl: callback.redirectUrl, scope, state, resource: new URL(found.resource) });
     await visit(authorizationUrl);
     const code = codeFrom(subject, await callback.next, state, found);

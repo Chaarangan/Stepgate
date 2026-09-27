@@ -5,6 +5,7 @@ import {
   CallArgumentsInvalid,
   CallLimitReached,
   CredentialUnavailable,
+  EgressDenied,
   GateFailed,
   InvalidGrant,
   PreflightFailed,
@@ -14,7 +15,7 @@ import {
 } from "./errors.ts";
 import { compileStepGates, submittedSchema, type StepGates } from "./gates.ts";
 import { guardedFetch, type HttpContext } from "./http.ts";
-import { discoverMcpAuthorization, type McpAuthorization } from "./mcp-auth.ts";
+import { discoverMcpAuthorization, tokenEndpointProblem, type McpAuthorization } from "./mcp-auth.ts";
 import { canonicalHash, textHash } from "./identity.ts";
 import { compileToolSchema, createToolSchemaValidators, createValidator, describeErrors, inlineLocalRefs } from "./json-schema.ts";
 import { createLedger, type AppendRecord } from "./ledger.ts";
@@ -73,13 +74,15 @@ async function checkTokenEndpoint(http: HttpContext, toolName: string, serverUrl
   try {
     found = await discoverMcpAuthorization((url, init) => guardedFetch(context, operation, new URL(url), init ?? {}, null), serverUrl);
   } catch (error) {
-    if (error instanceof AuthorizationFailed) {
+    // EgressDenied here means the authorization server is on neither the tool's host nor token_url's.
+    if (error instanceof AuthorizationFailed || error instanceof EgressDenied) {
       throw new PreflightFailed(`credential ${credential}`, error.message, { cause: error });
     }
     throw error;
   }
-  if (found !== null && found.metadata.token_endpoint !== tokenUrl) {
-    throw new PreflightFailed(`credential ${credential}`, `its token_url is ${tokenUrl}, but the authorization server for ${serverUrl}, ${found.issuer}, advertises ${found.metadata.token_endpoint}; Stepgate sends the refresh token only to the advertised one`);
+  const problem = found === null ? null : tokenEndpointProblem(found, tokenUrl);
+  if (problem !== null) {
+    throw new PreflightFailed(`credential ${credential}`, problem);
   }
 }
 
