@@ -352,6 +352,12 @@
           "maximum": 5,
           "default": 0
         },
+        "let": {
+          "type": "object",
+          "description": "Named JSONLogic expressions, evaluated in order once per submission; gates, explain and later entries read them as let.<name>.",
+          "propertyNames": { "$ref": "#/$defs/identifier" },
+          "additionalProperties": { "$ref": "#/$defs/predicate" }
+        },
         "when": {
           "$ref": "#/$defs/predicate"
         }

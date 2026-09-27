@@ -29,7 +29,7 @@ describe("load", () => {
     }
     second.when = { "==": [{ var: "calls.0.tool" }, "tavily_search"] };
 
-    expect(() => load(JSON.stringify(document))).toThrow("when is evaluated before the step runs, so it cannot read output or calls");
+    expect(() => load(JSON.stringify(document))).toThrow("when is evaluated before the step runs, so it cannot read output, calls or let");
   });
 
   it("refuses results with anything but a literal operation and optional path", () => {
@@ -42,11 +42,29 @@ describe("load", () => {
   it("refuses results in when and select, which have no calls to read", () => {
     const document = parseYaml(readFileSync(MARKET_RESEARCH, "utf8")) as { steps: Array<Record<string, unknown>>; tools: { tavily: { exposes: Json[] } } };
     (document.steps[1] as Record<string, unknown>).when = { "==": [{ length: { results: ["tavily_search"] } }, 1] };
-    expect(() => load(JSON.stringify(document))).toThrow("when is evaluated before the step runs, so it cannot read output or calls");
+    expect(() => load(JSON.stringify(document))).toThrow("when is evaluated before the step runs, so it cannot read output, calls or let");
 
     delete (document.steps[1] as Record<string, unknown>).when;
     document.tools.tavily.exposes = [{ name: "tavily_search", select: { results: ["tavily_search"] } }];
     expect(() => load(JSON.stringify(document))).toThrow("tavily_search: select sees one result, so it cannot use results");
+  });
+
+  it("refuses a let entry that reads a later entry, and a gate that reads an undeclared one", () => {
+    const document = parseYaml(readFileSync(MARKET_RESEARCH, "utf8")) as { steps: Array<{ let?: JsonObject; gates: JsonObject[] }> };
+    const first = document.steps[0] as { let?: JsonObject; gates: JsonObject[] };
+    first.let = { a: { var: "let.b" }, b: { var: "output.sources" } };
+    expect(() => load(JSON.stringify(document))).toThrow("/steps/0/let/a let.b is not an earlier entry of this step's let");
+
+    first.let = { a: { var: "output.sources" } };
+    first.gates.push({ id: "reads-let", message: "m", predicate: { "==": [{ var: "let.missing" }, 1] } });
+    expect(() => load(JSON.stringify(document))).toThrow("/steps/0/gates/reads-let let.missing is not declared in this step's let");
+  });
+
+  it("refuses a when condition that reads let, which is evaluated only on submission", () => {
+    const document = parseYaml(readFileSync(MARKET_RESEARCH, "utf8")) as { steps: Array<Record<string, unknown>> };
+    (document.steps[1] as Record<string, unknown>).when = { "==": [{ var: "let.x" }, 1] };
+
+    expect(() => load(JSON.stringify(document))).toThrow("when is evaluated before the step runs, so it cannot read output, calls or let");
   });
 
   it("requires every {placeholder} to be a declared setting, and every setting to be used", () => {

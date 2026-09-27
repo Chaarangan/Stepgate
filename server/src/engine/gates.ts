@@ -28,7 +28,9 @@ async function askVerifier(document: StepfileDocument, http: HttpContext, step: 
   }
   const operation = `verifier ${toolName}`;
   const credential = credentialOf(document, toolName);
-  const body = JSON.stringify({ stepfile: document.id, step: step.id, gate: gateId, ...context });
+  // A verifier is posted what docs/stepfile.md lists, which does not include the step's let values.
+  const { let: _values, ...shared } = context;
+  const body = JSON.stringify({ stepfile: document.id, step: step.id, gate: gateId, ...shared });
   const response = await guardedFetch(
     http,
     operation,
@@ -92,11 +94,14 @@ export type GateServices = { http: HttpContext; approvals: Approvals };
 export function compileStepGates(document: StepfileDocument, services: GateServices, step: Step, ajv: Ajv2020): StepGates {
   const validateOutput = compileWithDefs(ajv, step.produces, document.$defs ?? {});
   const gates = step.gates.map((gate) => compileGate(document, services, step, gate, ajv));
+  const lets = Object.entries(step.let ?? {}).map(([name, rule]) => [name, expandResults(rule) as JsonObject] as const);
   return {
-    check: async (context) => {
-      if (!validateOutput(context.output)) {
+    check: async (submitted) => {
+      if (!validateOutput(submitted.output)) {
         return [verdict("produces", describeErrors(validateOutput.errors))];
       }
+      const values = lets.reduce<JsonObject>((earlier, [name, rule]) => ({ ...earlier, [name]: evaluateExpression(rule, { ...submitted, let: earlier }) }), {});
+      const context = { ...submitted, let: values };
       const verdicts: GateVerdict[] = [];
       for (const gate of gates) {
         verdicts.push(await gate(context));

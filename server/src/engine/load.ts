@@ -7,7 +7,7 @@ import { placeholderPaths } from "./placeholders.ts";
 import { matchAllPatterns, operatorArguments, resultsProblem, varPaths } from "./predicate.ts";
 import { patternProblem, schemaPatterns } from "./regex.ts";
 import { settingNames } from "./settings.ts";
-import type { CredentialDeclaration, Stepfile, StepfileDocument, ToolDeclaration } from "./types.ts";
+import type { CredentialDeclaration, Json, Stepfile, StepfileDocument, ToolDeclaration } from "./types.ts";
 
 // server/schema/ sits two levels above both src/engine/ and dist/engine/, and ships in the package.
 const SCHEMA_URL = new URL("../../schema/stepfile.schema.json", import.meta.url);
@@ -39,6 +39,14 @@ export function credentialOf(document: StepfileDocument, toolName: string): { na
   const name = document.tools?.[toolName]?.credential;
   const declaration = name === undefined ? undefined : document.credentials?.[name];
   return name === undefined || declaration === undefined ? null : { name, declaration };
+}
+
+/** The `let` names a rule reads through `var: let.<name>`. */
+function letReferences(rule: Json): string[] {
+  return varPaths(rule).flatMap((reference) => {
+    const [root, name] = reference.split(".");
+    return root === "let" && name !== undefined ? [name] : [];
+  });
 }
 
 function parseText(text: string): unknown {
@@ -133,6 +141,7 @@ function checkCrossFieldRules(document: StepfileDocument): ValidationIssue[] {
     ...Object.entries(document.settings ?? {}).flatMap(([name, setting]) => (setting.pattern === undefined ? [] : [[`/settings/${name}/pattern`, setting.pattern] as [string, string]])),
     ...document.steps.flatMap((step, index) => [
       ...schemaPatterns(step.produces).map((pattern): [string, string] => [`/steps/${index}/produces`, pattern]),
+      ...matchAllPatterns(Object.values(step.let ?? {})).map((pattern): [string, string] => [`/steps/${index}/let`, pattern]),
       ...step.gates.flatMap((gate) => ("schema" in gate ? schemaPatterns(gate.schema) : "predicate" in gate ? matchAllPatterns([gate.predicate, gate.explain ?? null]) : []).map((pattern): [string, string] => [`/steps/${index}/gates/${gate.id}`, pattern])),
     ]),
   ];
@@ -175,9 +184,28 @@ function checkCrossFieldRules(document: StepfileDocument): ValidationIssue[] {
       }
     }
 
+    const lets = Object.entries(step.let ?? {});
+    lets.forEach(([name, rule], position) => {
+      const earlier = new Set(lets.slice(0, position).map(([other]) => other));
+      for (const reference of letReferences(rule)) {
+        if (!earlier.has(reference)) {
+          issues.push({ path: `${path}/let/${name}`, message: `let.${reference} is not an earlier entry of this step's let` });
+        }
+      }
+    });
+    for (const gate of step.gates) {
+      const rules = "predicate" in gate ? [gate.predicate, gate.explain ?? null] : [];
+      for (const reference of rules.flatMap(letReferences)) {
+        if (!Object.hasOwn(step.let ?? {}, reference)) {
+          issues.push({ path: `${path}/gates/${gate.id}`, message: `let.${reference} is not declared in this step's let` });
+        }
+      }
+    }
+
     const references = [
       ...placeholderPaths(step.instructions),
       ...step.gates.flatMap((gate) => ("predicate" in gate ? [...varPaths(gate.predicate), ...(gate.explain === undefined ? [] : varPaths(gate.explain))] : [])),
+      ...lets.flatMap(([, rule]) => varPaths(rule)),
       ...(step.when === undefined ? [] : varPaths(step.when)),
     ];
     for (const reference of references) {
@@ -186,8 +214,8 @@ function checkCrossFieldRules(document: StepfileDocument): ValidationIssue[] {
         issues.push({ path, message: `${reference} does not name an earlier step` });
       }
     }
-    if (step.when !== undefined && (varPaths(step.when).some((reference) => ["output", "calls"].includes(reference.split(".")[0] ?? "")) || operatorArguments(step.when, "results").length > 0)) {
-      issues.push({ path: `${path}/when`, message: "when is evaluated before the step runs, so it cannot read output or calls" });
+    if (step.when !== undefined && (varPaths(step.when).some((reference) => ["output", "calls", "let"].includes(reference.split(".")[0] ?? "")) || operatorArguments(step.when, "results").length > 0)) {
+      issues.push({ path: `${path}/when`, message: "when is evaluated before the step runs, so it cannot read output, calls or let" });
     }
 
     seenSteps.add(step.id);

@@ -73,6 +73,8 @@ export type PredicateContext = {
   steps: Record<string, JsonObject>;
   output?: Json;
   calls?: EvidenceCall[];
+  /** The step's `let` values, once they are evaluated. */
+  let?: JsonObject;
 };
 
 /** What a rule evaluates to over some data: a gate's context for `explain`, a tool result for `select`. */

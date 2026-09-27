@@ -39,6 +39,8 @@ export type Step = {
   produces: JsonSchema;
   gates: Gate[];
   retries?: number;
+  /** Named expressions evaluated in order once per submission, read by gates as `let.<name>`. */
+  let?: Record<string, JsonObject>;
   when?: JsonObject;
 };
 

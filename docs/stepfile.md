@@ -28,7 +28,8 @@ Unknown fields are rejected. Beyond the schema, Stepgate checks these rules when
 4. Every `credential` a tool names is declared, and the tool's host is in that credential's `hosts`.
 5. Every `http` gate names a `verifier` tool.
 6. Every placeholder and every `var` path under `steps.` names an earlier step.
-7. Every `results` takes a literal operation name and optional path, and appears only in gates, never in `when` or `select`.
+7. Every `var` path under `let.` names an entry of the step's `let`, one before it when read from `let` itself, and `when` reads no `let`.
+8. Every `results` takes a literal operation name and optional path, and appears only in gates, never in `when` or `select`.
 
 ## Tools
 
@@ -125,6 +126,7 @@ A credential is attached only to requests whose host is in its `hosts`, and neve
 | `produces` | yes | JSON Schema the step's output must satisfy |
 | `gates` | yes | At least one gate |
 | `retries` | no | Extra attempts after a gate fails, 0 to 5; default 0 |
+| `let` | no | Named JSONLogic expressions that gates read as `let.<name>` ([Naming expressions](#naming-expressions)) |
 | `when` | no | A predicate over `inputs` and `steps`; the step is skipped unless it is `true` |
 
 Steps run in file order. There is no branching, looping or parallel block; `when` covers optional steps.
@@ -137,7 +139,7 @@ Steps run in file order. There is no branching, looping or parallel block; `when
 
 A gate is a mechanical check on the submitted output, or a person's approval of it. Every gate blocks; there are no advisory gates and no gates judged by a model.
 
-Gates see `{ inputs, steps, output, calls }`: the run's inputs, each earlier step's accepted output under `steps.<id>`, the submission being checked as `output`, and `calls`, every tool call this step has made. The output is validated against `produces` first; a mismatch fails like a gate.
+Gates see `{ inputs, steps, output, calls, let }`: the run's inputs, each earlier step's accepted output under `steps.<id>`, the submission being checked as `output`, `calls`, every tool call this step has made, and the step's `let` values. The output is validated against `produces` first; a mismatch fails like a gate.
 
 Each entry in `calls` is `{ tool, arguments, result, is_error }`, where `tool` is the exposed name and `result` is the tool's full response, parsed as JSON when it is JSON and kept as text otherwise. Calls refused or rejected for bad arguments never reached the tool and are not listed. `calls` is what lets a gate catch a fabricated value: it can check that what the model submitted is what an API actually returned.
 
@@ -215,7 +217,7 @@ Besides the standard JSONLogic operators, twelve more are available:
 
 `subset`, `difference` and `join` exist because JSONLogic's `all`, `map` and `filter` cannot see data outside the current array element. `subset` answers "is every cited id a kept source"; `join` lines each output row up with its evidence so a rule can compare them field by field, for example `none` over `join(output.rows, calls.0.result.items, "id", "id")` of rows whose `right` is `null` or whose `left.stock` differs from `right.stock`. Note that JSONLogic's `all` is false on an empty array; use `none`, or a count of violations, when the list may be empty. Patterns in `match_all`, in a setting's `pattern`, and in the `pattern` and `patternProperties` keywords of `inputs`, `produces`, `$defs` and `schema` gates run on RE2, which matches in time linear in the input, so no pattern can stall a run on a large API response. RE2 accepts the ECMA-262 subset JSON Schema recommends plus lookbehind, but not lookahead or backreferences; a pattern it cannot compile fails at load time. End a match with a consumed group such as `(?:[^0-9]|$)` where you would write `(?![0-9])`. Schemas published by a remote tool keep their own patterns, since they only check the client's arguments.
 
-**`http`** posts `{ stepfile, step, gate, inputs, steps, output, calls }` as JSON to a `verifier` tool. A 2xx response of `{ "pass": true }` passes; `{ "pass": false, "message": "..." }` fails with that message. Any other response is treated as an outage rather than a verdict and stops the run. This is how a check that needs code runs: you operate the verifier.
+**`http`** posts `{ stepfile, step, gate, inputs, steps, output, calls }` as JSON, without the step's `let` values, to a `verifier` tool. A 2xx response of `{ "pass": true }` passes; `{ "pass": false, "message": "..." }` fails with that message. Any other response is treated as an outage rather than a verdict and stops the run. This is how a check that needs code runs: you operate the verifier.
 
 ```yaml
 tools:
@@ -236,6 +238,21 @@ steps:
 ```
 
 It is still mechanical: a person decides, never a model. How long Stepgate waits for the answer is `--run-idle-ms`.
+
+### Naming expressions
+
+A step's `let` names expressions once, so a predicate and its `explain`, or several gates, do not repeat the same one. The entries are evaluated in order on every submission that satisfies `produces`, over what gates see, and each may read the ones before it. Gates read them as `let.<name>`:
+
+```yaml
+let:
+  cited: { unique: { var: output.cited } }
+  unknown: { difference: [{ var: let.cited }, { var: inputs.sources }] }
+gates:
+  - id: known-sources
+    message: "Cite only the given sources; these are not among them:"
+    predicate: { "==": [{ length: { var: let.unknown } }, 0] }
+    explain: { var: let.unknown }
+```
 
 ## Testing gates offline
 
