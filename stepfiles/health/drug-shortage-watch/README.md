@@ -1,12 +1,12 @@
 # drug-shortage-watch
 
-Checks every generic drug on a hospital formulary against the FDA drug shortage list, served by openFDA, and returns an action list for a pharmacy buyer. Shortage status changes weekly, so a model answering from memory gets it wrong; here every status, count, date and NDC in the result must match what openFDA returned during the run, and every formulary item must be accounted for, including the ones with no shortage record.
+Checks every generic drug on a hospital formulary against the FDA drug shortage list, served by openFDA, and returns an action list for a pharmacy buyer. Shortage status changes weekly, so a model answering from memory gets it wrong. Here Stepgate makes the openFDA searches and builds the action list itself, so no status, count, date or NDC can be misread or invented, and the agent only writes the summary, whose gates check it against those records.
 
 ## Steps
 
-1. **status**: asks openFDA for the count of shortage records per status (Current, To Be Discontinued, Resolved) for each formulary item. Gates check that every item was searched exactly once with a `generic_name` query naming it, that each set of counts is the exact response to that search, that an item reported with no records really got a `NOT_FOUND` answer, and that the data date is openFDA's own `last_updated`.
-2. **records**: for each item with shortage records, fetches up to three records at its worst status. Gates check that exactly the items with records are covered, that the worst status follows from step 1's counts, that the search is scoped to that status, and that the total and every record (package NDC, generic name, company, status, update date) match a real response in order.
-3. **report**: writes one action per formulary item and a Markdown summary. Gates check that every item has one action, that each status and NDC list matches the earlier steps (or is `Not listed` with no NDCs), that the summary bolds exactly the items in Current or To Be Discontinued shortage, and that every NDC it mentions came from step 2.
+1. **status** (mechanical): Stepgate asks openFDA for the count of shortage records per status (Current, To Be Discontinued, Resolved) for each formulary item, with a `generic_name` search naming it, and sets its worst status: Current if listed, else To Be Discontinued, else Resolved, or null when openFDA answers 404 `NOT_FOUND`. It keeps openFDA's `last_updated` date.
+2. **records** (mechanical): for each item with shortage records, Stepgate fetches up to three records at its worst status and keeps the total and each record's package NDC, generic name, company, status and update date. A gate stops the run if a record does not have the status searched for.
+3. **report**: the agent writes a Markdown summary. Stepgate derives one action per formulary item, its worst status (or `Not listed`) with the NDCs of its records. Gates check that the summary bolds exactly the items in Current or To Be Discontinued shortage, and that every NDC it mentions came from step 2.
 
 ## Inputs
 

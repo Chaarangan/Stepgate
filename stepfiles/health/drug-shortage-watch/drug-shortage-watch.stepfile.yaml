@@ -19,6 +19,25 @@ inputs:
       items: { type: string, pattern: "^[A-Za-z][A-Za-z0-9 .-]{1,79}$" }
 
 tools:
+  # One path, two uses, so two tools: a count parameter with one allowed value is sent on every call.
+  openfda-counts:
+    openapi:
+      server: https://api.fda.gov
+      document:
+        openapi: 3.1.0
+        info: { title: openFDA drug shortage counts (trimmed), version: "1" }
+        paths:
+          /drug/shortages.json:
+            get:
+              operationId: countShortagesByStatus
+              summary: Count FDA drug shortage records per status. Returns 404 with error code NOT_FOUND when nothing matches.
+              parameters:
+                - { name: search, in: query, required: true, description: 'Lucene-style query, for example generic_name:"lidocaine"', schema: { type: string, minLength: 1, maxLength: 200 } }
+                - { name: count, in: query, required: true, schema: { const: status } }
+              responses:
+                "200": { description: Record counts per shortage status }
+                "404": { description: No matching records }
+    exposes: [countShortagesByStatus]
   openfda:
     openapi:
       server: https://api.fda.gov
@@ -29,9 +48,7 @@ tools:
           /drug/shortages.json:
             get:
               operationId: searchDrugShortages
-              summary: >
-                Search FDA drug shortage records. Returns 404 with error code
-                NOT_FOUND when nothing matches.
+              summary: Search FDA drug shortage records.
               parameters:
                 - name: search
                   in: query
@@ -41,37 +58,46 @@ tools:
                     chloride" AND status:"Current". Join clauses with a
                     literal " AND " (spaces), never "+AND+".
                   schema: { type: string, minLength: 1, maxLength: 200 }
-                - name: count
-                  in: query
-                  description: Set to status to get record counts per shortage status instead of records.
-                  schema: { type: string, enum: [status] }
-                - name: limit
-                  in: query
-                  description: Records to return; ignored when count is set.
-                  schema: { type: integer, minimum: 1, maximum: 3 }
+                - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 3 } }
               responses:
-                "200": { description: Matching records, or status counts when count is set }
-                "404": { description: No matching records }
+                "200": { description: Matching records }
     exposes: [searchDrugShortages]
+
+# An each call's responses come back in the order of its items, so steps pair them by position: the
+# reduce numbers a list as { i, value } and join matches the numbers.
 
 steps:
   - id: status
-    tools: [searchDrugShortages]
-    instructions: |
-      Formulary (generic names):
-      {{inputs.formulary}}
-
-      For every formulary item, call searchDrugShortages once with
-      count: status and search set to generic_name:"<item>", writing the item
-      exactly as given, including its capitalisation. Do not add any other
-      clause to the search.
-
-      Submit one entry per item with the search string you sent and
-      status_counts copied exactly from the response's results array, in the
-      same order, each entry holding only term and count. When the call
-      returned 404 NOT_FOUND, submit an empty status_counts. Set
-      data_last_updated to meta.last_updated from any successful response, or
-      null if every call returned 404.
+    do:
+      calls:
+        # openFDA answers 404 NOT_FOUND when a drug has no shortage record.
+        - id: status
+          operation: countShortagesByStatus
+          each: { var: inputs.formulary }
+          arguments: { search: { cat: ["generic_name:\"", { var: item }, "\""] } }
+          accept: [404]
+      output:
+        data_last_updated: { get: [{ filter: [{ map: [{ var: responses.status }, { var: meta.last_updated }] }, { var: "" }] }, 0] }
+        items:
+          map:
+            - join:
+                - reduce: [{ var: inputs.formulary }, { merge: [{ var: accumulator }, [{ object: [[i, { length: { var: accumulator } }], [value, { var: current }]] }]] }, []]
+                - reduce: [{ var: responses.status }, { merge: [{ var: accumulator }, [{ object: [[i, { length: { var: accumulator } }], [value, { var: current }]] }]] }, []]
+                - i
+                - i
+            - object:
+                - [formulary_item, { var: left.value }]
+                - [search, { cat: ["generic_name:\"", { var: left.value }, "\""] }]
+                - [status_counts, { map: [{ var: right.value.results }, { object: [[term, { var: term }], [count, { var: count }]] }] }]
+                - - worst_status
+                  - if:
+                      - some: [{ var: right.value.results }, { "==": [{ var: term }, Current] }]
+                      - Current
+                      - some: [{ var: right.value.results }, { "==": [{ var: term }, To Be Discontinued] }]
+                      - To Be Discontinued
+                      - ">": [{ length: { var: right.value.results } }, 0]
+                      - Resolved
+                      - null
     produces:
       type: object
       required: [items, data_last_updated]
@@ -81,7 +107,7 @@ steps:
           type: array
           items:
             type: object
-            required: [formulary_item, search, status_counts]
+            required: [formulary_item, search, status_counts, worst_status]
             properties:
               formulary_item: { type: string }
               search: { type: string }
@@ -90,93 +116,39 @@ steps:
                 items:
                   type: object
                   required: [term, count]
-                  additionalProperties: false
                   properties:
                     term: { type: string }
                     count: { type: integer }
-    gates:
-      - id: every-item-once
-        message: Submit exactly one entry for every formulary item, and no other items.
-        predicate:
-          and:
-            - subset: [{ var: inputs.formulary }, { map: [{ var: output.items }, { var: formulary_item }] }]
-            - subset: [{ map: [{ var: output.items }, { var: formulary_item }] }, { var: inputs.formulary }]
-            - "==":
-                - { length: { unique: { map: [{ var: output.items }, { var: formulary_item }] } } }
-                - { length: { var: output.items } }
-      - id: search-names-item
-        message: Each search must be a generic_name query containing the item exactly as given, with no status clause.
-        predicate:
-          all:
-            - { var: output.items }
-            - and:
-                - in: ["generic_name:", { var: search }]
-                - in: [{ var: formulary_item }, { var: search }]
-                - "!": { in: ["status", { var: search }] }
-      - id: counts-from-openfda
-        message: Every non-empty status_counts must be the results array of a successful count=status call with that exact search.
-        predicate:
-          subset:
-            - map:
-                - filter: [{ var: output.items }, { ">": [{ length: { var: status_counts } }, 0] }]
-                - [{ var: search }, { var: status_counts }]
-            - map:
-                - filter:
-                    - { var: calls }
-                    - and:
-                        - "==": [{ var: tool }, searchDrugShortages]
-                        - "!": { var: is_error }
-                        - "==": [{ var: arguments.count }, status]
-                - [{ var: arguments.search }, { var: result.results }]
-      - id: empty-means-not-found
-        message: An empty status_counts is allowed only where openFDA answered NOT_FOUND to that exact search.
-        predicate:
-          subset:
-            - map:
-                - filter: [{ var: output.items }, { "==": [{ length: { var: status_counts } }, 0] }]
-                - { var: search }
-            - map:
-                - filter:
-                    - { var: calls }
-                    - and:
-                        - "==": [{ var: tool }, searchDrugShortages]
-                        - { var: is_error }
-                        - in: [NOT_FOUND, { var: result }]
-                - { var: arguments.search }
-      - id: last-updated-from-openfda
-        message: data_last_updated must be meta.last_updated from a successful response, or null only if every call returned 404.
-        predicate:
-          subset:
-            - [{ var: output.data_last_updated }]
-            - merge:
-                - map:
-                    - filter: [{ var: calls }, { "!": { var: is_error } }]
-                    - { var: result.meta.last_updated }
-                - if:
-                    - "==": [{ length: { filter: [{ var: calls }, { "!": { var: is_error } }] } }, 0]
-                    - [null]
-                    - []
-    retries: 2
+              worst_status: { enum: [Current, To Be Discontinued, Resolved, null] }
 
   - id: records
-    tools: [searchDrugShortages]
-    instructions: |
-      Shortage status counts per formulary item:
-      {{steps.status.items}}
-
-      Skip items whose status_counts is empty. For each remaining item, its
-      worst status is "Current" if that term appears, otherwise "To Be
-      Discontinued" if that term appears, otherwise "Resolved".
-
-      For each remaining item, call searchDrugShortages once with limit: 3, no
-      count, and search set to the item's search from above followed by
-      AND status:"<worst status>", for example
-      generic_name:"lidocaine" AND status:"Current".
-
-      Submit one entry per item with the search you sent, the worst status,
-      total copied from meta.results.total, and every returned record in the
-      order returned, with package_ndc, generic_name, company_name, status and
-      update_date copied exactly (use null for a field the record lacks).
+    do:
+      calls:
+        - id: records
+          operation: searchDrugShortages
+          each: { filter: [{ var: steps.status.items }, { var: worst_status }] }
+          arguments: { search: { cat: [{ var: item.search }, " AND status:\"", { var: item.worst_status }, "\""] }, limit: 3 }
+      output:
+        items:
+          map:
+            - join:
+                - reduce: [{ filter: [{ var: steps.status.items }, { var: worst_status }] }, { merge: [{ var: accumulator }, [{ object: [[i, { length: { var: accumulator } }], [value, { var: current }]] }]] }, []]
+                - reduce: [{ var: responses.records }, { merge: [{ var: accumulator }, [{ object: [[i, { length: { var: accumulator } }], [value, { var: current }]] }]] }, []]
+                - i
+                - i
+            - object:
+                - [formulary_item, { var: left.value.formulary_item }]
+                - [worst_status, { var: left.value.worst_status }]
+                - [total, { var: right.value.meta.results.total }]
+                - - records
+                  - map:
+                      - { var: right.value.results }
+                      - object:
+                          - [package_ndc, { var: [package_ndc, null] }]
+                          - [generic_name, { var: [generic_name, null] }]
+                          - [company_name, { var: [company_name, null] }]
+                          - [status, { var: [status, null] }]
+                          - [update_date, { var: [update_date, null] }]
     produces:
       type: object
       required: [items]
@@ -185,10 +157,9 @@ steps:
           type: array
           items:
             type: object
-            required: [formulary_item, search, worst_status, total, records]
+            required: [formulary_item, worst_status, total, records]
             properties:
               formulary_item: { type: string }
-              search: { type: string }
               worst_status: { enum: [Current, To Be Discontinued, Resolved] }
               total: { type: integer, minimum: 1 }
               records:
@@ -204,89 +175,24 @@ steps:
                     status: { type: [string, "null"] }
                     update_date: { type: [string, "null"] }
     gates:
-      - id: every-listed-item-once
-        message: Submit exactly one entry for every item that has shortage records, and none for items that have none.
-        predicate:
-          and:
-            - subset:
-                - { map: [{ var: output.items }, { var: formulary_item }] }
-                - map:
-                    - filter: [{ var: steps.status.items }, { ">": [{ length: { var: status_counts } }, 0] }]
-                    - { var: formulary_item }
-            - subset:
-                - map:
-                    - filter: [{ var: steps.status.items }, { ">": [{ length: { var: status_counts } }, 0] }]
-                    - { var: formulary_item }
-                - { map: [{ var: output.items }, { var: formulary_item }] }
-            - "==":
-                - { length: { unique: { map: [{ var: output.items }, { var: formulary_item }] } } }
-                - { length: { var: output.items } }
-      - id: worst-status-from-counts
-        message: worst_status must be Current if the counts list it, else To Be Discontinued if listed, else Resolved.
-        predicate:
-          subset:
-            - { map: [{ var: output.items }, [{ var: formulary_item }, { var: worst_status }]] }
-            - map:
-                - filter: [{ var: steps.status.items }, { ">": [{ length: { var: status_counts } }, 0] }]
-                - - { var: formulary_item }
-                  - if:
-                      - some: [{ var: status_counts }, { "==": [{ var: term }, Current] }]
-                      - Current
-                      - some: [{ var: status_counts }, { "==": [{ var: term }, To Be Discontinued] }]
-                      - To Be Discontinued
-                      - Resolved
-      - id: search-scoped-to-status
-        message: Each search must name the item and contain status:"<worst status>" exactly.
-        predicate:
-          all:
-            - { var: output.items }
-            - and:
-                - in: [{ var: formulary_item }, { var: search }]
-                - in: [{ cat: ["status:\"", { var: worst_status }, "\""] }, { var: search }]
-      - id: records-from-openfda
-        message: Each entry's total and records must equal, in order, what a successful call with that exact search returned.
-        predicate:
-          subset:
-            - map:
-                - { var: output.items }
-                - - { var: search }
-                  - { var: total }
-                  - map:
-                      - { var: records }
-                      - [{ var: package_ndc }, { var: generic_name }, { var: company_name }, { var: status }, { var: update_date }]
-            - map:
-                - filter:
-                    - { var: calls }
-                    - and:
-                        - "==": [{ var: tool }, searchDrugShortages]
-                        - "!": { var: is_error }
-                - - { var: arguments.search }
-                  - { var: result.meta.results.total }
-                  - map:
-                      - { var: result.results }
-                      - [{ var: package_ndc }, { var: generic_name }, { var: company_name }, { var: status }, { var: update_date }]
       - id: records-have-worst-status
-        message: Every record listed under an item must have that item's worst status.
+        message: Every record openFDA returned for an item must have that item's worst status.
         predicate:
           all:
             - { var: output.items }
             - subset: [{ map: [{ var: records }, { var: status }] }, [{ var: worst_status }]]
-    retries: 2
 
   - id: report
     instructions: |
       Formulary: {{inputs.formulary}}
 
-      Status counts (openFDA data last updated {{steps.status.data_last_updated}}):
+      Shortage status per item (openFDA data last updated {{steps.status.data_last_updated}}):
       {{steps.status.items}}
 
       Shortage records per affected item:
       {{steps.records.items}}
 
-      Submit one action per formulary item. Its status is the item's
-      worst_status from the records, or "Not listed" if the item has no
-      shortage records. Its package_ndcs are the package_ndc values of that
-      item's records in the order given, or an empty list if not listed.
+      Each item's status is its worst_status, or "Not listed" where that is null.
 
       Write summary_markdown for a pharmacy buyer: one line per item whose
       status is Current or To Be Discontinued, starting "- **<item>**" with the
@@ -308,44 +214,29 @@ steps:
               status: { enum: [Current, To Be Discontinued, Resolved, Not listed] }
               package_ndcs: { type: array, items: { type: [string, "null"] } }
         summary_markdown: { type: string, minLength: 1, maxLength: 6000 }
+    derive:
+      actions:
+        map:
+          - join: [{ var: steps.status.items }, { var: steps.records.items }, formulary_item, formulary_item]
+          - object:
+              - [formulary_item, { var: left.formulary_item }]
+              - [status, { if: [{ var: right }, { var: right.worst_status }, Not listed] }]
+              - [package_ndcs, { if: [{ var: right }, { map: [{ var: right.records }, { var: package_ndc }] }, []] }]
+    let:
+      bolded: { match_all: [{ var: output.summary_markdown }, "\\*\\*([^*]+)\\*\\*"] }
+      flagged:
+        map:
+          - filter: [{ var: steps.records.items }, { in: [{ var: worst_status }, [Current, To Be Discontinued]] }]
+          - { var: formulary_item }
     gates:
-      - id: one-action-per-item
-        message: Submit exactly one action for every formulary item.
-        predicate:
-          and:
-            - subset: [{ var: inputs.formulary }, { map: [{ var: output.actions }, { var: formulary_item }] }]
-            - subset: [{ map: [{ var: output.actions }, { var: formulary_item }] }, { var: inputs.formulary }]
-            - "==":
-                - { length: { unique: { map: [{ var: output.actions }, { var: formulary_item }] } } }
-                - { length: { var: output.actions } }
-      - id: status-and-ndcs-from-records
-        message: Each action's status and package_ndcs must match the records step, or be Not listed with no NDCs.
-        predicate:
-          subset:
-            - { map: [{ var: output.actions }, [{ var: formulary_item }, { var: status }, { var: package_ndcs }]] }
-            - merge:
-                - map:
-                    - { var: steps.records.items }
-                    - [{ var: formulary_item }, { var: worst_status }, { map: [{ var: records }, { var: package_ndc }] }]
-                - map:
-                    - filter: [{ var: steps.status.items }, { "==": [{ length: { var: status_counts } }, 0] }]
-                    - [{ var: formulary_item }, Not listed, []]
       - id: flagged-items-in-summary
         message: The summary must bold exactly the items with status Current or To Be Discontinued, and nothing else.
         predicate:
           and:
-            - subset:
-                - { match_all: [{ var: output.summary_markdown }, "\\*\\*([^*]+)\\*\\*"] }
-                - map:
-                    - filter: [{ var: output.actions }, { in: [{ var: status }, [Current, To Be Discontinued]] }]
-                    - { var: formulary_item }
-            - subset:
-                - map:
-                    - filter: [{ var: output.actions }, { in: [{ var: status }, [Current, To Be Discontinued]] }]
-                    - { var: formulary_item }
-                - { match_all: [{ var: output.summary_markdown }, "\\*\\*([^*]+)\\*\\*"] }
+            - subset: [{ var: let.bolded }, { var: let.flagged }]
+            - subset: [{ var: let.flagged }, { var: let.bolded }]
       - id: summary-ndcs-from-records
-        message: Every NDC in the summary must be a package_ndc from the records step.
+        message: "Every NDC in the summary must be a package_ndc from the records step; these are not:"
         predicate:
           subset:
             - { match_all: [{ var: output.summary_markdown }, "\\b(\\d{4,5}-\\d{3,4}-\\d{1,2})\\b"] }
