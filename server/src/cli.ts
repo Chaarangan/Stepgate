@@ -36,7 +36,10 @@ With no stepfiles it serves only the tools for writing new ones.
   --tool-result-chars <n>    longest tool result passed to the client (20000)
   --run-idle-ms <n>          how long a run waits for the client's next call before it is abandoned (1800000)
   --request-timeout-ms <n>   how long one outgoing request may take, body included (60000)
-  --response-bytes <n>       largest response Stepgate reads from an API (10485760)`;
+  --response-bytes <n>       largest response Stepgate reads from an API (10485760)
+  --draft-credential <name>=<host>[,<host>...]
+                             let drafts use credential <name>, sent only to these hosts; repeatable
+  --draft-setting <name>     let drafts use setting <name> from the environment; repeatable`;
 
 const { values, positionals } = parseArgs({
   allowPositionals: true,
@@ -52,6 +55,8 @@ const { values, positionals } = parseArgs({
     list: { type: "boolean" },
     verify: { type: "boolean" },
     contact: { type: "string" },
+    "draft-credential": { type: "string", multiple: true },
+    "draft-setting": { type: "string", multiple: true },
   },
 });
 
@@ -102,6 +107,15 @@ function positiveInteger(flag: string, text: string): number {
   return value;
 }
 
+/** `--draft-credential jira=acme.atlassian.net,api.atlassian.com`: the credential and the only hosts a draft may send it to. */
+function draftCredential(grant: string): [string, string[]] {
+  const [name, hosts] = grant.split("=", 2);
+  if (name === undefined || name === "" || hosts === undefined || hosts === "") {
+    throw new Error(`--draft-credential must be <name>=<host>[,<host>...], got ${grant}`);
+  }
+  return [name, hosts.split(",").map((host) => host.trim().toLowerCase())];
+}
+
 function stepfilePath(argument: string): URL | string {
   return /\.(ya?ml|json)$/i.test(argument) ? argument : catalogFile(catalogDirectory(), argument);
 }
@@ -125,7 +139,11 @@ const options: StepgateServerOptions = {
   limits,
   runIdleMs: positiveInteger("run-idle-ms", values["run-idle-ms"]),
   userAgent: agent,
-  drafts: { urlAllowed: isPublicHttpsUrl },
+  drafts: {
+    urlAllowed: isPublicHttpsUrl,
+    credentials: new Map((values["draft-credential"] ?? []).map(draftCredential)),
+    settings: new Set(values["draft-setting"] ?? []),
+  },
 };
 
 function served(): string {

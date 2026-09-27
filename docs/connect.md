@@ -57,7 +57,13 @@ Every Stepgate server also offers tools for writing new stepfiles, so you can as
 
 `npx -y stepgate` with no stepfiles starts a server that offers only these tools.
 
-Drafts are written by a model, so `stepgate_try` holds them to stricter rules than files you load yourself. A draft may not declare credentials or settings, because Stepgate would read their values from your environment and send them wherever the draft's author chose. Its tools must use public `https` URLs. Inspection sends no credentials either, and only to public `https` URLs. To try a stepfile that needs a key, save it and add its path to the server's configuration, as in [your own stepfiles](#your-own-stepfiles).
+Drafts are written by a model, so `stepgate_try` holds them to stricter rules than files you load yourself. Its tools must use public `https` URLs. A draft may declare only the credentials and settings you grant to drafts, because Stepgate would otherwise read their values from your environment and send them wherever the draft's author chose:
+
+```
+npx -y stepgate --draft-credential jira=acme.atlassian.net --draft-setting jira-site
+```
+
+A granted credential is refused if the draft lists any host you did not name, or a `token_url`, so a draft can only send it where you said. Inspection sends no credentials, and only to public `https` URLs. Any other stepfile that needs a key is tried by saving it and adding its path to the server's configuration, as in [your own stepfiles](#your-own-stepfiles).
 
 "Public" is decided from the URL's host name: loopback, private and link-local addresses and names without a dot are refused, but a public name that resolves to a private address is not caught. Run Stepgate where reaching any public host is acceptable.
 

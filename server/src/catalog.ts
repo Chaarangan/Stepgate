@@ -2,6 +2,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { CatalogEntryInvalid, StepfileInvalid, UnknownStepfile } from "./engine/errors.ts";
 import { isPublicHttpsUrl } from "./engine/http.ts";
 import { load, toolUrl } from "./engine/load.ts";
+import { withSampleSettings } from "./engine/settings.ts";
 import type { Stepfile } from "./engine/types.ts";
 
 export type CatalogEntry = { domain: string; id: string; file: URL; stepfile: Stepfile };
@@ -93,8 +94,7 @@ export function entryProblems(directory: URL, domain: string, id: string): strin
   }
   for (const [toolName, tool] of Object.entries(stepfile.document.tools ?? {})) {
     for (const url of [toolUrl(tool), ...(tool.openapi?.url === undefined ? [] : [tool.openapi.url])]) {
-      // A {setting} is filled from the operator's environment, so it is checked as an ordinary label or port.
-      if (!isPublicHttpsUrl(url.replace(/:\{[a-z][a-z0-9-]*\}/g, ":443").replace(/\{[a-z][a-z0-9-]*\}/g, "setting"))) {
+      if (!isPublicHttpsUrl(withSampleSettings(url))) {
         problems.push(`tool ${toolName} must use a public https URL, not ${url}`);
       }
     }

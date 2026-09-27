@@ -99,7 +99,7 @@ const AUTHORING_TOOLS: Tool[] = [
   {
     name: TRY,
     title: "Try a draft stepfile",
-    description: `Starts a run of a draft stepfile from its text, without adding it to the server. Drive it with ${CALL} and ${SUBMIT}. Drafts may not declare credentials or settings and may call only public https URLs.`,
+    description: `Starts a run of a draft stepfile from its text, without adding it to the server. Drive it with ${CALL} and ${SUBMIT}. Drafts may call only public https URLs, and use only the credentials and settings the operator granted to drafts.`,
     inputSchema: {
       type: "object",
       properties: { stepfile: STEPFILE_TEXT, inputs: { type: "object", description: "Inputs matching the draft's inputs schema." } },

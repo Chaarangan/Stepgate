@@ -30,7 +30,7 @@ async function start(): Promise<number> {
     limits: { callsPerStep: 8, toolResultChars: 10_000, requestTimeoutMs: 5_000, responseBytes: 1_000_000 },
     runIdleMs: 60_000,
     userAgent: userAgent(null),
-    drafts: { urlAllowed: isPublicHttpsUrl },
+    drafts: { urlAllowed: isPublicHttpsUrl, credentials: new Map(), settings: new Set() },
   }, 0);
   return served.port;
 }

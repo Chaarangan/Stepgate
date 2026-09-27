@@ -15,6 +15,8 @@ import { API_KEY, MCP_TOKEN, secretsFrom, startApi, startMcp, type Fixture } fro
 
 const BASE = readFileSync(new URL("fixtures/stock-check.stepfile.yaml", import.meta.url), "utf8");
 
+export const loopbackOrPublic = (url: string): boolean => isPublicHttpsUrl(url) || isLoopbackHttpUrl(url);
+
 /** One scripted client action: a call to one of the step's operations, or a submission. */
 export type Action = { operation: string; arguments: JsonObject } | { submit: JsonObject };
 
@@ -44,8 +46,8 @@ export type Setup = {
   limits?: Partial<RunContext["limits"]>;
   flakyFailures?: number;
   runIdleMs?: number;
-  /** Defaults to letting drafts reach the loopback fixture servers as well as public https. */
-  drafts?: DraftPolicy;
+  /** Defaults to letting drafts reach the loopback fixture servers as well as public https, with no credentials or settings. */
+  drafts?: (addresses: { catalogueHost: string }) => DraftPolicy;
 };
 
 export type Harness = {
@@ -85,7 +87,7 @@ export async function startHarness(setup: Setup): Promise<Harness> {
     limits: { callsPerStep: 8, toolResultChars: 10_000, requestTimeoutMs: 5_000, responseBytes: 1_000_000, ...setup.limits },
     runIdleMs: setup.runIdleMs ?? 60_000,
     userAgent: userAgent(null),
-    drafts: setup.drafts ?? { urlAllowed: (url) => isPublicHttpsUrl(url) || isLoopbackHttpUrl(url) },
+    drafts: setup.drafts?.({ catalogueHost: api.host }) ?? { urlAllowed: loopbackOrPublic, credentials: new Map(), settings: new Set() },
   });
   const client = new Client({ name: "platform", version: "1.0.0" });
   const seen: CallToolResult[] = [];

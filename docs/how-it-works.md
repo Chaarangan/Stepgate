@@ -59,6 +59,8 @@ Limits depend on the client and its model, so they are command-line options rath
 | `--response-bytes` | 10485760 | Largest response Stepgate reads from a tool, verifier or OpenAPI document (`ResponseTooLarge`) |
 | `--ledger-dir` | none | Write one ledger file per run here, as `<stepfile>-<run>.jsonl`; otherwise records go to standard error |
 | `--contact` | none | Your contact email, sent in the User-Agent; SEC EDGAR and USAJOBS require one |
+| `--draft-credential` | none | `<name>=<host>[,<host>...]`: let drafts use this credential, sent only to these hosts; repeatable |
+| `--draft-setting` | none | Let drafts use this setting from the environment; repeatable |
 
 ## Errors
 
@@ -76,7 +78,7 @@ Limits depend on the client and its model, so they are command-line options rath
 | `GateFailed` | A step used up its retries; names the step and the failing gates |
 | `CallLimitReached` | A step hit the tool-call limit |
 | `RunNotActive` | A call named a run that finished, failed, was abandoned or never existed |
-| `DraftRefused` | A draft given to `stepgate_try` declares credentials or settings, or calls a URL that is not public `https` |
+| `DraftRefused` | A draft given to `stepgate_try` declares a credential or setting the operator did not grant, lists a host its credential was not granted for, or calls a URL that is not public `https` |
 | `UrlNotPublic` | `stepgate_inspect_api` was given a URL that is not public `https` |
 | `ApiDocumentInvalid` | An inspected OpenAPI document does not parse, or has a `$ref` Stepgate cannot inline |
 

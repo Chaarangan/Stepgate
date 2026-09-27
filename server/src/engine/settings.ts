@@ -13,6 +13,11 @@ export function settingNames(text: string): string[] {
   return [...text.matchAll(PLACEHOLDER)].map((match) => match[1] ?? "");
 }
 
+/** The URL with each {setting} as an ordinary label or port, for checking a URL before the operator's values are known. */
+export function withSampleSettings(url: string): string {
+  return url.replace(/:\{[a-z][a-z0-9-]*\}/g, ":443").replace(PLACEHOLDER, "setting");
+}
+
 function fill(text: string, values: Map<string, string>): string {
   return text.replace(PLACEHOLDER, (_whole, name: string) => values.get(name) ?? `{${name}}`);
 }

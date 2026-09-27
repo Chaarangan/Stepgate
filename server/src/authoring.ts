@@ -3,6 +3,7 @@ import { catalogDirectory, catalogFile, listCatalog } from "./catalog.ts";
 import { CredentialUnavailable, StepfileInvalid, UrlNotPublic } from "./engine/errors.ts";
 import type { HttpContext } from "./engine/http.ts";
 import { load, toolUrl } from "./engine/load.ts";
+import { withSampleSettings } from "./engine/settings.ts";
 import { toolKinds } from "./engine/tools/kinds.ts";
 import { oneLine, type InspectRequest } from "./engine/tools/tool.ts";
 import type { Stepfile } from "./engine/types.ts";
@@ -17,7 +18,7 @@ const WORKFLOW = `# Writing a stepfile with Stepgate
 2. For each OpenAPI API, call stepgate_inspect_api with kind "openapi" and the document's URL. It returns the sha256 to pin, the servers, the security schemes and the operationIds to expose; pass operations to see the arguments each takes. For a remote MCP server, kind "mcp" lists its tools with the schema_sha256 of each.
 3. Give every step gates that check its output against \`calls\`, what the APIs actually returned, not only its shape.
 4. Call stepgate_validate with the draft and fix every issue it lists.
-5. Call stepgate_try with the draft and example inputs, then drive the run with stepgate_call and stepgate_submit as for any stepfile. Drafts may not declare credentials or settings and may call only public https URLs; a stepfile that needs a key is tried by saving it and adding its path to the server's configuration.
+5. Call stepgate_try with the draft and example inputs, then drive the run with stepgate_call and stepgate_submit as for any stepfile. Drafts may call only public https URLs, and may declare only the credentials and settings the operator granted to drafts (a credential only for the hosts it was granted for); any other stepfile that needs a key is tried by saving it and adding its path to the server's configuration.
 6. Save it as <id>.stepfile.yaml. It runs by passing its absolute path to stepgate.`;
 
 function firstExisting(locations: URL[]): URL {
@@ -51,24 +52,41 @@ export function examples(name: string | undefined): string {
   return `${lines.length} catalog stepfiles. Call stepgate_examples with a name to read one.\n\n${lines.join("\n")}`;
 }
 
-/** What the operator lets drafts and inspection reach: public https in production, loopback too in tests. */
-export type DraftPolicy = { urlAllowed: (url: string) => boolean };
+/**
+ * What the operator lets drafts and inspection reach: URLs (public https in production, loopback too in tests), and
+ * the credentials and settings a draft may use. A credential is granted with the hosts it may be sent to.
+ */
+export type DraftPolicy = {
+  urlAllowed: (url: string) => boolean;
+  credentials: ReadonlyMap<string, readonly string[]>;
+  settings: ReadonlySet<string>;
+};
 
 /** Every rule a draft breaks for stepgate_try; empty when it may run. */
 export function draftProblems(stepfile: Stepfile, policy: DraftPolicy): string[] {
   const { document } = stepfile;
   const problems: string[] = [];
-  const credentials = Object.keys(document.credentials ?? {});
-  if (credentials.length > 0) {
-    problems.push(`it declares credentials (${credentials.join(", ")}); drafts run without keys, so save it and add its path to the server's configuration to try it`);
+  for (const [name, credential] of Object.entries(document.credentials ?? {})) {
+    const granted = policy.credentials.get(name);
+    if (granted === undefined) {
+      problems.push(`it declares credential ${name}, which the operator has not granted to drafts; they can start the server with --draft-credential ${name}=<host>, or save the stepfile and add its path to the server's configuration`);
+      continue;
+    }
+    const extra = credential.hosts.filter((host) => !granted.includes(host));
+    if (extra.length > 0) {
+      problems.push(`credential ${name} lists ${extra.join(", ")}, but the operator granted it only for ${granted.join(", ")}`);
+    }
+    if (credential.token_url !== undefined) {
+      problems.push(`credential ${name} declares a token_url, which would receive the operator's refresh token; drafts may not refresh credentials`);
+    }
   }
-  const settings = Object.keys(document.settings ?? {});
-  if (settings.length > 0) {
-    problems.push(`it declares settings (${settings.join(", ")}), which come from the operator's environment; save it and add it to the server's configuration to try it`);
+  const ungranted = Object.keys(document.settings ?? {}).filter((name) => !policy.settings.has(name));
+  if (ungranted.length > 0) {
+    problems.push(`it declares settings (${ungranted.join(", ")}) the operator has not granted to drafts with --draft-setting; save it and add it to the server's configuration to try it`);
   }
   for (const [toolName, tool] of Object.entries(document.tools ?? {})) {
     for (const url of [toolUrl(tool), ...(tool.openapi?.url === undefined ? [] : [tool.openapi.url])]) {
-      if (!policy.urlAllowed(url)) {
+      if (!policy.urlAllowed(withSampleSettings(url))) {
         problems.push(`tool ${toolName} must use a public https URL, not ${url}`);
       }
     }
