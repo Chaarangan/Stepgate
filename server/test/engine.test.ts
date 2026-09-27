@@ -130,6 +130,17 @@ describe("load", () => {
     expect(() => load(JSON.stringify(document))).toThrow("when is evaluated before the step runs, so it cannot read output, calls or let");
   });
 
+  it("refuses an object with other than one key inside an expression, and an operator Stepgate does not have", () => {
+    const document = parseYaml(readFileSync(MARKET_RESEARCH, "utf8")) as { steps: Array<{ gates: JsonObject[] }> };
+    const gates = (document.steps[0] as { gates: JsonObject[] }).gates;
+    gates.push({ id: "shaped", message: "m", predicate: { some: [{ map: [{ var: "output.sources" }, { name: { var: "id" }, url: { var: "url" } }] }, { "==": [{ var: "name" }, "S-01"] }] } });
+    gates.push({ id: "unknown", message: "m", predicate: { contains: [{ var: "output.sources" }, "S-01"] } });
+
+    const messages = issuesOf(() => load(JSON.stringify(document)));
+    expect(messages).toContain("/steps/0/gates/shaped an expression holds an object with keys name, url, which JSONLogic keeps as data; build it with object");
+    expect(messages).toContain("/steps/0/gates/unknown contains is not a JSONLogic or Stepgate operator");
+  });
+
   it("requires every {placeholder} to be a declared setting, and every setting to be used", () => {
     const document = parseYaml(readFileSync(MARKET_RESEARCH, "utf8")) as { settings?: unknown; tools: { tavily: { mcp: { url: string } } } };
     document.tools.tavily.mcp.url = "https://{region}.mcp.tavily.com/mcp/";

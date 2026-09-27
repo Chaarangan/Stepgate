@@ -32,6 +32,7 @@ Unknown fields are rejected. Beyond the schema, Stepgate checks these rules when
 8. Every `derive` key is a property of the step's `produces`.
 9. Every `var` path under `let.` names an entry of the step's `let`, one before it when read from `let` itself, and `when` reads no `let`.
 10. Every `results` takes a literal operation name and optional path, and appears only in an agent step's gates, `let` and `derive`, never in `when`, `select` or `do`.
+11. Every expression is made of one-key objects naming a JSONLogic or Stepgate operator. An object with other keys would be kept as data unevaluated, so it is refused; build it with `object`, or in a template write it as it is.
 
 ## Tools
 
@@ -165,6 +166,13 @@ A call's `operation` is any exposed name, and its `arguments` and the step's `ou
 - `{ literal: <value> }` is the value as written, for an object that would otherwise read as an expression, such as a request body `{ filter: ... }`;
 - any other object or array has each member evaluated as a template, and anything else is itself.
 
+Templates build objects at their own level only. Inside an expression, such as the body of a `map`, build each item with `object`:
+
+```yaml
+output:
+  rows: { map: [{ var: responses.shelf.items }, { object: [[name, { var: id }], [stock, { var: count }]] }] }
+```
+
 A call with `each`, an expression giving an array, is made once per element in order, with the element as `item` in its `arguments`, and `responses.<call id>` is then the list of results. An empty array makes no request. This repeats one call over data, such as looking up every DOI an earlier step listed; it is not a loop over steps, which the format does not have.
 
 ```yaml
@@ -257,11 +265,12 @@ For a `subset` rule, `difference` over the same two arrays makes a good `explain
             - map: [{ var: result.docs }, { var: key }]
 ```
 
-Besides the standard JSONLogic operators, twelve more are available:
+Besides the standard JSONLogic operators, thirteen more are available:
 
 | Operator | Arguments | Result |
 |---|---|---|
 | `results` | operation, optional path | The values at `path` (the whole result without one) of every call this step made to the operation that did not fail, flattened one level |
+| `object` | `[key, value]` pairs | An object with those keys and values, each value evaluated; the only way to build one inside `map`, since JSONLogic keeps an object literal as data |
 | `length` | array or string | Number of elements, or of Unicode code points |
 | `unique` | array | Distinct elements by JSON equality, in first-seen order |
 | `subset` | array `a`, array `b` | `true` if every element of `a` is in `b` |

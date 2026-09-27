@@ -60,6 +60,13 @@ register("join", (left: unknown, right: unknown, leftPath: unknown, rightPath: u
     right: right.find((other: unknown) => isDeepStrictEqual(valueAt(other, rightPath), valueAt(item, leftPath))) ?? null,
   }));
 });
+// `object` builds an object from [key, value] pairs, because JSONLogic keeps an object literal as data, unevaluated.
+register("object", (...pairs: unknown[]) => Object.fromEntries(pairs.map((pair) => {
+  if (!Array.isArray(pair) || pair.length !== 2 || typeof pair[0] !== "string") {
+    throw new TypeError(`object takes [key, value] pairs with a string key; got ${JSON.stringify(pair)}`);
+  }
+  return pair as [string, unknown];
+})));
 register("lower", (value: unknown) => (typeof value === "string" ? value.toLowerCase() : null));
 register("flatten", (value: unknown) =>
   Array.isArray(value) ? value.flatMap((item: unknown) => (Array.isArray(item) ? item : [item])) : null,
@@ -77,6 +84,44 @@ const JSONLOGIC_OPERATORS = [
   "var", "missing", "missing_some", "method", "if", "?:", "and", "or", "filter", "map", "reduce", "all", "none", "some",
 ];
 const OPERATORS = new Set([...JSONLOGIC_OPERATORS, ...STEPGATE_OPERATORS]);
+
+/** Why each part of a rule would not evaluate as written: an object that JSONLogic would keep as data, or an unknown operator. */
+export function expressionProblems(rule: Json): string[] {
+  if (Array.isArray(rule)) {
+    return rule.flatMap(expressionProblems);
+  }
+  if (rule === null || typeof rule !== "object") {
+    return [];
+  }
+  const keys = Object.keys(rule);
+  if (keys.length !== 1) {
+    return [`an expression holds an object with keys ${keys.join(", ")}, which JSONLogic keeps as data; build it with object`];
+  }
+  const operator = keys[0] as string;
+  // results is expanded into standard operators before evaluation, so it is never registered.
+  if (!OPERATORS.has(operator) && operator !== "results") {
+    return [`${operator} is not a JSONLogic or Stepgate operator`];
+  }
+  return expressionProblems(rule[operator] ?? null);
+}
+
+/** Why each expression in a template would not evaluate as written; see `evaluateTemplate` for what counts as one. */
+export function templateProblems(template: Json): string[] {
+  if (Array.isArray(template)) {
+    return template.flatMap(templateProblems);
+  }
+  if (template === null || typeof template !== "object") {
+    return [];
+  }
+  const keys = Object.keys(template);
+  if (keys.length === 1 && keys[0] === "literal") {
+    return [];
+  }
+  if (keys.length === 1 && OPERATORS.has(keys[0] ?? "")) {
+    return expressionProblems(template);
+  }
+  return Object.values(template).flatMap(templateProblems);
+}
 
 /**
  * Evaluates a template: a one-key object naming an operator is an expression, `{ literal: x }` is x as written, any

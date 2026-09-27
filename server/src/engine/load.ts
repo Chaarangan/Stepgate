@@ -4,7 +4,7 @@ import { StepfileInvalid, type ValidationIssue } from "./errors.ts";
 import { canonicalHash } from "./identity.ts";
 import { createValidator } from "./json-schema.ts";
 import { placeholderPaths } from "./placeholders.ts";
-import { matchAllPatterns, operatorArguments, resultsProblem, varPaths } from "./predicate.ts";
+import { expressionProblems, matchAllPatterns, operatorArguments, resultsProblem, templateProblems, varPaths } from "./predicate.ts";
 import { patternProblem, schemaPatterns } from "./regex.ts";
 import { settingNames } from "./settings.ts";
 import type { CredentialDeclaration, Json, MechanicalWork, Step, Stepfile, StepfileDocument, ToolDeclaration } from "./types.ts";
@@ -120,6 +120,9 @@ function checkCrossFieldRules(document: StepfileDocument): ValidationIssue[] {
         issues.push({ path: `/tools/${toolName}/exposes`, message: `${name}: schema_sha256 pins an MCP tool's schema; an OpenAPI operation is pinned by the document's sha256` });
       }
       if (typeof entry !== "string" && entry.select !== undefined) {
+        for (const problem of expressionProblems(entry.select)) {
+          issues.push({ path: `/tools/${toolName}/exposes`, message: `${name}: ${problem}` });
+        }
         if (operatorArguments(entry.select, "results").length > 0) {
           issues.push({ path: `/tools/${toolName}/exposes`, message: `${name}: select sees one result, so it cannot use results` });
         }
@@ -254,6 +257,22 @@ function checkCrossFieldRules(document: StepfileDocument): ValidationIssue[] {
           issues.push({ path: where, message: problem });
         }
       }
+    }
+    const expressions: Array<[string, Json]> = [
+      ...readingLet,
+      ...lets.map(([name, rule]): [string, Json] => [`${path}/let/${name}`, rule]),
+      ...(step.when === undefined ? [] : [[`${path}/when`, step.when] as [string, Json]]),
+      ...(step.do?.calls ?? []).flatMap((call, position): Array<[string, Json]> => (call.each === undefined ? [] : [[`${path}/do/calls/${position}`, call.each]])),
+    ];
+    const templates: Array<[string, Json]> = step.do === undefined ? [] : [
+      ...(step.do.calls ?? []).map((call, position): [string, Json] => [`${path}/do/calls/${position}`, call.arguments ?? null]),
+      [`${path}/do/output`, step.do.output],
+    ];
+    for (const [where, message] of [
+      ...expressions.flatMap(([where, rule]) => expressionProblems(rule).map((message): [string, string] => [where, message])),
+      ...templates.flatMap(([where, template]) => templateProblems(template).map((message): [string, string] => [where, message])),
+    ]) {
+      issues.push({ path: where, message });
     }
     for (const [where, rule] of readingLet) {
       for (const reference of letReferences(rule)) {
