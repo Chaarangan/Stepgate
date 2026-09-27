@@ -41,6 +41,16 @@ To have your editor check the file as you type, start it with this line; editors
 # yaml-language-server: $schema=https://raw.githubusercontent.com/Chaarangan/stepgate/main/server/schema/stepfile.schema.json
 ```
 
+## MCP servers that use MCP authorization
+
+Some remote MCP servers, such as Linear's and Notion's, issue tokens through their own OAuth authorization server rather than taking an API key. A stepfile declares such a credential as `oauth2` with the advertised `token_url`, and you authorize it once:
+
+```sh
+npx -y stepgate --auth <stepfile.yaml | catalog name> <credential>
+```
+
+Stepgate finds the server's authorization server, registers itself as a client, and prints a URL to open. After you approve access in the browser, it prints the variables to set in the server's configuration: `<NAME>_REFRESH_TOKEN`, `<NAME>_CLIENT_ID` and `<NAME>_RESOURCE`, or `<NAME>_API_KEY` when the server issues no refresh token. It writes nothing to disk. Where the authorization server offers no client registration, pass `--client-id` with a client you registered for `http://127.0.0.1` redirects.
+
 ## Writing stepfiles with an agent
 
 Every Stepgate server also offers tools for writing new stepfiles, so you can ask your agent for one in plain words:

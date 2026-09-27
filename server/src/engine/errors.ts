@@ -114,6 +114,16 @@ export class GateFailed extends StepgateError {
   }
 }
 
+/** Authorizing a credential with an MCP server's authorization server failed, or its metadata could not be read. */
+export class AuthorizationFailed extends StepgateError {
+  override name = "AuthorizationFailed";
+  readonly subject: string;
+  constructor(subject: string, reason: string, options?: ErrorOptions) {
+    super(`authorization for ${subject} failed: ${reason}`, options);
+    this.subject = subject;
+  }
+}
+
 /** A mechanical step computed arguments its operation's schema refuses, which no model is there to correct. */
 export class CallArgumentsInvalid extends StepgateError {
   override name = "CallArgumentsInvalid";

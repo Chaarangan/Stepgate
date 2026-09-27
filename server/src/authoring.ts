@@ -1,8 +1,9 @@
 import { existsSync, readFileSync } from "node:fs";
 import { parse as parseYaml } from "yaml";
 import { catalogDirectory, catalogFile, listCatalog } from "./catalog.ts";
-import { CredentialUnavailable, StepfileInvalid, UrlNotPublic } from "./engine/errors.ts";
-import type { HttpContext } from "./engine/http.ts";
+import { CredentialUnavailable, StepfileInvalid, ToolCallFailed, UrlNotPublic } from "./engine/errors.ts";
+import { guardedFetch, type HttpContext } from "./engine/http.ts";
+import { discoverMcpAuthorization } from "./engine/mcp-auth.ts";
 import { load, toolUrl } from "./engine/load.ts";
 import { markers } from "./outline.ts";
 import { withSampleSettings } from "./engine/settings.ts";
@@ -155,5 +156,27 @@ export async function inspectApi(request: InspectRequest, outbound: Outbound, po
     throw new UrlNotPublic(request.url);
   }
   const url = new URL(request.url);
-  return toolKinds[request.kind].inspect(inspectionContext(url, outbound), url, request);
+  try {
+    return await toolKinds[request.kind].inspect(inspectionContext(url, outbound), url, request);
+  } catch (error) {
+    // An MCP server that refuses an unauthenticated listing may use MCP authorization, which says what to declare.
+    if (request.kind !== "mcp" || !(error instanceof ToolCallFailed)) {
+      throw error;
+    }
+    const found = await discoverMcpAuthorization((target, init) => {
+      const next = new URL(target);
+      if (!policy.urlAllowed(next.href)) {
+        throw new UrlNotPublic(next.href);
+      }
+      return guardedFetch({ ...inspectionContext(next, outbound) }, `discover authorization for ${url.href}`, next, init ?? {}, null);
+    }, url.href);
+    if (found === null) {
+      throw error;
+    }
+    return [
+      `MCP server ${url.href} needs authorization, so its tools cannot be listed without a key.`,
+      `It uses MCP authorization: resource ${found.resource}, authorization server ${found.issuer}${found.scopes.length === 0 ? "" : `, scopes ${found.scopes.join(" ")}`}.`,
+      `Declare its credential as kind: oauth2, with token_url: ${found.metadata.token_endpoint}, hosts: [${url.host}] and the scopes the steps need. The operator then runs stepgate --auth <stepfile> <credential> once to authorize it. Read the server's documentation for its tool names.`,
+    ].join("\n");
+  }
 }

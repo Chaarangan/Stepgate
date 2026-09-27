@@ -19,6 +19,7 @@ import { catalogDirectory, catalogFile, listCatalog } from "./catalog.ts";
 import { parseCases, testGates } from "./gate-test.ts";
 import { serveHttp } from "./http-server.ts";
 import { environmentCredentials, environmentSettings } from "./operator.ts";
+import { authorizeCredential } from "./authorize.ts";
 import { directoryCaseSink } from "./record-cases.ts";
 import { fixedStepfiles, watchStepfiles } from "./served.ts";
 import { createStepgateServer, type StepgateServerOptions } from "./server.ts";
@@ -29,12 +30,15 @@ const HELP = `usage: stepgate [options] [<stepfile.yaml | catalog name>...]
        stepgate --list
        stepgate --verify <ledger.jsonl>...
        stepgate --test <stepfile.yaml | catalog name> [<cases.yaml>]
+       stepgate --auth <stepfile.yaml | catalog name> <credential> [--client-id <id>]
 
 With no stepfiles it serves only the tools for writing new ones.
 
   --list                     show the stepfiles in the bundled catalog
   --verify                   check that each ledger file's hash chain is intact; exits 1 if one is broken
   --test                     run a stepfile's gates over recorded cases, offline; the cases default to <id>.cases.yaml beside it
+  --auth                     authorize an oauth2 credential with its MCP server's authorization server, and print what to set
+  --client-id <id>           with --auth, a client registered for http://127.0.0.1 redirects, where the server offers no registration
   --contact <email>          your contact email, sent in the User-Agent (SEC EDGAR and USAJOBS require one)
   --http <port>              serve Streamable HTTP on 127.0.0.1:<port>/mcp instead of stdio
   --ledger-dir <dir>         write one ledger file per run there; otherwise records go to stderr
@@ -67,6 +71,8 @@ const { values, positionals } = parseArgs({
     "draft-credential": { type: "string", multiple: true },
     "draft-setting": { type: "string", multiple: true },
     watch: { type: "boolean" },
+    auth: { type: "boolean" },
+    "client-id": { type: "string" },
     "record-cases": { type: "string" },
   },
 });
@@ -93,6 +99,22 @@ if (values.verify === true) {
     console.log(found === null ? `${file}: intact, ${records.length} records` : `${file}: broken at seq ${found.seq}: ${found.reason}`);
   }
   process.exit(broken ? 1 : 0);
+}
+
+if (values.auth === true) {
+  const [target, credential] = positionals;
+  if (target === undefined || credential === undefined) {
+    throw new Error("--auth needs a stepfile path or catalog name and a credential name");
+  }
+  const stepfile = load(readFileSync(stepfilePath(target), "utf8"));
+  const variables = await authorizeCredential(stepfile, credential, values["client-id"] ?? null, { userAgent: userAgent(contactEmail(values.contact)) }, environmentSettings(process.env), async (url) => {
+    console.error(`stepgate: open this URL in a browser and approve access for ${credential}:\n\n  ${url.href}\n`);
+  });
+  console.error("stepgate: authorized. Set these in the server's environment, and keep them secret:");
+  for (const [name, value] of Object.entries(variables)) {
+    console.log(`${name}=${value}`);
+  }
+  process.exit(0);
 }
 
 if (values.test === true) {

@@ -26,7 +26,7 @@ function fill(text: string, values: Map<string, string>): string {
  * The document with every {setting} in tool URLs and credential hosts replaced by the operator's
  * value. Runs before the host allowlist is built, so allowed hosts are always concrete.
  */
-export async function resolveSettings(document: StepfileDocument, runContext: RunContext): Promise<StepfileDocument> {
+export async function resolveSettings(document: StepfileDocument, runContext: Pick<RunContext, "settings">): Promise<StepfileDocument> {
   const declared: Array<[string, SettingDeclaration]> = Object.entries(document.settings ?? {});
   if (declared.length === 0) {
     return document;

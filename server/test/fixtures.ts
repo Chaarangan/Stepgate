@@ -161,10 +161,16 @@ export async function startApi(flakyFailures: number): Promise<Fixture> {
 }
 
 /** A stateless Streamable HTTP MCP server offering `lookup`, which requires the bearer token. */
-export async function startMcp(): Promise<Fixture> {
+export async function startMcp(authorizationServer: string | null): Promise<Fixture> {
   const received: ReceivedRequest[] = [];
+  let origin = "";
   const server = createServer(async (request, response) => {
     received.push({ method: request.method ?? "", path: request.url ?? "/", headers: request.headers, body: "" });
+    // With an authorization server, the fixture publishes RFC 9728 metadata naming it, as MCP authorization requires.
+    if (authorizationServer !== null && (request.url ?? "").startsWith("/.well-known/oauth-protected-resource")) {
+      send(response, 200, { resource: `${origin}/mcp`, authorization_servers: [authorizationServer], scopes_supported: ["read"] });
+      return;
+    }
     if (request.headers.authorization !== `Bearer ${MCP_TOKEN}`) {
       send(response, 401, { error: "unauthorised" });
       return;
@@ -188,7 +194,63 @@ export async function startMcp(): Promise<Fixture> {
     await mcp.connect(transport as Transport);
     await transport.handleRequest(request, response);
   });
-  return { ...(await listen(server)), received };
+  const listening = await listen(server);
+  origin = listening.origin;
+  return { ...listening, received };
+}
+
+export const REFRESH_TOKEN = "refresh-token-91d0";
+
+/**
+ * An OAuth authorization server for the MCP fixture: RFC 8414 metadata, dynamic client registration, an authorize
+ * endpoint that approves at once by redirecting with a code and `iss`, and a token endpoint issuing MCP_TOKEN.
+ */
+export async function startAuthorizationServer(): Promise<Fixture> {
+  const received: ReceivedRequest[] = [];
+  let origin = "";
+  const server = createServer(async (request, response) => {
+    const body = await readBody(request);
+    received.push({ method: request.method ?? "", path: request.url ?? "/", headers: request.headers, body });
+    const url = new URL(request.url ?? "/", origin);
+    if (url.pathname === "/.well-known/oauth-authorization-server") {
+      send(response, 200, {
+        issuer: origin,
+        authorization_endpoint: `${origin}/authorize`,
+        token_endpoint: `${origin}/token`,
+        registration_endpoint: `${origin}/register`,
+        response_types_supported: ["code"],
+        code_challenge_methods_supported: ["S256"],
+        authorization_response_iss_parameter_supported: true,
+        scopes_supported: ["read", "offline_access"],
+      });
+      return;
+    }
+    if (url.pathname === "/register" && request.method === "POST") {
+      send(response, 201, { ...(JSON.parse(body) as object), client_id: "client-1" });
+      return;
+    }
+    if (url.pathname === "/authorize") {
+      const redirect = new URL(url.searchParams.get("redirect_uri") ?? "");
+      redirect.searchParams.set("code", "code-1");
+      redirect.searchParams.set("state", url.searchParams.get("state") ?? "");
+      redirect.searchParams.set("iss", origin);
+      response.writeHead(302, { location: redirect.href }).end();
+      return;
+    }
+    if (url.pathname === "/token" && request.method === "POST") {
+      const form = new URLSearchParams(body);
+      const granted = form.get("grant_type") === "authorization_code" ? form.get("code") === "code-1" && form.get("code_verifier") !== null
+        : form.get("grant_type") === "refresh_token" && form.get("refresh_token") === REFRESH_TOKEN;
+      send(response, granted ? 200 : 400, granted
+        ? { access_token: MCP_TOKEN, token_type: "Bearer", expires_in: 3600, refresh_token: REFRESH_TOKEN }
+        : { error: "invalid_grant" });
+      return;
+    }
+    send(response, 404, { error: "not found" });
+  });
+  const listening = await listen(server);
+  origin = listening.origin;
+  return { ...listening, received };
 }
 
 /** Fixed values, as an operator's static keys are; a rejected one is never replaced. */

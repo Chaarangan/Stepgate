@@ -117,6 +117,8 @@ A stepfile declares what it needs and never where a secret lives: there is no va
 
 An `oauth2` credential with a `token_url` can also be refreshed: whoever runs Stepgate sets `<NAME>_REFRESH_TOKEN` and `<NAME>_CLIENT_ID` (and `<NAME>_CLIENT_SECRET` for a confidential client) instead of an access token, and Stepgate exchanges them at `token_url` with the declared `scopes`, refreshes the access token before it expires, and once more when an API answers 401. The refresh token is sent to `token_url`, so it is fixed in the file and cannot use a `{setting}`; read it before handing a stepfile a refresh token.
 
+A remote MCP server that uses MCP authorization, such as Linear's or Notion's, takes an `oauth2` credential whose `token_url` is the token endpoint its authorization server advertises; `stepgate_inspect_api` reports it. Before reading such a credential, Stepgate reads the server's protected resource metadata and refuses to start if its authorization server advertises a different token endpoint, so a refresh token only goes where the MCP server says. Whoever runs Stepgate authorizes it once with `stepgate --auth`, as [connect.md](connect.md#mcp-servers-that-use-mcp-authorization) describes.
+
 A credential is attached only to requests whose host is in its `hosts`, and never reaches the model, a placeholder or the ledger.
 
 ## Steps

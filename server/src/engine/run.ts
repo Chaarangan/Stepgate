@@ -1,6 +1,7 @@
 import type { ValidateFunction } from "ajv/dist/2020.js";
 import { randomUUID } from "node:crypto";
 import {
+  AuthorizationFailed,
   CallArgumentsInvalid,
   CallLimitReached,
   CredentialUnavailable,
@@ -12,7 +13,8 @@ import {
   type GateDiagnosis,
 } from "./errors.ts";
 import { compileStepGates, submittedSchema, type StepGates } from "./gates.ts";
-import type { HttpContext } from "./http.ts";
+import { guardedFetch, type HttpContext } from "./http.ts";
+import { discoverMcpAuthorization, type McpAuthorization } from "./mcp-auth.ts";
 import { canonicalHash, textHash } from "./identity.ts";
 import { compileToolSchema, createToolSchemaValidators, createValidator, describeErrors, inlineLocalRefs } from "./json-schema.ts";
 import { createLedger, type AppendRecord } from "./ledger.ts";
@@ -60,12 +62,40 @@ async function checkCredentials(stepfile: Stepfile, runContext: RunContext): Pro
   }
 }
 
+/**
+ * Refuses a refresh token's destination the MCP server does not vouch for: when the server uses MCP authorization,
+ * its authorization server's token endpoint must be the credential's token_url.
+ */
+async function checkTokenEndpoint(http: HttpContext, toolName: string, serverUrl: string, credential: string, tokenUrl: string): Promise<void> {
+  const operation = `discover authorization for tool ${toolName}`;
+  const context: HttpContext = { ...http, allowedHosts: new Set([...http.allowedHosts, new URL(tokenUrl).host]) };
+  let found: McpAuthorization | null;
+  try {
+    found = await discoverMcpAuthorization((url, init) => guardedFetch(context, operation, new URL(url), init ?? {}, null), serverUrl);
+  } catch (error) {
+    if (error instanceof AuthorizationFailed) {
+      throw new PreflightFailed(`credential ${credential}`, error.message, { cause: error });
+    }
+    throw error;
+  }
+  if (found !== null && found.metadata.token_endpoint !== tokenUrl) {
+    throw new PreflightFailed(`credential ${credential}`, `its token_url is ${tokenUrl}, but the authorization server for ${serverUrl}, ${found.issuer}, advertises ${found.metadata.token_endpoint}; Stepgate sends the refresh token only to the advertised one`);
+  }
+}
+
 /** Resolves every credential and connects every tool before step 1 (docs/how-it-works.md, Preflight). */
 async function preflight(stepfile: Stepfile, inputs: JsonObject, runContext: RunContext, http: HttpContext): Promise<Prepared> {
   const ajv = createValidator();
   const validateInputs = ajv.compile(stepfile.document.inputs);
   if (!validateInputs(inputs)) {
     throw new PreflightFailed("inputs", describeErrors(validateInputs.errors));
+  }
+  // Before any credential is read, since reading a refreshable one sends its refresh token to token_url.
+  for (const [toolName, declaration] of Object.entries(stepfile.document.tools ?? {})) {
+    const credential = credentialOf(stepfile.document, toolName);
+    if (declaration.mcp !== undefined && credential?.declaration.token_url !== undefined) {
+      await checkTokenEndpoint(http, toolName, declaration.mcp.url, credential.name, credential.declaration.token_url);
+    }
   }
   await checkCredentials(stepfile, runContext);
   if (!runContext.approvals.available && stepfile.document.steps.some((step) => (step.gates ?? []).some((gate) => "approve" in gate))) {

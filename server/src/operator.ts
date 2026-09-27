@@ -63,6 +63,11 @@ export function environmentCredentials(env: Environment, outbound: Pick<HttpCont
     if ((declaration.scopes ?? []).length > 0) {
       form.set("scope", (declaration.scopes ?? []).join(" "));
     }
+    // MCP authorization requires the RFC 8707 resource on every token request; stepgate --auth prints its value.
+    const resource = read(env, variableFor(name, "RESOURCE"));
+    if (resource !== null) {
+      form.set("resource", resource);
+    }
     // The source outlives any one run, so its requests leave no retry records in a run's ledger.
     const context: HttpContext = { ...outbound, allowedHosts: new Set([url.host]), append: async () => undefined, credentials: { value: async () => "", rejected: async () => false } };
     const response = await guardedFetch(context, operation, url, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded", accept: "application/json" }, body: form.toString() }, null);
