@@ -77,23 +77,43 @@ tools:
                       - RevenueFromContractWithCustomerIncludingAssessedTax
                       - NetIncomeLoss
                       - NetCashProvidedByUsedInOperatingActivities
+              responses:
+                "200": { description: The concept's values under units }
+                "404": { description: The company never reported the concept }
     exposes: [getSubmissions, getConcept]
 
+# A fact is picked from the concept's units.USD by a key of accession and period end (and, for amounts
+# over a period, whether it spans 11 to 12 months), which join matches against the latest 10-K's.
 steps:
   - id: resolve
-    tools: [searchEdgar, getSubmissions]
-    instructions: |
-      Identify the SEC filer for ticker {{inputs.ticker}} and its latest annual
-      report.
-
-      1. Call searchEdgar with keysTyped set to the ticker. The hit whose
-         _source.tickers lists {{inputs.ticker}} is the company; its _id is the
-         CIK. Left-pad the CIK with zeros to 10 digits.
-      2. Call getSubmissions with that CIK and copy cik, name, tickers and
-         fiscalYearEnd exactly as returned.
-      3. Call searchEdgar with forms 10-K and ciks set to the 10-digit CIK. The
-         first hit with _source.form 10-K is the latest annual report; copy its
-         adsh, period_ending and file_date.
+    do:
+      calls:
+        - { id: company, operation: searchEdgar, arguments: { keysTyped: { var: inputs.ticker } } }
+        - { id: submissions, operation: getSubmissions, arguments: { cik: { substr: [{ cat: ["0000000000", { var: responses.company.hits.hits.0._id }] }, -10] } } }
+        - { id: filings, operation: searchEdgar, arguments: { ciks: { substr: [{ cat: ["0000000000", { var: responses.company.hits.hits.0._id }] }, -10] } } }
+      output:
+        cik: { substr: [{ cat: ["0000000000", { var: responses.company.hits.hits.0._id }] }, -10] }
+        entity_name: { var: responses.submissions.name }
+        sec_tickers: { var: responses.submissions.tickers }
+        fiscal_year_end: { var: responses.submissions.fiscalYearEnd }
+        # sort.0 is the filing date in epoch milliseconds, so the largest one is the newest 10-K.
+        latest_10k:
+          get:
+            - map:
+                - filter:
+                    - join:
+                        - filter: [{ var: responses.filings.hits.hits }, { "==": [{ var: _source.form }, 10-K] }]
+                        - - object:
+                              - - sort
+                                - reduce:
+                                    - map: [{ filter: [{ var: responses.filings.hits.hits }, { "==": [{ var: _source.form }, 10-K] }] }, { var: sort.0 }]
+                                    - max: [{ var: accumulator }, { var: current }]
+                                    - 0
+                        - sort.0
+                        - sort
+                    - var: right
+                - object: [[accn, { var: left._source.adsh }], [period_ending, { var: left._source.period_ending }], [filed, { var: left._source.file_date }]]
+            - 0
     produces:
       type: object
       required: [cik, entity_name, sec_tickers, fiscal_year_end, latest_10k]
@@ -110,73 +130,72 @@ steps:
             period_ending: { type: string, pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" }
             filed: { type: string, pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" }
     gates:
+      # Stepgate takes the first company hit, so the run stops if the SEC does not list the ticker for it.
       - id: ticker-belongs-to-filer
-        message: sec_tickers must include the input ticker.
+        message: The first EDGAR company hit must be a filer the SEC lists the input ticker for.
         predicate:
           in: [{ var: inputs.ticker }, { var: output.sec_tickers }]
-      - id: company-from-submissions
-        message: cik, entity_name, sec_tickers and fiscal_year_end must match one getSubmissions response exactly.
-        predicate:
-          subset:
-            - [[{ var: output.cik }, { var: output.entity_name }, { var: output.sec_tickers }, { var: output.fiscal_year_end }]]
-            - map:
-                - filter: [{ var: calls }, { "==": [{ var: tool }, getSubmissions] }]
-                - [{ var: result.cik }, { var: result.name }, { var: result.tickers }, { var: result.fiscalYearEnd }]
-      - id: filing-from-search
-        message: latest_10k must be a 10-K hit from a searchEdgar filing search for this CIK, with adsh, period_ending and file_date copied exactly.
-        predicate:
-          subset:
-            - [[{ var: output.latest_10k.accn }, { var: output.latest_10k.period_ending }, { var: output.latest_10k.filed }, [{ var: output.cik }]]]
-            - flatten:
-                map:
-                  - filter: [{ var: calls }, { "==": [{ var: tool }, searchEdgar] }]
-                  - map:
-                      - filter: [{ var: result.hits.hits }, { "==": [{ var: _source.form }, 10-K] }]
-                      - [{ var: _source.adsh }, { var: _source.period_ending }, { var: _source.file_date }, { var: _source.ciks }]
-      # sort.0 is the filing date in epoch milliseconds, so the largest one is the newest 10-K.
-      - id: filing-is-latest
-        message: latest_10k must be the most recently filed 10-K among the search hits, not an older one.
-        predicate:
-          subset:
-            - - - { var: output.latest_10k.accn }
-                - reduce:
-                    - flatten:
-                        map:
-                          - filter: [{ var: calls }, { "==": [{ var: tool }, searchEdgar] }]
-                          - map:
-                              - filter: [{ var: result.hits.hits }, { "==": [{ var: _source.form }, 10-K] }]
-                              - { var: sort.0 }
-                    - max: [{ var: accumulator }, { var: current }]
-                    - 0
-            - flatten:
-                map:
-                  - filter: [{ var: calls }, { "==": [{ var: tool }, searchEdgar] }]
-                  - map:
-                      - filter: [{ var: result.hits.hits }, { "==": [{ var: _source.form }, 10-K] }]
-                      - [{ var: _source.adsh }, { var: sort.0 }]
-    retries: 2
 
   - id: balance-sheet
-    tools: [getConcept]
-    instructions: |
-      Company: {{steps.resolve.entity_name}}, CIK {{steps.resolve.cik}}.
-      Latest 10-K: accession {{steps.resolve.latest_10k.accn}}, period ending
-      {{steps.resolve.latest_10k.period_ending}}.
-
-      Call getConcept for Assets, Liabilities and StockholdersEquity (if
-      StockholdersEquity returns 404, use
-      StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest).
-      In units.USD, take the entry whose accn is the accession above and whose
-      end is the period ending above, and copy concept, val (as value), accn,
-      end, fy, fp and form exactly.
-
-      For total_liabilities, set method reported and copy the Liabilities entry
-      as fact, with value equal to its val. Only if getConcept for Liabilities
-      returns 404, set method derived, leave out fact, and set value to total
-      assets minus total equity.
+    do:
+      calls:
+        - { id: assets, operation: getConcept, arguments: { cik: { var: steps.resolve.cik }, concept: Assets } }
+        - { id: liabilities, operation: getConcept, arguments: { cik: { var: steps.resolve.cik }, concept: Liabilities }, accept: [404] }
+        - { id: equity, operation: getConcept, arguments: { cik: { var: steps.resolve.cik }, concept: StockholdersEquity }, accept: [404] }
+        - { id: equity-nci, operation: getConcept, arguments: { cik: { var: steps.resolve.cik }, concept: StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest }, accept: [404] }
+      output:
+        total_assets:
+          get:
+            - map:
+                - filter:
+                    - join:
+                        - map: [{ var: responses.assets.units.USD }, { object: [[key, { cat: [{ var: accn }, " ", { var: end }] }], [entry, { var: "" }]] }]
+                        - [{ object: [[key, { cat: [{ var: steps.resolve.latest_10k.accn }, " ", { var: steps.resolve.latest_10k.period_ending }] }]] }]
+                        - key
+                        - key
+                    - var: right
+                - object: [[concept, Assets], [value, { var: left.entry.val }], [accn, { var: left.entry.accn }], [end, { var: left.entry.end }], [fy, { var: left.entry.fy }], [fp, { var: left.entry.fp }], [form, { var: left.entry.form }]]
+            - 0
+        total_equity:
+          or:
+            - get:
+                - map:
+                    - filter:
+                        - join:
+                            - map: [{ var: responses.equity.units.USD }, { object: [[key, { cat: [{ var: accn }, " ", { var: end }] }], [entry, { var: "" }]] }]
+                            - [{ object: [[key, { cat: [{ var: steps.resolve.latest_10k.accn }, " ", { var: steps.resolve.latest_10k.period_ending }] }]] }]
+                            - key
+                            - key
+                        - var: right
+                    - object: [[concept, StockholdersEquity], [value, { var: left.entry.val }], [accn, { var: left.entry.accn }], [end, { var: left.entry.end }], [fy, { var: left.entry.fy }], [fp, { var: left.entry.fp }], [form, { var: left.entry.form }]]
+                - 0
+            - get:
+                - map:
+                    - filter:
+                        - join:
+                            - map: [{ var: responses.equity-nci.units.USD }, { object: [[key, { cat: [{ var: accn }, " ", { var: end }] }], [entry, { var: "" }]] }]
+                            - [{ object: [[key, { cat: [{ var: steps.resolve.latest_10k.accn }, " ", { var: steps.resolve.latest_10k.period_ending }] }]] }]
+                            - key
+                            - key
+                        - var: right
+                    - object: [[concept, StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest], [value, { var: left.entry.val }], [accn, { var: left.entry.accn }], [end, { var: left.entry.end }], [fy, { var: left.entry.fy }], [fp, { var: left.entry.fp }], [form, { var: left.entry.form }]]
+                - 0
+        liabilities_filed: { "!!": [{ var: responses.liabilities.units }] }
+        reported_liabilities:
+          get:
+            - map:
+                - filter:
+                    - join:
+                        - map: [{ var: responses.liabilities.units.USD }, { object: [[key, { cat: [{ var: accn }, " ", { var: end }] }], [entry, { var: "" }]] }]
+                        - [{ object: [[key, { cat: [{ var: steps.resolve.latest_10k.accn }, " ", { var: steps.resolve.latest_10k.period_ending }] }]] }]
+                        - key
+                        - key
+                    - var: right
+                - object: [[concept, Liabilities], [value, { var: left.entry.val }], [accn, { var: left.entry.accn }], [end, { var: left.entry.end }], [fy, { var: left.entry.fy }], [fp, { var: left.entry.fp }], [form, { var: left.entry.form }]]
+            - 0
     produces:
       type: object
-      required: [total_assets, total_equity, total_liabilities]
+      required: [total_assets, total_equity, liabilities_filed, reported_liabilities]
       properties:
         total_assets:
           allOf: [{ $ref: "#/$defs/instant_fact" }, { properties: { concept: { const: Assets } } }]
@@ -185,99 +204,86 @@ steps:
             - $ref: "#/$defs/instant_fact"
             - properties:
                 concept: { enum: [StockholdersEquity, StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest] }
-        total_liabilities:
-          type: object
-          required: [method, value]
-          properties:
-            method: { enum: [reported, derived] }
-            value: { type: number }
-            fact:
-              allOf: [{ $ref: "#/$defs/instant_fact" }, { properties: { concept: { const: Liabilities } } }]
+        liabilities_filed: { type: boolean }
+        reported_liabilities:
+          anyOf:
+            - { type: "null" }
+            - allOf: [{ $ref: "#/$defs/instant_fact" }, { properties: { concept: { const: Liabilities } } }]
     gates:
-      - id: assets-from-sec
-        message: total_assets must be a units.USD entry of the Assets concept returned by getConcept, copied exactly.
+      # Total liabilities is derived only when the SEC has no Liabilities concept for the company.
+      - id: liabilities-in-filing
+        message: The company reports Liabilities, but not for the latest 10-K at its period end.
         predicate:
-          subset:
-            - - [{ var: output.total_assets.accn }, { var: output.total_assets.end }, { var: output.total_assets.value }, { var: output.total_assets.fy }, { var: output.total_assets.fp }, { var: output.total_assets.form }]
-            - flatten:
-                map:
-                  - filter: [{ var: calls }, { and: [{ "==": [{ var: tool }, getConcept] }, { "==": [{ var: result.tag }, Assets] }] }]
-                  - map: [{ var: result.units.USD }, [{ var: accn }, { var: end }, { var: val }, { var: fy }, { var: fp }, { var: form }]]
-      - id: equity-from-sec
-        message: total_equity must be a units.USD entry of the equity concept it names, returned by getConcept, copied exactly.
-        predicate:
-          or:
-            - and:
-                - "==": [{ var: output.total_equity.concept }, StockholdersEquity]
-                - subset:
-                    - - [{ var: output.total_equity.accn }, { var: output.total_equity.end }, { var: output.total_equity.value }, { var: output.total_equity.fy }, { var: output.total_equity.fp }, { var: output.total_equity.form }]
-                    - flatten:
-                        map:
-                          - filter: [{ var: calls }, { and: [{ "==": [{ var: tool }, getConcept] }, { "==": [{ var: result.tag }, StockholdersEquity] }] }]
-                          - map: [{ var: result.units.USD }, [{ var: accn }, { var: end }, { var: val }, { var: fy }, { var: fp }, { var: form }]]
-            - and:
-                - "==": [{ var: output.total_equity.concept }, StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest]
-                - subset:
-                    - - [{ var: output.total_equity.accn }, { var: output.total_equity.end }, { var: output.total_equity.value }, { var: output.total_equity.fy }, { var: output.total_equity.fp }, { var: output.total_equity.form }]
-                    - flatten:
-                        map:
-                          - filter: [{ var: calls }, { and: [{ "==": [{ var: tool }, getConcept] }, { "==": [{ var: result.tag }, StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest] }] }]
-                          - map: [{ var: result.units.USD }, [{ var: accn }, { var: end }, { var: val }, { var: fy }, { var: fp }, { var: form }]]
-      # Derived is allowed only when the Liabilities lookup itself came back as an error.
-      - id: liabilities-from-sec
-        message: A reported total_liabilities must copy a Liabilities entry from getConcept with value equal to its val; a derived one is allowed only after getConcept for Liabilities failed, and must equal total assets minus total equity.
-        predicate:
-          or:
-            - and:
-                - "==": [{ var: output.total_liabilities.method }, reported]
-                - "==": [{ var: output.total_liabilities.value }, { var: output.total_liabilities.fact.value }]
-                - subset:
-                    - - [{ var: output.total_liabilities.fact.accn }, { var: output.total_liabilities.fact.end }, { var: output.total_liabilities.fact.value }, { var: output.total_liabilities.fact.fy }, { var: output.total_liabilities.fact.fp }, { var: output.total_liabilities.fact.form }]
-                    - flatten:
-                        map:
-                          - filter: [{ var: calls }, { and: [{ "==": [{ var: tool }, getConcept] }, { "==": [{ var: result.tag }, Liabilities] }] }]
-                          - map: [{ var: result.units.USD }, [{ var: accn }, { var: end }, { var: val }, { var: fy }, { var: fp }, { var: form }]]
-            - and:
-                - "==": [{ var: output.total_liabilities.method }, derived]
-                - in:
-                    - Liabilities
-                    - map:
-                        - filter: [{ var: calls }, { and: [{ "==": [{ var: tool }, getConcept] }, { var: is_error }] }]
-                        - { var: arguments.concept }
-                - "==":
-                    - { var: output.total_liabilities.value }
-                    - "-": [{ var: output.total_assets.value }, { var: output.total_equity.value }]
-      - id: same-filing
-        message: Every fact must come from the latest 10-K found in the resolve step, at its period end, not from a prior-year comparative or another filing.
-        predicate:
-          and:
-            - subset:
-                - - [{ var: output.total_assets.accn }, { var: output.total_assets.end }]
-                  - [{ var: output.total_equity.accn }, { var: output.total_equity.end }]
-                - [[{ var: steps.resolve.latest_10k.accn }, { var: steps.resolve.latest_10k.period_ending }]]
-            - or:
-                - "==": [{ var: output.total_liabilities.method }, derived]
-                - subset:
-                    - [[{ var: output.total_liabilities.fact.accn }, { var: output.total_liabilities.fact.end }]]
-                    - [[{ var: steps.resolve.latest_10k.accn }, { var: steps.resolve.latest_10k.period_ending }]]
-    retries: 2
+          or: [{ "!": { var: output.liabilities_filed } }, { "!!": [{ var: output.reported_liabilities }] }]
 
   - id: performance
-    tools: [getConcept]
-    instructions: |
-      Company: {{steps.resolve.entity_name}}, CIK {{steps.resolve.cik}}.
-      Latest 10-K: accession {{steps.resolve.latest_10k.accn}}, period ending
-      {{steps.resolve.latest_10k.period_ending}}.
-
-      Call getConcept for revenue (try RevenueFromContractWithCustomerExcludingAssessedTax
-      first, then Revenues, then RevenueFromContractWithCustomerIncludingAssessedTax,
-      using the first that has an entry for this accession and period end),
-      NetIncomeLoss and NetCashProvidedByUsedInOperatingActivities.
-
-      In units.USD, take the entry whose accn is the accession above, whose end
-      is the period ending above, and whose start is about one year earlier (the
-      full fiscal year, not a quarter). Copy concept, val (as value), accn,
-      start, end, fy, fp and form exactly.
+    do:
+      calls:
+        - { id: revenue-excl, operation: getConcept, arguments: { cik: { var: steps.resolve.cik }, concept: RevenueFromContractWithCustomerExcludingAssessedTax }, accept: [404] }
+        - { id: revenues, operation: getConcept, arguments: { cik: { var: steps.resolve.cik }, concept: Revenues }, accept: [404] }
+        - { id: revenue-incl, operation: getConcept, arguments: { cik: { var: steps.resolve.cik }, concept: RevenueFromContractWithCustomerIncludingAssessedTax }, accept: [404] }
+        - { id: net-income, operation: getConcept, arguments: { cik: { var: steps.resolve.cik }, concept: NetIncomeLoss } }
+        - { id: cash-flow, operation: getConcept, arguments: { cik: { var: steps.resolve.cik }, concept: NetCashProvidedByUsedInOperatingActivities } }
+      output:
+        revenue:
+          or:
+            - get:
+                - map:
+                    - filter:
+                        - join:
+                            - map: [{ var: responses.revenue-excl.units.USD }, { object: [[key, { cat: [{ var: accn }, " ", { var: end }, " ", { "<=": [11, { "+": [{ "*": [{ "-": [{ substr: [{ var: end }, 0, 4] }, { substr: [{ var: start }, 0, 4] }] }, 12] }, { "-": [{ substr: [{ var: end }, 5, 2] }, { substr: [{ var: start }, 5, 2] }] }] }, 12] }] }], [entry, { var: "" }]] }]
+                            - [{ object: [[key, { cat: [{ var: steps.resolve.latest_10k.accn }, " ", { var: steps.resolve.latest_10k.period_ending }, " true"] }]] }]
+                            - key
+                            - key
+                        - var: right
+                    - object: [[concept, RevenueFromContractWithCustomerExcludingAssessedTax], [value, { var: left.entry.val }], [accn, { var: left.entry.accn }], [start, { var: left.entry.start }], [end, { var: left.entry.end }], [fy, { var: left.entry.fy }], [fp, { var: left.entry.fp }], [form, { var: left.entry.form }]]
+                - 0
+            - get:
+                - map:
+                    - filter:
+                        - join:
+                            - map: [{ var: responses.revenues.units.USD }, { object: [[key, { cat: [{ var: accn }, " ", { var: end }, " ", { "<=": [11, { "+": [{ "*": [{ "-": [{ substr: [{ var: end }, 0, 4] }, { substr: [{ var: start }, 0, 4] }] }, 12] }, { "-": [{ substr: [{ var: end }, 5, 2] }, { substr: [{ var: start }, 5, 2] }] }] }, 12] }] }], [entry, { var: "" }]] }]
+                            - [{ object: [[key, { cat: [{ var: steps.resolve.latest_10k.accn }, " ", { var: steps.resolve.latest_10k.period_ending }, " true"] }]] }]
+                            - key
+                            - key
+                        - var: right
+                    - object: [[concept, Revenues], [value, { var: left.entry.val }], [accn, { var: left.entry.accn }], [start, { var: left.entry.start }], [end, { var: left.entry.end }], [fy, { var: left.entry.fy }], [fp, { var: left.entry.fp }], [form, { var: left.entry.form }]]
+                - 0
+            - get:
+                - map:
+                    - filter:
+                        - join:
+                            - map: [{ var: responses.revenue-incl.units.USD }, { object: [[key, { cat: [{ var: accn }, " ", { var: end }, " ", { "<=": [11, { "+": [{ "*": [{ "-": [{ substr: [{ var: end }, 0, 4] }, { substr: [{ var: start }, 0, 4] }] }, 12] }, { "-": [{ substr: [{ var: end }, 5, 2] }, { substr: [{ var: start }, 5, 2] }] }] }, 12] }] }], [entry, { var: "" }]] }]
+                            - [{ object: [[key, { cat: [{ var: steps.resolve.latest_10k.accn }, " ", { var: steps.resolve.latest_10k.period_ending }, " true"] }]] }]
+                            - key
+                            - key
+                        - var: right
+                    - object: [[concept, RevenueFromContractWithCustomerIncludingAssessedTax], [value, { var: left.entry.val }], [accn, { var: left.entry.accn }], [start, { var: left.entry.start }], [end, { var: left.entry.end }], [fy, { var: left.entry.fy }], [fp, { var: left.entry.fp }], [form, { var: left.entry.form }]]
+                - 0
+        net_income:
+          get:
+            - map:
+                - filter:
+                    - join:
+                        - map: [{ var: responses.net-income.units.USD }, { object: [[key, { cat: [{ var: accn }, " ", { var: end }, " ", { "<=": [11, { "+": [{ "*": [{ "-": [{ substr: [{ var: end }, 0, 4] }, { substr: [{ var: start }, 0, 4] }] }, 12] }, { "-": [{ substr: [{ var: end }, 5, 2] }, { substr: [{ var: start }, 5, 2] }] }] }, 12] }] }], [entry, { var: "" }]] }]
+                        - [{ object: [[key, { cat: [{ var: steps.resolve.latest_10k.accn }, " ", { var: steps.resolve.latest_10k.period_ending }, " true"] }]] }]
+                        - key
+                        - key
+                    - var: right
+                - object: [[concept, NetIncomeLoss], [value, { var: left.entry.val }], [accn, { var: left.entry.accn }], [start, { var: left.entry.start }], [end, { var: left.entry.end }], [fy, { var: left.entry.fy }], [fp, { var: left.entry.fp }], [form, { var: left.entry.form }]]
+            - 0
+        operating_cash_flow:
+          get:
+            - map:
+                - filter:
+                    - join:
+                        - map: [{ var: responses.cash-flow.units.USD }, { object: [[key, { cat: [{ var: accn }, " ", { var: end }, " ", { "<=": [11, { "+": [{ "*": [{ "-": [{ substr: [{ var: end }, 0, 4] }, { substr: [{ var: start }, 0, 4] }] }, 12] }, { "-": [{ substr: [{ var: end }, 5, 2] }, { substr: [{ var: start }, 5, 2] }] }] }, 12] }] }], [entry, { var: "" }]] }]
+                        - [{ object: [[key, { cat: [{ var: steps.resolve.latest_10k.accn }, " ", { var: steps.resolve.latest_10k.period_ending }, " true"] }]] }]
+                        - key
+                        - key
+                    - var: right
+                - object: [[concept, NetCashProvidedByUsedInOperatingActivities], [value, { var: left.entry.val }], [accn, { var: left.entry.accn }], [start, { var: left.entry.start }], [end, { var: left.entry.end }], [fy, { var: left.entry.fy }], [fp, { var: left.entry.fp }], [form, { var: left.entry.form }]]
+            - 0
     produces:
       type: object
       required: [revenue, net_income, operating_cash_flow]
@@ -291,85 +297,48 @@ steps:
           allOf: [{ $ref: "#/$defs/duration_fact" }, { properties: { concept: { const: NetIncomeLoss } } }]
         operating_cash_flow:
           allOf: [{ $ref: "#/$defs/duration_fact" }, { properties: { concept: { const: NetCashProvidedByUsedInOperatingActivities } } }]
-    gates:
-      - id: revenue-from-sec
-        message: revenue must be a units.USD entry of the revenue concept it names, returned by getConcept, copied exactly.
-        predicate:
-          or:
-            - and:
-                - "==": [{ var: output.revenue.concept }, RevenueFromContractWithCustomerExcludingAssessedTax]
-                - subset:
-                    - - [{ var: output.revenue.accn }, { var: output.revenue.start }, { var: output.revenue.end }, { var: output.revenue.value }, { var: output.revenue.fy }, { var: output.revenue.fp }, { var: output.revenue.form }]
-                    - flatten:
-                        map:
-                          - filter: [{ var: calls }, { and: [{ "==": [{ var: tool }, getConcept] }, { "==": [{ var: result.tag }, RevenueFromContractWithCustomerExcludingAssessedTax] }] }]
-                          - map: [{ var: result.units.USD }, [{ var: accn }, { var: start }, { var: end }, { var: val }, { var: fy }, { var: fp }, { var: form }]]
-            - and:
-                - "==": [{ var: output.revenue.concept }, Revenues]
-                - subset:
-                    - - [{ var: output.revenue.accn }, { var: output.revenue.start }, { var: output.revenue.end }, { var: output.revenue.value }, { var: output.revenue.fy }, { var: output.revenue.fp }, { var: output.revenue.form }]
-                    - flatten:
-                        map:
-                          - filter: [{ var: calls }, { and: [{ "==": [{ var: tool }, getConcept] }, { "==": [{ var: result.tag }, Revenues] }] }]
-                          - map: [{ var: result.units.USD }, [{ var: accn }, { var: start }, { var: end }, { var: val }, { var: fy }, { var: fp }, { var: form }]]
-            - and:
-                - "==": [{ var: output.revenue.concept }, RevenueFromContractWithCustomerIncludingAssessedTax]
-                - subset:
-                    - - [{ var: output.revenue.accn }, { var: output.revenue.start }, { var: output.revenue.end }, { var: output.revenue.value }, { var: output.revenue.fy }, { var: output.revenue.fp }, { var: output.revenue.form }]
-                    - flatten:
-                        map:
-                          - filter: [{ var: calls }, { and: [{ "==": [{ var: tool }, getConcept] }, { "==": [{ var: result.tag }, RevenueFromContractWithCustomerIncludingAssessedTax] }] }]
-                          - map: [{ var: result.units.USD }, [{ var: accn }, { var: start }, { var: end }, { var: val }, { var: fy }, { var: fp }, { var: form }]]
-      - id: net-income-from-sec
-        message: net_income must be a units.USD entry of NetIncomeLoss returned by getConcept, copied exactly.
-        predicate:
-          subset:
-            - - [{ var: output.net_income.accn }, { var: output.net_income.start }, { var: output.net_income.end }, { var: output.net_income.value }, { var: output.net_income.fy }, { var: output.net_income.fp }, { var: output.net_income.form }]
-            - flatten:
-                map:
-                  - filter: [{ var: calls }, { and: [{ "==": [{ var: tool }, getConcept] }, { "==": [{ var: result.tag }, NetIncomeLoss] }] }]
-                  - map: [{ var: result.units.USD }, [{ var: accn }, { var: start }, { var: end }, { var: val }, { var: fy }, { var: fp }, { var: form }]]
-      - id: operating-cash-flow-from-sec
-        message: operating_cash_flow must be a units.USD entry of NetCashProvidedByUsedInOperatingActivities returned by getConcept, copied exactly.
-        predicate:
-          subset:
-            - - [{ var: output.operating_cash_flow.accn }, { var: output.operating_cash_flow.start }, { var: output.operating_cash_flow.end }, { var: output.operating_cash_flow.value }, { var: output.operating_cash_flow.fy }, { var: output.operating_cash_flow.fp }, { var: output.operating_cash_flow.form }]
-            - flatten:
-                map:
-                  - filter: [{ var: calls }, { and: [{ "==": [{ var: tool }, getConcept] }, { "==": [{ var: result.tag }, NetCashProvidedByUsedInOperatingActivities] }] }]
-                  - map: [{ var: result.units.USD }, [{ var: accn }, { var: start }, { var: end }, { var: val }, { var: fy }, { var: fp }, { var: form }]]
-      - id: same-filing
-        message: Every fact must come from the latest 10-K found in the resolve step and end at its period end.
-        predicate:
-          subset:
-            - - [{ var: output.revenue.accn }, { var: output.revenue.end }]
-              - [{ var: output.net_income.accn }, { var: output.net_income.end }]
-              - [{ var: output.operating_cash_flow.accn }, { var: output.operating_cash_flow.end }]
-            - [[{ var: steps.resolve.latest_10k.accn }, { var: steps.resolve.latest_10k.period_ending }]]
-      # Months between start and end, as year*12+month: 11 or 12 is a fiscal year, 2 or 3 a quarter.
-      - id: full-fiscal-year
-        message: Each fact must cover the full fiscal year (start 11 to 12 calendar months before end), not a quarter.
-        predicate:
-          and:
-            - "<=":
-                - 11
-                - "-":
-                    - { "+": [{ "*": [{ substr: [{ var: output.revenue.end }, 0, 4] }, 12] }, { substr: [{ var: output.revenue.end }, 5, 2] }] }
-                    - { "+": [{ "*": [{ substr: [{ var: output.revenue.start }, 0, 4] }, 12] }, { substr: [{ var: output.revenue.start }, 5, 2] }] }
-                - 12
-            - "<=":
-                - 11
-                - "-":
-                    - { "+": [{ "*": [{ substr: [{ var: output.net_income.end }, 0, 4] }, 12] }, { substr: [{ var: output.net_income.end }, 5, 2] }] }
-                    - { "+": [{ "*": [{ substr: [{ var: output.net_income.start }, 0, 4] }, 12] }, { substr: [{ var: output.net_income.start }, 5, 2] }] }
-                - 12
-            - "<=":
-                - 11
-                - "-":
-                    - { "+": [{ "*": [{ substr: [{ var: output.operating_cash_flow.end }, 0, 4] }, 12] }, { substr: [{ var: output.operating_cash_flow.end }, 5, 2] }] }
-                    - { "+": [{ "*": [{ substr: [{ var: output.operating_cash_flow.start }, 0, 4] }, 12] }, { substr: [{ var: output.operating_cash_flow.start }, 5, 2] }] }
-                - 12
-    retries: 2
+
+  - id: ratios
+    do:
+      output:
+        total_liabilities:
+          if:
+            - var: steps.balance-sheet.reported_liabilities
+            - object: [[method, reported], [value, { var: steps.balance-sheet.reported_liabilities.value }]]
+            - object: [[method, derived], [value, { "-": [{ var: steps.balance-sheet.total_assets.value }, { var: steps.balance-sheet.total_equity.value }] }]]
+        fiscal_year: { var: steps.balance-sheet.total_assets.fy }
+        ratios:
+          net_margin: { "/": [{ var: steps.performance.net_income.value }, { var: steps.performance.revenue.value }] }
+          return_on_assets: { "/": [{ var: steps.performance.net_income.value }, { var: steps.balance-sheet.total_assets.value }] }
+          liabilities_to_assets:
+            "/":
+              - if: [{ var: steps.balance-sheet.reported_liabilities }, { var: steps.balance-sheet.reported_liabilities.value }, { "-": [{ var: steps.balance-sheet.total_assets.value }, { var: steps.balance-sheet.total_equity.value }] }]
+              - var: steps.balance-sheet.total_assets.value
+          liabilities_to_equity:
+            "/":
+              - if: [{ var: steps.balance-sheet.reported_liabilities }, { var: steps.balance-sheet.reported_liabilities.value }, { "-": [{ var: steps.balance-sheet.total_assets.value }, { var: steps.balance-sheet.total_equity.value }] }]
+              - var: steps.balance-sheet.total_equity.value
+          operating_cash_flow_to_net_income: { "/": [{ var: steps.performance.operating_cash_flow.value }, { var: steps.performance.net_income.value }] }
+    produces:
+      type: object
+      required: [total_liabilities, fiscal_year, ratios]
+      properties:
+        total_liabilities:
+          type: object
+          required: [method, value]
+          properties:
+            method: { enum: [reported, derived] }
+            value: { type: number }
+        fiscal_year: { type: integer }
+        ratios:
+          type: object
+          required: [net_margin, return_on_assets, liabilities_to_assets, liabilities_to_equity, operating_cash_flow_to_net_income]
+          properties:
+            net_margin: { type: number }
+            return_on_assets: { type: number }
+            liabilities_to_assets: { type: number }
+            liabilities_to_equity: { type: number }
+            operating_cash_flow_to_net_income: { type: number }
 
   - id: report
     instructions: |
@@ -383,70 +352,40 @@ steps:
       Income and cash flow facts:
       {{steps.performance}}
 
-      Compute these ratios from the values above, as decimals (0.25, not 25%):
-      - net_margin = net income / revenue
-      - return_on_assets = net income / total assets
-      - liabilities_to_assets = total liabilities / total assets
-      - liabilities_to_equity = total liabilities / total equity
-      - operating_cash_flow_to_net_income = operating cash flow / net income
+      Total liabilities, fiscal year and ratios:
+      {{steps.ratios}}
 
-      Set fiscal_year to the facts' fy. Then write summary, a Markdown report
-      with the sections "## Company", "## Figures", "## Ratios" and
-      "## Source", in that order. Figures lists the six values in US dollars as
-      plain integers without commas (for example 359241000000). Source cites the
-      accession number. Write dates as YYYY-MM-DD and use only the period
-      ending, the filing date and the fiscal year's start date. Give no other
-      figures and no forecast.
+      Write summary, a Markdown report with the sections "## Company",
+      "## Figures", "## Ratios" and "## Source", in that order. Figures lists
+      total assets, total liabilities, total equity, revenue, net income and
+      operating cash flow in US dollars as plain integers without commas (for
+      example 359241000000). Ratios gives the ratios above as decimals. Source
+      cites the accession number. Write dates as YYYY-MM-DD and use only the
+      period ending, the filing date and the fiscal year's start date. Give no
+      other figures and no forecast.
     produces:
       type: object
-      required: [fiscal_year, ratios, summary]
+      required: [summary]
       properties:
-        fiscal_year: { type: integer }
-        ratios:
-          type: object
-          required: [net_margin, return_on_assets, liabilities_to_assets, liabilities_to_equity, operating_cash_flow_to_net_income]
-          properties:
-            net_margin: { type: number }
-            return_on_assets: { type: number }
-            liabilities_to_assets: { type: number }
-            liabilities_to_equity: { type: number }
-            operating_cash_flow_to_net_income: { type: number }
         summary: { type: string, maxLength: 8000 }
+    let:
+      # Plain integers of seven or more digits, so an invented or altered dollar figure cannot hide behind formatting.
+      stated: { match_all: [{ var: output.summary }, "(?<![0-9-])(-?[0-9]{7,})(?:[^0-9-]|$)"] }
+      figures:
+        map:
+          - - { var: steps.balance-sheet.total_assets.value }
+            - { var: steps.ratios.total_liabilities.value }
+            - { var: steps.balance-sheet.total_equity.value }
+            - { var: steps.performance.revenue.value }
+            - { var: steps.performance.net_income.value }
+            - { var: steps.performance.operating_cash_flow.value }
+          - cat: [{ var: "" }]
     gates:
       - id: sections-in-order
         schema:
           properties:
             summary:
               pattern: "## Company[\\s\\S]*## Figures[\\s\\S]*## Ratios[\\s\\S]*## Source"
-      - id: fiscal-year-from-sec
-        message: fiscal_year must be the fy the SEC reported on the facts.
-        predicate:
-          "==": [{ var: output.fiscal_year }, { var: steps.balance-sheet.total_assets.fy }]
-      # Each ratio is recomputed from the gated figures; 0.0005 absorbs rounding to three or four decimals.
-      - id: ratios-recomputed
-        message: Every ratio must equal its formula over the extracted figures within 0.0005.
-        predicate:
-          and:
-            - "<=":
-                - -0.0005
-                - "-": [{ var: output.ratios.net_margin }, { "/": [{ var: steps.performance.net_income.value }, { var: steps.performance.revenue.value }] }]
-                - 0.0005
-            - "<=":
-                - -0.0005
-                - "-": [{ var: output.ratios.return_on_assets }, { "/": [{ var: steps.performance.net_income.value }, { var: steps.balance-sheet.total_assets.value }] }]
-                - 0.0005
-            - "<=":
-                - -0.0005
-                - "-": [{ var: output.ratios.liabilities_to_assets }, { "/": [{ var: steps.balance-sheet.total_liabilities.value }, { var: steps.balance-sheet.total_assets.value }] }]
-                - 0.0005
-            - "<=":
-                - -0.0005
-                - "-": [{ var: output.ratios.liabilities_to_equity }, { "/": [{ var: steps.balance-sheet.total_liabilities.value }, { var: steps.balance-sheet.total_equity.value }] }]
-                - 0.0005
-            - "<=":
-                - -0.0005
-                - "-": [{ var: output.ratios.operating_cash_flow_to_net_income }, { "/": [{ var: steps.performance.operating_cash_flow.value }, { var: steps.performance.net_income.value }] }]
-                - 0.0005
       - id: summary-cites-filing
         message: The summary must name the company and cite the 10-K accession number, and no other accession number.
         predicate:
@@ -456,33 +395,12 @@ steps:
             - subset:
                 - { match_all: [{ var: output.summary }, "[0-9]{10}-[0-9]{2}-[0-9]{6}"] }
                 - [{ var: steps.resolve.latest_10k.accn }]
-      # Plain integers of seven or more digits, so an invented or altered dollar figure cannot hide behind formatting.
       - id: figures-from-sec
         message: The summary must state all six figures as plain integers, and every integer of seven or more digits in it must be one of those figures or the CIK.
         predicate:
           and:
-            - subset:
-                - map:
-                    - - { var: steps.balance-sheet.total_assets.value }
-                      - { var: steps.balance-sheet.total_liabilities.value }
-                      - { var: steps.balance-sheet.total_equity.value }
-                      - { var: steps.performance.revenue.value }
-                      - { var: steps.performance.net_income.value }
-                      - { var: steps.performance.operating_cash_flow.value }
-                    - cat: [{ var: "" }]
-                - { match_all: [{ var: output.summary }, "(?<![0-9-])(-?[0-9]{7,})(?:[^0-9-]|$)"] }
-            - subset:
-                - { match_all: [{ var: output.summary }, "(?<![0-9-])(-?[0-9]{7,})(?:[^0-9-]|$)"] }
-                - merge:
-                    - map:
-                        - - { var: steps.balance-sheet.total_assets.value }
-                          - { var: steps.balance-sheet.total_liabilities.value }
-                          - { var: steps.balance-sheet.total_equity.value }
-                          - { var: steps.performance.revenue.value }
-                          - { var: steps.performance.net_income.value }
-                          - { var: steps.performance.operating_cash_flow.value }
-                        - cat: [{ var: "" }]
-                    - [{ var: steps.resolve.cik }]
+            - subset: [{ var: let.figures }, { var: let.stated }]
+            - subset: [{ var: let.stated }, { merge: [{ var: let.figures }, [{ var: steps.resolve.cik }]] }]
       - id: dates-from-sec
         message: Every YYYY-MM-DD date in the summary must be the period end, the filing date or the fiscal year's start date.
         predicate:
