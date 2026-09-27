@@ -73,6 +73,13 @@ exposes:
     select: { map: [{ var: docs }, { cat: [{ var: key }, " ", { var: title }] }] }
 ```
 
+An `exposes` entry may declare `effect: read` for an operation that changes nothing although its method is POST or PATCH, such as a search sent as POST. Stepgate then retries it after a 5xx or a network error as it does a GET, and the catalog does not count it as a write. Declare it only where the API's documentation says the operation has no side effects.
+
+```yaml
+exposes:
+  - { name: searchJiraIssues, effect: read }
+```
+
 An OpenAPI parameter whose schema allows exactly one value (`const`, or an `enum` with one entry) is sent with that value on every call and is not shown to the model. Use it for fixed headers and query values an API requires, such as `format: json`.
 
 An array query parameter is sent the way OpenAPI specifies by default, repeating the name (`tag=red&tag=blue`); with `explode: false` it is sent comma-separated (`fields=name,stock`). A request body is sent as JSON when the operation accepts `application/json`. Otherwise, for a `text/*` or `message/*` content type, the model supplies the body as a plain string and Stepgate sends it with that content type, which is how a raw email reaches Gmail's `message/rfc822` upload without any encoding by the model.

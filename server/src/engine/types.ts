@@ -15,8 +15,8 @@ export type CredentialDeclaration = {
   description: string;
 };
 
-/** An exposed operation: its name, or the name with an MCP schema pin and a `select` over its result. */
-export type ExposedName = string | { name: string; schema_sha256?: string; select?: JsonObject };
+/** An exposed operation: its name, or the name with an MCP schema pin, a `select` over its result, and `effect: read` for one that changes nothing. */
+export type ExposedName = string | { name: string; schema_sha256?: string; select?: JsonObject; effect?: "read" };
 
 export type ToolDeclaration = {
   openapi?: { server: string; document?: JsonObject; url?: string; sha256?: string };

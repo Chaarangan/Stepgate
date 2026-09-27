@@ -279,6 +279,12 @@
                   "select": {
                     "$ref": "#/$defs/predicate",
                     "description": "A JSONLogic expression over the operation's result; the client sees only what it returns, while gates still see the full result."
+                  },
+                  "effect": {
+                    "enum": [
+                      "read"
+                    ],
+                    "description": "Declares that the operation changes nothing, such as a search sent as POST, so Stepgate retries it as it does a GET and the catalog does not count it as a write."
                   }
                 },
                 "minProperties": 2

@@ -539,6 +539,21 @@ describe("egress limits", () => {
     expect(records.some((record) => record.type === "retry")).toBe(false);
   });
 
+  it("retries a POST after a 5xx when its exposes entry declares effect read", async () => {
+    const { call, api, records } = await start({
+      edit: (stepfile) => {
+        ((stepfile.tools as JsonObject).catalogue as JsonObject).exposes = ["getItem", "getFlaky", "getRevoked", { name: "postBusy", effect: "read" }];
+        (steps(stepfile)[0] as JsonObject).tools = ["postBusy"];
+      },
+      actions: [use("postBusy", {})],
+    });
+
+    await call({ item: "K-1" });
+
+    expect(api.received.filter((request) => request.path === "/busy")).toHaveLength(4);
+    expect(records.filter((record) => record.type === "retry")).toHaveLength(3);
+  });
+
   it("ends a request that outlasts the deadline with ToolCallFailed", async () => {
     const { call } = await start({ limits: { requestTimeoutMs: 100 }, edit: exposing("postSlow"), actions: [use("postSlow", {})] });
 

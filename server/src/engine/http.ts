@@ -180,7 +180,28 @@ export async function guardedFetch(
   init: RequestInit,
   credential: CredentialBinding | null,
 ): Promise<Response> {
-  const idempotent = IDEMPOTENT.has((init.method ?? "GET").toUpperCase());
+  return fetchRetrying(context, operation, url, init, credential, IDEMPOTENT.has((init.method ?? "GET").toUpperCase()));
+}
+
+/** guardedFetch for an operation the stepfile declares `effect: read`, which is safe to repeat whatever its method. */
+export async function guardedReadFetch(
+  context: HttpContext,
+  operation: string,
+  url: URL,
+  init: RequestInit,
+  credential: CredentialBinding | null,
+): Promise<Response> {
+  return fetchRetrying(context, operation, url, init, credential, true);
+}
+
+async function fetchRetrying(
+  context: HttpContext,
+  operation: string,
+  url: URL,
+  init: RequestInit,
+  credential: CredentialBinding | null,
+  idempotent: boolean,
+): Promise<Response> {
   let lastStatus: number | null = null;
   let lastBody = "";
   let lastError: unknown;
@@ -211,7 +232,7 @@ export async function guardedFetch(
         throw error;
       }
       if (!idempotent) {
-        throw new ToolCallFailed(operation, null, `${describe(error)}; not retried, because a ${init.method ?? "GET"} may already have taken effect`, { cause: error });
+        throw new ToolCallFailed(operation, null, `${describe(error)}; not retried, because a ${init.method ?? "GET"} may already have taken effect unless its stepfile declares effect: read`, { cause: error });
       }
       lastStatus = null;
       lastBody = describe(error);
