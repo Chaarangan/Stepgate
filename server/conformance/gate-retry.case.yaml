@@ -13,7 +13,7 @@ stepfile:
 inputs: { name: Ada }
 actions:
   - submit: { greeting: Hello there }
-  - submit: { greeting: Hello, Ada }
+  - submit: { greeting: "Hello, Ada" }
 expect:
   replies:
     - { state: running, step: greet }

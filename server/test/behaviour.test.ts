@@ -544,11 +544,11 @@ describe("egress limits", () => {
   });
 
   it("stops reading a response larger than the limit with ResponseTooLarge", async () => {
-    const { call, records } = await start({ limits: { responseBytes: 1_000 }, edit: exposing("getHuge"), actions: [use("getHuge", {})] });
+    const { call, records } = await start({ limits: { responseBytes: 100_000 }, edit: exposing("getHuge"), actions: [use("getHuge", {})] });
 
     const text = resultText(await call({ item: "K-1" }));
 
-    expect(text).toMatch(/^ResponseTooLarge: catalogue\.getHuge returned more than the 1000 bytes Stepgate reads/);
+    expect(text).toMatch(/^ResponseTooLarge: catalogue\.getHuge returned more than the 100000 bytes Stepgate reads/);
     expect(records.at(-1)).toMatchObject({ type: "run_failed", error: "ResponseTooLarge" });
   });
 });

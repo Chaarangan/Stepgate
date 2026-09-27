@@ -16,7 +16,7 @@ stepfile:
         - { id: signed, schema: { properties: { signature: { minLength: 1 } } } }
 inputs: { name: Ada }
 actions:
-  - submit: { greeting: Hello, Ada }
+  - submit: { greeting: "Hello, Ada" }
   - submit: { signature: Stepgate }
 expect:
   replies:
