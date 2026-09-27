@@ -44,6 +44,7 @@
     "demo": "node examples/demo-client.ts",
     "new-stepfile": "node scripts/new-stepfile.ts",
     "check-stepfile": "node scripts/check-stepfile.ts",
+    "measure-catalog": "node scripts/measure-catalog.ts",
     "demo:catalog": "node examples/run-catalog.ts"
   },
   "dependencies": {
