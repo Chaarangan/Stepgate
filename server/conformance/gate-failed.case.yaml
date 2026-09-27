@@ -1,0 +1,22 @@
+name: a step that uses up its retries ends the run with GateFailed
+stepfile:
+  stepgate: "1"
+  id: exhausted
+  inputs: { type: object, properties: {} }
+  steps:
+    - id: count
+      instructions: Submit a positive count.
+      produces: { type: object, required: [count], properties: { count: { type: integer } } }
+      gates:
+        - { id: positive, message: count must be positive, predicate: { ">": [{ var: output.count }, 0] } }
+      retries: 1
+inputs: {}
+actions:
+  - submit: { count: 0 }
+  - submit: { count: -1 }
+expect:
+  replies:
+    - { state: running, step: count }
+    - { state: running, failures: [positive] }
+    - { state: failed, error: GateFailed, contain: positive }
+  ledger: [run_started, step_started, submit, gate, submit, gate, run_failed]

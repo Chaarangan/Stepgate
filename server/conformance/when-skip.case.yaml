@@ -1,0 +1,25 @@
+name: a step whose when is not true is skipped and never shown
+stepfile:
+  stepgate: "1"
+  id: optional
+  inputs: { type: object, required: [formal], properties: { formal: { type: boolean } } }
+  steps:
+    - id: greet
+      instructions: Say hello.
+      produces: { type: object, required: [greeting], properties: { greeting: { type: string } } }
+      gates:
+        - { id: said, schema: { properties: { greeting: { minLength: 1 } } } }
+    - id: title
+      when: { "==": [{ var: inputs.formal }, true] }
+      instructions: Add a title.
+      produces: { type: object, required: [title], properties: { title: { type: string } } }
+      gates:
+        - { id: titled, schema: { properties: { title: { minLength: 1 } } } }
+inputs: { formal: false }
+actions:
+  - submit: { greeting: Hello }
+expect:
+  replies:
+    - { state: running, step: greet }
+    - { state: finished }
+  ledger: [run_started, step_started, submit, gate, step_passed, step_skipped, run_finished]

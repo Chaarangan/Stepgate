@@ -1,0 +1,22 @@
+name: an output that breaks produces fails as the produces gate, before any other gate runs
+stepfile:
+  stepgate: "1"
+  id: shape
+  inputs: { type: object, properties: {} }
+  steps:
+    - id: count
+      instructions: Submit a count.
+      produces: { type: object, required: [count], properties: { count: { type: integer } } }
+      gates:
+        - { id: positive, message: count must be positive, predicate: { ">": [{ var: output.count }, 0] } }
+      retries: 1
+inputs: {}
+actions:
+  - submit: { total: 3 }
+  - submit: { count: 3 }
+expect:
+  replies:
+    - { state: running, step: count }
+    - { state: running, failures: [produces] }
+    - { state: finished }
+  ledger: [run_started, step_started, submit, gate, submit, gate, step_passed, run_finished]

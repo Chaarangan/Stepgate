@@ -1,0 +1,26 @@
+name: steps run in order, placeholders are filled from earlier outputs, and the run returns every output
+stepfile:
+  stepgate: "1"
+  id: two-steps
+  inputs: { type: object, required: [name], properties: { name: { type: string } } }
+  steps:
+    - id: greet
+      instructions: "Greet {{inputs.name}}."
+      produces: { type: object, required: [greeting], properties: { greeting: { type: string } } }
+      gates:
+        - { id: names-them, message: the greeting must contain the name, predicate: { in: [{ var: inputs.name }, { var: output.greeting }] } }
+    - id: sign
+      instructions: "Sign off after: {{steps.greet.greeting}}"
+      produces: { type: object, required: [signature], properties: { signature: { type: string } } }
+      gates:
+        - { id: signed, schema: { properties: { signature: { minLength: 1 } } } }
+inputs: { name: Ada }
+actions:
+  - submit: { greeting: Hello, Ada }
+  - submit: { signature: Stepgate }
+expect:
+  replies:
+    - { state: running, step: greet, contain: Greet Ada. }
+    - { state: running, step: sign, contain: "Sign off after: Hello, Ada" }
+    - { state: finished, contain: Stepgate }
+  ledger: [run_started, step_started, submit, gate, step_passed, step_started, submit, gate, step_passed, run_finished]

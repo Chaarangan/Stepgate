@@ -30,6 +30,7 @@
     "dist",
     "!dist/**/*.d.ts",
     "schema",
+    "conformance",
     "stepfiles",
     "docs"
   ],

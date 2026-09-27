@@ -1,0 +1,22 @@
+name: a failed gate returns its diagnosis, and a corrected submission within the retries passes
+stepfile:
+  stepgate: "1"
+  id: retry
+  inputs: { type: object, required: [name], properties: { name: { type: string } } }
+  steps:
+    - id: greet
+      instructions: "Greet {{inputs.name}}."
+      produces: { type: object, required: [greeting], properties: { greeting: { type: string } } }
+      gates:
+        - { id: names-them, message: the greeting must contain the name, predicate: { in: [{ var: inputs.name }, { var: output.greeting }] } }
+      retries: 1
+inputs: { name: Ada }
+actions:
+  - submit: { greeting: Hello there }
+  - submit: { greeting: Hello, Ada }
+expect:
+  replies:
+    - { state: running, step: greet }
+    - { state: running, failures: [names-them], contain: the greeting must contain the name }
+    - { state: finished }
+  ledger: [run_started, step_started, submit, gate, submit, gate, step_passed, run_finished]
