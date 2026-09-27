@@ -19,6 +19,7 @@ import { catalogDirectory, catalogFile, listCatalog } from "./catalog.ts";
 import { parseCases, testGates } from "./gate-test.ts";
 import { serveHttp } from "./http-server.ts";
 import { environmentCredentials, environmentSettings } from "./operator.ts";
+import { fixedStepfiles, watchStepfiles } from "./served.ts";
 import { createStepgateServer, type StepgateServerOptions } from "./server.ts";
 import { userAgent } from "./version.ts";
 import type { LedgerRecord } from "./engine/types.ts";
@@ -43,7 +44,8 @@ With no stepfiles it serves only the tools for writing new ones.
   --response-bytes <n>       largest response Stepgate reads from an API (10485760)
   --draft-credential <name>=<host>[,<host>...]
                              let drafts use credential <name>, sent only to these hosts; repeatable
-  --draft-setting <name>     let drafts use setting <name> from the environment; repeatable`;
+  --draft-setting <name>     let drafts use setting <name> from the environment; repeatable
+  --watch                    reload a stepfile when its file changes; runs in progress keep the version they started with`;
 
 const { values, positionals } = parseArgs({
   allowPositionals: true,
@@ -62,6 +64,7 @@ const { values, positionals } = parseArgs({
     contact: { type: "string" },
     "draft-credential": { type: "string", multiple: true },
     "draft-setting": { type: "string", multiple: true },
+    watch: { type: "boolean" },
   },
 });
 
@@ -144,8 +147,10 @@ function stepfilePath(argument: string): URL | string {
   return /\.(ya?ml|json)$/i.test(argument) ? argument : catalogFile(catalogDirectory(), argument);
 }
 
-// Loading every file first means a bad stepfile stops the server at start, not at first call.
-const stepfiles = positionals.map((argument) => load(readFileSync(stepfilePath(argument), "utf8")));
+// Loading every file first means a bad stepfile stops the server at start, not at first call; --watch then reloads edits.
+const stepfiles = values.watch === true
+  ? watchStepfiles(positionals.map(stepfilePath))
+  : fixedStepfiles(positionals.map((argument) => load(readFileSync(stepfilePath(argument), "utf8"))));
 const ledgerDir = values["ledger-dir"];
 
 const limits = {
@@ -171,7 +176,8 @@ const options: StepgateServerOptions = {
 };
 
 function served(): string {
-  return stepfiles.length === 0 ? "the authoring tools only" : stepfiles.map((stepfile) => stepfile.document.id).join(", ");
+  const ids = stepfiles.entries().map((entry) => entry.id);
+  return `${ids.length === 0 ? "the authoring tools only" : ids.join(", ")}${values.watch === true ? ", reloading edited files" : ""}`;
 }
 
 if (values.http === undefined) {

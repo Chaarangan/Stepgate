@@ -9,6 +9,7 @@ import { SettingUnavailable } from "../src/engine/errors.ts";
 import { isLoopbackHttpUrl, isPublicHttpsUrl } from "../src/engine/http.ts";
 import { load } from "../src/engine/load.ts";
 import type { CredentialSource, RunContext, JsonObject, LedgerRecord } from "../src/engine/types.ts";
+import { fixedStepfiles } from "../src/served.ts";
 import { createStepgateServer } from "../src/server.ts";
 import { userAgent } from "../src/version.ts";
 import { API_KEY, MCP_TOKEN, secretsFrom, startApi, startMcp, type Fixture } from "./fixtures.ts";
@@ -78,7 +79,7 @@ export async function startHarness(setup: Setup): Promise<Harness> {
   const settings = setup.settings?.({ cataloguePort }) ?? {};
 
   const records: LedgerRecord[] = [];
-  const server = createStepgateServer([load(JSON.stringify(stepfile))], {
+  const server = createStepgateServer(fixedStepfiles([load(JSON.stringify(stepfile))]), {
     credentials: setup.credentialSource ?? secretsFrom(setup.credentials ?? { catalogue: API_KEY, suppliers: MCP_TOKEN }),
     settings: async (name) => {
       const value = settings[name];

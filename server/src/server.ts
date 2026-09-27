@@ -6,6 +6,7 @@ import { load } from "./engine/load.ts";
 import type { Progress, StepView } from "./engine/run.ts";
 import { createRuns } from "./engine/runs.ts";
 import type { LedgerSink } from "./engine/ledger.ts";
+import type { Served } from "./served.ts";
 import { VERSION } from "./version.ts";
 import type { Approvals, Json, JsonObject, RunContext, Stepfile } from "./engine/types.ts";
 
@@ -162,10 +163,10 @@ function isObject(value: unknown): value is JsonObject {
  * An MCP server exposing each stepfile as a tool that starts a run, plus tools for writing new stepfiles. The client's
  * own agent does each step through `stepgate_call` and `stepgate_submit`, while Stepgate makes every request and applies every gate.
  */
-export function createStepgateServer(stepfiles: Stepfile[], options: StepgateServerOptions): Server {
-  const byId = new Map(stepfiles.map((stepfile) => [stepfile.document.id, stepfile]));
-  const server = new Server({ name: "stepgate", version: VERSION }, { capabilities: { tools: {} }, instructions: INSTRUCTIONS });
+export function createStepgateServer(served: Served, options: StepgateServerOptions): Server {
+  const server = new Server({ name: "stepgate", version: VERSION }, { capabilities: { tools: { listChanged: true } }, instructions: INSTRUCTIONS });
   const runs = createRuns(options.runIdleMs);
+  const unsubscribe = served.onChange(() => void server.sendToolListChanged());
 
   // An approve gate is answered by a person through the client's form elicitation, given as long as a run may idle.
   const askPerson: Approvals["ask"] = async (request) => {
@@ -184,16 +185,21 @@ export function createStepgateServer(stepfiles: Stepfile[], options: StepgateSer
     const reason = typeof answer.content?.reason === "string" && answer.content.reason.trim() !== "" ? answer.content.reason.trim() : null;
     return answer.action === "accept" ? { approved: true, reason } : { approved: false, reason: reason ?? (answer.action === "cancel" ? "the request was dismissed" : null) };
   };
-  server.onclose = () => void runs.abandonAll();
+  server.onclose = () => {
+    unsubscribe();
+    void runs.abandonAll();
+  };
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: [
-      ...stepfiles.map(({ document }) => ({
-        name: document.id,
-        ...(document.title === undefined ? {} : { title: document.title }),
-        description: `${document.description ?? document.title ?? `Runs the ${document.id} stepfile.`} Starts a run and returns its first step; do each step with ${CALL} and ${SUBMIT}.`,
-        inputSchema: document.inputs as Tool["inputSchema"],
-      })),
+      ...served.entries().map((entry): Tool => (entry.stepfile === null
+        ? { name: entry.id, description: `This stepfile failed to load after its last edit, so calling it reports why: ${entry.problem.message}`, inputSchema: { type: "object" } }
+        : {
+          name: entry.id,
+          ...(entry.stepfile.document.title === undefined ? {} : { title: entry.stepfile.document.title }),
+          description: `${entry.stepfile.document.description ?? entry.stepfile.document.title ?? `Runs the ${entry.id} stepfile.`} Starts a run and returns its first step; do each step with ${CALL} and ${SUBMIT}.`,
+          inputSchema: entry.stepfile.document.inputs as Tool["inputSchema"],
+        })),
       CALL_TOOL,
       SUBMIT_TOOL,
       ...AUTHORING_TOOLS,
@@ -258,11 +264,14 @@ export function createStepgateServer(stepfiles: Stepfile[], options: StepgateSer
         }
         return await started(draft, isObject(args.inputs) ? args.inputs : {});
       }
-      const stepfile = byId.get(request.params.name);
-      if (stepfile === undefined) {
+      const entry = served.entries().find((candidate) => candidate.id === request.params.name);
+      if (entry === undefined) {
         return text(`no tool named ${request.params.name}`, { run: null, state: "failed", error: "UnknownTool" }, true);
       }
-      return await started(stepfile, args);
+      if (entry.stepfile === null) {
+        throw entry.problem;
+      }
+      return await started(entry.stepfile, args);
     } catch (error) {
       if (error instanceof StepgateError) {
         return failure(id, error);

@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { CredentialUnavailable, SettingUnavailable } from "../src/engine/errors.ts";
 import { isPublicHttpsUrl } from "../src/engine/http.ts";
 import { serveHttp } from "../src/http-server.ts";
+import { fixedStepfiles } from "../src/served.ts";
 import { userAgent } from "../src/version.ts";
 
 let served: Awaited<ReturnType<typeof serveHttp>> | undefined;
@@ -16,7 +17,7 @@ afterEach(async () => {
 });
 
 async function start(): Promise<number> {
-  served = await serveHttp([], {
+  served = await serveHttp(fixedStepfiles([]), {
     credentials: {
       value: async (name) => {
         throw new CredentialUnavailable(name, "none in this test");

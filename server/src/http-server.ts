@@ -4,8 +4,8 @@ import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
+import type { Served } from "./served.ts";
 import { createStepgateServer, type StepgateServerOptions } from "./server.ts";
-import type { Stepfile } from "./engine/types.ts";
 
 const LOOPBACK = new Set(["127.0.0.1", "localhost", "[::1]"]);
 // The largest JSON-RPC message Stepgate accepts; a stepfile draft passed to stepgate_try is the biggest one expected.
@@ -67,7 +67,7 @@ type Session = { transport: StreamableHTTPServerTransport; timer: NodeJS.Timeout
  * Serves Streamable HTTP at /mcp on 127.0.0.1. Sessions are stateful, because a run lives in its session's server
  * between calls, and a session idle for `options.runIdleMs` is closed, which abandons its runs.
  */
-export async function serveHttp(stepfiles: Stepfile[], options: StepgateServerOptions, port: number): Promise<{ port: number; close: () => Promise<void> }> {
+export async function serveHttp(served: Served, options: StepgateServerOptions, port: number): Promise<{ port: number; close: () => Promise<void> }> {
   const sessions = new Map<string, Session>();
   const expire = (id: string) => setTimeout(() => {
     const session = sessions.get(id);
@@ -101,7 +101,7 @@ export async function serveHttp(stepfiles: Stepfile[], options: StepgateServerOp
       },
     });
     // The MCP SDK's own types disagree under exactOptionalPropertyTypes; the runtime object is a Transport.
-    await createStepgateServer(stepfiles, options).connect(transport as Transport);
+    await createStepgateServer(served, options).connect(transport as Transport);
     await transport.handleRequest(request, response, body);
   };
 

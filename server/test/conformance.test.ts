@@ -8,6 +8,7 @@ import { parse as parseYaml } from "yaml";
 import { SettingUnavailable } from "../src/engine/errors.ts";
 import { load } from "../src/engine/load.ts";
 import type { JsonObject, LedgerRecord } from "../src/engine/types.ts";
+import { fixedStepfiles } from "../src/served.ts";
 import { createStepgateServer } from "../src/server.ts";
 import { userAgent } from "../src/version.ts";
 import { startRoutes, startTools, type Received, type Route, type ToolFixture } from "./conformance-fixtures.ts";
@@ -41,7 +42,7 @@ async function play(item: Case): Promise<{ replies: CallToolResult[]; records: L
     .replaceAll("${api.origin}", api?.origin ?? "").replaceAll("${api.host}", api?.host ?? "")
     .replaceAll("${mcp.origin}", mcp?.origin ?? "").replaceAll("${mcp.host}", mcp?.host ?? "");
   const stepfile = load(text);
-  const server = createStepgateServer([stepfile], {
+  const server = createStepgateServer(fixedStepfiles([stepfile]), {
     credentials: secretsFrom(item.credentials ?? {}),
     settings: async (name) => {
       throw new SettingUnavailable(name, "conformance cases declare no settings");
