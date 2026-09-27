@@ -7,12 +7,8 @@
 // bundled catalog. Without --http it speaks stdio, which is how desktop MCP clients launch servers. Credential
 // <name> is read from the environment variable <NAME>_API_KEY. Budgets default as shown in --help.
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
-import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
-import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { createServer, type IncomingMessage } from "node:http";
 import { parseArgs } from "node:util";
 import { CredentialUnavailable, SettingUnavailable } from "./engine/errors.ts";
 import { isPublicHttpsUrl } from "./engine/http.ts";
@@ -21,6 +17,7 @@ import { oneLine } from "./engine/tools/tool.ts";
 import { directorySink, firstBreak, streamSink } from "./engine/ledger.ts";
 import { load } from "./engine/load.ts";
 import { catalogDirectory, catalogFile, listCatalog } from "./catalog.ts";
+import { serveHttp } from "./http-server.ts";
 import { createStepgateServer, type StepgateServerOptions } from "./server.ts";
 import { userAgent } from "./version.ts";
 import type { LedgerRecord } from "./engine/types.ts";
@@ -147,47 +144,11 @@ function served(): string {
   return stepfiles.length === 0 ? "the authoring tools only" : stepfiles.map((stepfile) => stepfile.document.id).join(", ");
 }
 
-async function readJson(request: IncomingMessage): Promise<unknown> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of request) {
-    chunks.push(chunk as Buffer);
-  }
-  const text = Buffer.concat(chunks).toString("utf8");
-  return text === "" ? undefined : JSON.parse(text);
-}
-
 if (values.http === undefined) {
   // The MCP SDK's own types disagree under exactOptionalPropertyTypes; the runtime object is a Transport.
   await createStepgateServer(stepfiles, options).connect(new StdioServerTransport() as Transport);
   console.error(`stepgate: serving ${served()} over stdio`);
 } else {
-  const port = positiveInteger("http", values.http);
-  const sessions = new Map<string, StreamableHTTPServerTransport>();
-  createServer(async (request, response) => {
-    if (request.url !== "/mcp") {
-      response.writeHead(404).end();
-      return;
-    }
-    const body = request.method === "POST" ? await readJson(request) : undefined;
-    const sessionId = request.headers["mcp-session-id"];
-    const existing = typeof sessionId === "string" ? sessions.get(sessionId) : undefined;
-    if (existing !== undefined) {
-      await existing.handleRequest(request, response, body);
-      return;
-    }
-    if (!isInitializeRequest(body)) {
-      response.writeHead(400, { "content-type": "application/json" }).end(JSON.stringify({ error: "unknown session; start with initialize" }));
-      return;
-    }
-    // Stateful sessions, because a run lives in the session's server between calls.
-    const transport = new StreamableHTTPServerTransport({
-      sessionIdGenerator: randomUUID,
-      onsessioninitialized: (id) => void sessions.set(id, transport),
-      onsessionclosed: (id) => void sessions.delete(id),
-    });
-    await createStepgateServer(stepfiles, options).connect(transport as Transport);
-    await transport.handleRequest(request, response, body);
-  }).listen(port, "127.0.0.1", () => {
-    console.error(`stepgate: serving ${served()} at http://127.0.0.1:${port}/mcp`);
-  });
+  const { port } = await serveHttp(stepfiles, options, positiveInteger("http", values.http));
+  console.error(`stepgate: serving ${served()} at http://127.0.0.1:${port}/mcp`);
 }
