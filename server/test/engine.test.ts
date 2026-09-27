@@ -79,7 +79,7 @@ describe("version", () => {
 
 describe("ledger", () => {
   it("emits a chain that verifies, and fails verification after an edit", async () => {
-    harness = await startHarness({ turns: [GOOD_STOCK, GOOD_SUMMARY] });
+    harness = await startHarness({ actions: [GOOD_STOCK, GOOD_SUMMARY] });
 
     await harness.call({ item: "K-1" });
 

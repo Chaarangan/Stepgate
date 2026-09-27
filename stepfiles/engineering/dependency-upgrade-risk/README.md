@@ -47,4 +47,4 @@ Then call the `dependency-upgrade-risk` tool with:
 
 In September 2026 this returned five advisories for lodash 4.17.20 (highest HIGH), two for express 4.17.1 and one CRITICAL for minimist 1.2.5, each with a clean latest release, and none for ms 2.1.3, which is its latest version. The recommendations are in `outputs.recommend.packages` and the report in `outputs.recommend.summary`.
 
-OSV lists some advisories under both a GitHub id and an alias, so a package can show two ids for one underlying CVE. The details step makes one call per advisory, so a very old release with dozens of advisories takes many tool calls in one step; if your client hits `--turns-per-step`, check fewer packages at a time.
+OSV lists some advisories under both a GitHub id and an alias, so a package can show two ids for one underlying CVE. The details step makes one call per advisory, so a very old release with dozens of advisories takes many tool calls in one step; if a run hits `--calls-per-step`, check fewer packages at a time.

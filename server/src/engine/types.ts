@@ -58,34 +58,23 @@ export type Stepfile = {
   identity: string;
 };
 
-/** A tool as offered to the model, in the engine's provider-neutral shape. */
+/** An operation a step offers the client, with the schema its arguments must match. */
 export type ToolDefinition = {
   name: string;
   description: string;
   inputSchema: JsonSchema;
 };
 
-export type ToolCall = { id: string; name: string; arguments: unknown };
-
-export type Message =
-  | { role: "user"; text: string }
-  | { role: "assistant"; text: string; toolCalls: ToolCall[] }
-  | { role: "tool"; toolCallId: string; content: string; isError: boolean };
-
-export type ModelRequest = { system: string; messages: Message[]; tools: ToolDefinition[] };
-export type ModelReply = { text: string; toolCalls: ToolCall[] };
-
 export type LedgerRecord = { seq: number; type: string; at: string; prev: string | null } & JsonObject;
 
-/** What a run needs from Stepgate: one model turn at a time, credentials, a ledger sink and limits. */
+/** What a run needs from Stepgate: credentials, settings, a ledger sink and limits. */
 export type RunContext = {
-  model: (request: ModelRequest) => Promise<ModelReply>;
   credentials: (name: string, declaration: CredentialDeclaration) => Promise<string>;
   /** The operator's value for a setting, such as a site name; raises SettingUnavailable when unset. */
   settings: (name: string, declaration: SettingDeclaration) => Promise<string>;
   ledger: (record: LedgerRecord) => void | Promise<void>;
-  /** Budgets that depend on the model's context: turns per step, and the longest tool result passed to it. */
-  limits: { turnsPerStep: number; toolResultChars: number };
+  /** Budgets: tool calls one step may make, and the longest tool result passed to the client. */
+  limits: { callsPerStep: number; toolResultChars: number };
   /** Sent on every outgoing request that does not set its own. */
   userAgent: string;
 };

@@ -7,3 +7,5 @@ coverage/
 server/LICENSE
 server/README.md
 server/stepfiles/
+server/docs/
+.stepgate/

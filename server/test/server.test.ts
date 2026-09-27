@@ -1,5 +1,6 @@
+import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { afterEach, describe, expect, it } from "vitest";
-import { GOOD_STOCK, GOOD_SUMMARY, resultText, startHarness, type Harness, type Setup } from "./harness.ts";
+import { GOOD_STOCK, GOOD_SUMMARY, resultText, startHarness, stateOf, stepViews, use, type Harness, type Setup } from "./harness.ts";
 
 let harness: Harness | undefined;
 
@@ -13,59 +14,59 @@ async function start(setup: Setup): Promise<Harness> {
   return harness;
 }
 
-const TURNS = [
-  [
-    { type: "tool_use", id: "a", name: "getItem", input: { id: "K-1" } },
-    { type: "tool_use", id: "b", name: "lookup", input: { query: "Acme" } },
-  ],
-  GOOD_STOCK,
-  GOOD_SUMMARY,
-] as Setup["turns"];
+const ACTIONS = [use("getItem", { id: "K-1" }), use("lookup", { query: "Acme" }), GOOD_STOCK, GOOD_SUMMARY];
 
 describe("Stepgate MCP server", () => {
-  it("lists each stepfile as a tool with the stepfile's input schema", async () => {
-    const { client } = await start({ turns: [] });
+  it("lists each stepfile as a tool with the stepfile's input schema, beside the run and authoring tools", async () => {
+    const { client } = await start({ actions: [] });
 
     const { tools } = await client.listTools();
 
-    expect(tools).toEqual([
-      expect.objectContaining({ name: "stock-check", description: "Checks an item's stock and its supplier.", inputSchema: expect.objectContaining({ required: ["item"] }) }),
+    expect(tools.map((tool) => tool.name)).toEqual([
+      "stock-check", "stepgate_call", "stepgate_submit",
+      "stepgate_guide", "stepgate_examples", "stepgate_validate", "stepgate_inspect_api", "stepgate_try",
     ]);
+    expect(tools[0]).toMatchObject({ description: expect.stringContaining("Checks an item's stock and its supplier."), inputSchema: { required: ["item"] } });
+    expect(client.getInstructions()).toContain("stepgate_submit");
   });
 
-  it("runs a stepfile on the client's model through sampling and returns every step's output", async () => {
-    const { client, sampled } = await start({ turns: TURNS });
-    const progress: string[] = [];
-
-    const result = await client.callTool({ name: "stock-check", arguments: { item: "K-1" } }, undefined, {
-      onprogress: (update) => void progress.push(update.message ?? ""),
-    });
-
-    expect(result.isError).toBeFalsy();
-    expect(result.structuredContent).toMatchObject({
-      outputs: { stock: { name: "Blue kettle", count: 4, supplier: "Acme" }, summary: { summary: "Blue kettle has 4 in stock." } },
-    });
-    expect(sampled).toHaveLength(3);
-    expect(sampled[0]?.tools?.map((tool) => tool.name)).toEqual(["getItem", "lookup", "submit"]);
-    expect(sampled[1]?.messages.at(-1)).toMatchObject({
-      role: "user",
-      content: [
-        { type: "tool_result", toolUseId: "a", isError: false },
-        { type: "tool_result", toolUseId: "b", isError: false, content: [{ type: "text", text: "Supplier Acme: based in Leeds" }] },
-      ],
-    });
-    expect(progress).toContain("step_passed stock");
-    expect(progress.at(-1)).toBe("run_finished");
-  });
-
-  it("refuses to run for a client that cannot sample with tools, before contacting anything", async () => {
-    const { call, records, api } = await start({ turns: [], sampling: false });
+  it("runs a stepfile the client drives step by step and returns every step's output", async () => {
+    const { call, seen } = await start({ actions: ACTIONS });
 
     const result = await call({ item: "K-1" });
 
-    expect(result.isError).toBe(true);
-    expect(resultText(result)).toContain("sampling.tools");
-    expect(records).toEqual([]);
-    expect(api.received).toEqual([]);
+    expect(result.isError).toBeFalsy();
+    expect(stateOf(result)).toMatchObject({
+      state: "finished",
+      outputs: { stock: { name: "Blue kettle", count: 4, supplier: "Acme" }, summary: { summary: "Blue kettle has 4 in stock." } },
+    });
+    expect(resultText(seen[0] as CallToolResult)).toMatch(/^Run [0-9a-f-]+, step 1 of 2: stock\.[\s\S]*Find item K-1[\s\S]*stepgate_submit/);
+    expect(stepViews(seen)[0]?.operations.map((operation) => operation.name)).toEqual(["getItem", "lookup"]);
+    expect(seen[2]).toMatchObject({ isError: false, content: [{ type: "text", text: "Supplier Acme: based in Leeds" }] });
+    // Claude Code shows structuredContent in place of the text, so the result must be there too.
+    expect(stateOf(seen[2])).toMatchObject({ state: "running", result: "Supplier Acme: based in Leeds" });
+  });
+
+  it("answers a call for a run that is not active with RunNotActive, and contacts nothing", async () => {
+    const { client, call, api, seen } = await start({ actions: [GOOD_STOCK, GOOD_SUMMARY] });
+
+    const unknown = await client.callTool({ name: "stepgate_call", arguments: { run: "no-such-run", operation: "getItem", arguments: { id: "K-1" } } });
+    await call({ item: "K-1" });
+    const finished = await client.callTool({ name: "stepgate_submit", arguments: { run: stateOf(seen[0]).run, output: {} } });
+
+    expect(resultText(unknown as CallToolResult)).toMatch(/^RunNotActive: run no-such-run is not active/);
+    expect(resultText(finished as CallToolResult)).toMatch(/^RunNotActive: /);
+    expect(api.received.filter((request) => request.path.startsWith("/items"))).toEqual([]);
+  });
+
+  it("abandons a run the client stops driving, and records it in the ledger", async () => {
+    const { client, call, records, seen } = await start({ actions: [], runIdleMs: 50 });
+
+    await call({ item: "K-1" });
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const late = await client.callTool({ name: "stepgate_submit", arguments: { run: stateOf(seen[0]).run, output: {} } });
+
+    expect(records.at(-1)).toMatchObject({ type: "run_abandoned" });
+    expect(resultText(late as CallToolResult)).toMatch(/^RunNotActive: /);
   });
 });

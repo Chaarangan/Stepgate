@@ -13,8 +13,9 @@ Run everything from `server/`:
 ## Where things are
 
 - `server/src/engine/`: load and validate, the step loop (`run.ts`), OpenAPI and MCP tools, gates, ledger.
-- `server/src/server.ts`: stepfiles as MCP tools; the model is reached through sampling.
-- `server/test/harness.ts`: starts fixture servers and a scripted-sampling client. New tests use it.
+- `server/src/server.ts`: stepfiles as MCP tools that start runs, plus `stepgate_call` and `stepgate_submit`, which the client drives each step with.
+- `server/test/harness.ts`: starts fixture servers and a client that plays scripted actions on each run. New tests use it.
+- `server/src/authoring.ts`: the tools that help an agent write a stepfile (guide, examples, API inspection, validation, draft rules).
 - `server/src/catalog.ts`: finds, validates and lists the `stepfiles/` catalog; the CLI takes catalog names as well as paths.
 - `stepfiles/<domain>/<id>/`: one catalog entry per folder, `<id>.stepfile.yaml` plus `README.md`; ids are unique across domains.
 
@@ -22,4 +23,4 @@ Run everything from `server/`:
 
 - Use the vocabulary in `CONTEXT.md` (stepfile, step, gate, Stepgate, client, ledger).
 - A format change updates `docs/stepfile.md`, the schema and the code together.
-- Tests go through the MCP server with the harness; the scripted model is the only fake.
+- Tests go through the MCP server with the harness; the scripted client is the only fake.

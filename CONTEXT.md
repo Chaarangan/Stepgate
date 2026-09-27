@@ -1,6 +1,6 @@
 # Stepgate
 
-A portable, API-only format for an agent's procedure, and the MCP server that runs it on the connecting client's own model.
+A portable, API-only format for an agent's procedure, and the MCP server that gates the connecting client's agent through it step by step.
 
 ## Language
 
@@ -29,12 +29,16 @@ A named requirement for a secret, declared by kind, scopes, hosts and descriptio
 _Avoid_: secret, env var, key
 
 **Stepgate**:
-The MCP server that runs stepfiles: it offers each one as a tool, borrows the client's model through sampling, performs every tool call, evaluates gates and writes the ledger. Also its command, `stepgate`.
+The MCP server that runs stepfiles: it offers each one as a tool, shows the client one step at a time, performs every tool call, evaluates gates and writes the ledger. Also its command, `stepgate`.
 _Avoid_: runtime, SDK, engine, host
 
 **Client**:
-The MCP client that connects to Stepgate, calls stepfiles and lends its model through sampling.
+The MCP client that connects to Stepgate, starts runs, and does each step with its own model through Stepgate's tools.
 _Avoid_: host, caller
+
+**Draft**:
+A stepfile passed to Stepgate as text to try, rather than loaded at start. Runs without credentials or settings.
+_Avoid_: scratch file, prototype
 
 **Preflight**:
 Everything Stepgate checks before the first step: inputs, credentials, tool documents and exposed operations.

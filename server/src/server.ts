@@ -1,142 +1,295 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import {
-  CallToolRequestSchema,
-  ListToolsRequestSchema,
-  type CallToolResult,
-  type CreateMessageRequestParamsWithTools,
-  type SamplingMessage,
-  type ServerNotification,
-  type ServerRequest,
-} from "@modelcontextprotocol/sdk/types.js";
-import type { RequestHandlerExtra } from "@modelcontextprotocol/sdk/shared/protocol.js";
+import { CallToolRequestSchema, ListToolsRequestSchema, type CallToolResult, type Tool } from "@modelcontextprotocol/sdk/types.js";
 import { randomUUID } from "node:crypto";
-import { StepgateError } from "./engine/errors.ts";
-import { run } from "./engine/run.ts";
+import { draftProblems, examples, guide, inspectApi, validateDraft } from "./authoring.ts";
+import { DraftRefused, RunNotActive, StepgateError } from "./engine/errors.ts";
+import { load } from "./engine/load.ts";
+import { startRun, type Progress, type Run, type StepView } from "./engine/run.ts";
 import { VERSION } from "./version.ts";
-import type { RunContext, JsonObject, LedgerRecord, Message, ModelReply, ModelRequest, Stepfile } from "./engine/types.ts";
+import type { Json, JsonObject, LedgerRecord, RunContext, Stepfile } from "./engine/types.ts";
 
 export type StepgateServerOptions = {
   credentials: RunContext["credentials"];
   settings: RunContext["settings"];
-  /** Receives every ledger record, tagged with the stepfile and the tool call it belongs to. */
-  ledger: (call: { stepfile: string; call: string }, record: LedgerRecord) => void | Promise<void>;
+  /** Receives every ledger record, tagged with the stepfile and the run it belongs to. */
+  ledger: (run: { stepfile: string; call: string }, record: LedgerRecord) => void | Promise<void>;
   limits: RunContext["limits"];
-  /** Passed to the client as `maxTokens` on every sampling request. */
-  maxTokens: number;
-  /** How long one sampling request may take before it fails, in milliseconds. */
-  samplingTimeoutMs: number;
+  /** How long a run may wait for the client's next call before it is abandoned, in milliseconds. */
+  runIdleMs: number;
   userAgent: string;
+  /** Lets drafts and inspection reach http://localhost; only tests set it, against local fixture servers. */
+  draftsMayUseLoopback: boolean;
 };
 
-type Extra = RequestHandlerExtra<ServerRequest, ServerNotification>;
+const CALL = "stepgate_call";
+const SUBMIT = "stepgate_submit";
+const TRY = "stepgate_try";
 
-/** The engine's messages as MCP sampling messages. Consecutive tool results share one user message, as the spec requires. */
-function toSamplingMessages(messages: Message[]): SamplingMessage[] {
-  const converted: SamplingMessage[] = [];
-  for (const message of messages) {
-    if (message.role === "user") {
-      converted.push({ role: "user", content: { type: "text", text: message.text } });
-    } else if (message.role === "assistant") {
-      converted.push({
-        role: "assistant",
-        content: [
-          ...(message.text === "" ? [] : [{ type: "text" as const, text: message.text }]),
-          ...message.toolCalls.map((call) => ({
-            type: "tool_use" as const,
-            id: call.id,
-            name: call.name,
-            input: (call.arguments !== null && typeof call.arguments === "object" && !Array.isArray(call.arguments) ? call.arguments : {}) as Record<string, unknown>,
-          })),
-        ],
-      });
-    } else {
-      const result = { type: "tool_result" as const, toolUseId: message.toolCallId, content: [{ type: "text" as const, text: message.content }], isError: message.isError };
-      const previous = converted.at(-1);
-      if (previous !== undefined && previous.role === "user" && Array.isArray(previous.content) && previous.content.every((part) => part.type === "tool_result")) {
-        previous.content.push(result);
-      } else {
-        converted.push({ role: "user", content: [result] });
-      }
-    }
+const INSTRUCTIONS = `Each stepfile tool starts a run of a fixed procedure and returns its first step. Do each step as instructed: \
+call the step's operations only through ${CALL}, then send the step's output to ${SUBMIT}. Stepgate checks the output with the \
+step's gates; if it is rejected, fix every listed problem and submit again. Values must come from the operations' results, \
+because gates compare them. Continue until the run finishes. To write a new stepfile, call stepgate_guide first: it explains \
+the format and the other authoring tools.`;
+
+const CALL_TOOL: Tool = {
+  name: CALL,
+  title: "Call a step operation",
+  description: `Calls one of the current step's operations for a Stepgate run and returns its result. Stepgate makes the request and adds any credentials.`,
+  inputSchema: {
+    type: "object",
+    properties: {
+      run: { type: "string", description: "The run id a stepfile tool returned." },
+      operation: { type: "string", description: "An operation the current step lists." },
+      arguments: { type: "object", description: "Arguments matching the operation's schema." },
+    },
+    required: ["run", "operation"],
+  },
+};
+
+const SUBMIT_TOOL: Tool = {
+  name: SUBMIT,
+  title: "Submit a step's output",
+  description: "Submits the current step's output for a Stepgate run. Returns the next step, the gate failures to fix, or the finished run's outputs.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      run: { type: "string", description: "The run id a stepfile tool returned." },
+      output: { type: "object", description: "The step's output, matching the schema the step gave." },
+    },
+    required: ["run", "output"],
+  },
+};
+
+const STEPFILE_TEXT = { type: "string", description: "The whole stepfile, as YAML or JSON text." } as const;
+
+const AUTHORING_TOOLS: Tool[] = [
+  {
+    name: "stepgate_guide",
+    title: "How to write a stepfile",
+    description: "Returns how to write a stepfile: the authoring workflow, the full format reference and the JSON Schema. Call it before writing or editing a stepfile.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "stepgate_examples",
+    title: "Catalog stepfiles to learn from",
+    description: "Lists the catalog's stepfiles, or with a name returns that stepfile's YAML and README, to copy a working pattern from.",
+    inputSchema: { type: "object", properties: { name: { type: "string", description: "A catalog stepfile's id; omit it for the list." } } },
+  },
+  {
+    name: "stepgate_validate",
+    title: "Validate a draft stepfile",
+    description: "Checks a draft stepfile against the schema and every load-time rule. Returns each issue with its path, or the stepfile's identity and whether stepgate_try accepts it.",
+    inputSchema: { type: "object", properties: { stepfile: STEPFILE_TEXT }, required: ["stepfile"] },
+  },
+  {
+    name: "stepgate_inspect_api",
+    title: "Inspect an API for a stepfile",
+    description: "Fetches a public OpenAPI document or MCP server without credentials and reports what a stepfile needs: the document's sha256, servers, security schemes and operationIds, or an MCP server's tools and their schema_sha256.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        kind: { type: "string", enum: ["openapi", "mcp"] },
+        url: { type: "string", description: "The OpenAPI document's URL, or the MCP server's endpoint." },
+        search: { type: "string", description: "Only list operations or tools whose name, path or description contains this." },
+        operations: { type: "array", items: { type: "string" }, description: "Return the full argument schema of these operationIds or tool names." },
+      },
+      required: ["kind", "url"],
+    },
+  },
+  {
+    name: TRY,
+    title: "Try a draft stepfile",
+    description: `Starts a run of a draft stepfile from its text, without adding it to the server. Drive it with ${CALL} and ${SUBMIT}. Drafts may not declare credentials or settings and may call only public https URLs.`,
+    inputSchema: {
+      type: "object",
+      properties: { stepfile: STEPFILE_TEXT, inputs: { type: "object", description: "Inputs matching the draft's inputs schema." } },
+      required: ["stepfile", "inputs"],
+    },
+  },
+];
+
+type Active = { run: Run; timer: NodeJS.Timeout };
+
+/** A reply with no structuredContent, so clients that prefer it still show the text. */
+function plain(message: string, isError: boolean): CallToolResult {
+  return { content: [{ type: "text", text: message }], isError };
+}
+
+function text(message: string, structured: JsonObject, isError: boolean): CallToolResult {
+  return { content: [{ type: "text", text: message }], structuredContent: structured, isError };
+}
+
+function describeStep(run: string, view: StepView): string {
+  const operations = view.operations.length === 0
+    ? "This step has no operations; work from the instructions and what earlier steps returned."
+    : `Operations for this step, called with ${CALL}:\n${view.operations
+      .map((operation) => `- ${operation.name}: ${operation.description}\n  arguments: ${JSON.stringify(operation.inputSchema)}`)
+      .join("\n")}`;
+  return [
+    `Run ${run}, step ${view.number} of ${view.total}: ${view.step}.`,
+    `Instructions:\n${view.instructions.trim()}`,
+    operations,
+    `When the step is done, call ${SUBMIT} with run "${run}" and an output matching this JSON Schema:\n${JSON.stringify(view.produces)}`,
+    `Attempts: ${view.attempts_left}.`,
+  ].join("\n\n");
+}
+
+function progressResult(run: string, progress: Progress): CallToolResult {
+  if (progress.state === "step") {
+    return text(describeStep(run, progress.step), { run, state: "running", step: progress.step as unknown as JsonObject }, false);
   }
-  return converted;
+  if (progress.state === "rejected") {
+    const failures = progress.failures.map((failure) => `- ${failure.gate}: ${failure.diagnosis}`).join("\n");
+    return text(
+      `The output was rejected. Fix every problem below and call ${SUBMIT} again (${progress.attempts_left} attempts left).\n${failures}`,
+      { run, state: "running", failures: progress.failures, attempts_left: progress.attempts_left },
+      true,
+    );
+  }
+  const { identity, outputs } = progress.result;
+  return text(`The run finished. Every step passed its gates. Outputs:\n${JSON.stringify(outputs, null, 2)}`, { run, state: "finished", identity, outputs }, false);
 }
 
-function toReply(content: unknown): ModelReply {
-  const blocks = (Array.isArray(content) ? content : [content]) as Array<{ type: string; text?: string; id?: string; name?: string; input?: unknown }>;
-  return {
-    text: blocks.filter((block) => block.type === "text").map((block) => block.text ?? "").join(""),
-    toolCalls: blocks
-      .filter((block) => block.type === "tool_use")
-      .map((block) => ({ id: block.id ?? "", name: block.name ?? "", arguments: block.input })),
-  };
+function failure(run: string | null, error: StepgateError): CallToolResult {
+  const ended = run === null || error instanceof RunNotActive ? "" : "\nThe run has ended.";
+  return text(`${error.name}: ${error.message}${ended}`, { run, state: "failed", error: error.name, message: error.message }, true);
 }
 
-function samplingModel(server: Server, extra: Extra, options: StepgateServerOptions): RunContext["model"] {
-  return async (request: ModelRequest) => {
-    const params: CreateMessageRequestParamsWithTools = {
-      systemPrompt: request.system,
-      messages: toSamplingMessages(request.messages),
-      tools: request.tools.map((tool) => ({ name: tool.name, description: tool.description, inputSchema: tool.inputSchema as { type: "object" } })),
-      toolChoice: { mode: "auto" },
-      maxTokens: options.maxTokens,
-    };
-    const result = await server.createMessage(params, { relatedRequestId: extra.requestId, timeout: options.samplingTimeoutMs });
-    return toReply(result.content);
-  };
-}
-
-function failure(message: string): CallToolResult {
-  return { content: [{ type: "text", text: message }], isError: true };
+function isObject(value: unknown): value is JsonObject {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 /**
- * An MCP server exposing each stepfile as a tool. Steps run on the calling client's own model
- * through sampling, so a client installs nothing to run a stepfile.
+ * An MCP server exposing each stepfile as a tool that starts a run, plus tools for writing new stepfiles. The client's
+ * own agent does each step through `stepgate_call` and `stepgate_submit`, while Stepgate makes every request and applies every gate.
  */
 export function createStepgateServer(stepfiles: Stepfile[], options: StepgateServerOptions): Server {
   const byId = new Map(stepfiles.map((stepfile) => [stepfile.document.id, stepfile]));
-  const server = new Server({ name: "stepgate", version: VERSION }, { capabilities: { tools: {} } });
+  const server = new Server({ name: "stepgate", version: VERSION }, { capabilities: { tools: {} }, instructions: INSTRUCTIONS });
+  const active = new Map<string, Active>();
+
+  const forget = (id: string) => {
+    const entry = active.get(id);
+    if (entry !== undefined) {
+      clearTimeout(entry.timer);
+      active.delete(id);
+    }
+  };
+  const expire = (id: string) => setTimeout(() => {
+    const entry = active.get(id);
+    forget(id);
+    void entry?.run.abandon();
+  }, options.runIdleMs).unref();
+
+  server.onclose = () => {
+    for (const [id, entry] of active) {
+      forget(id);
+      void entry.run.abandon();
+    }
+  };
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: stepfiles.map(({ document }) => ({
-      name: document.id,
-      ...(document.title === undefined ? {} : { title: document.title }),
-      description: document.description ?? document.title ?? `Runs the ${document.id} stepfile.`,
-      inputSchema: document.inputs as { type: "object" },
-    })),
+    tools: [
+      ...stepfiles.map(({ document }) => ({
+        name: document.id,
+        ...(document.title === undefined ? {} : { title: document.title }),
+        description: `${document.description ?? document.title ?? `Runs the ${document.id} stepfile.`} Starts a run and returns its first step; do each step with ${CALL} and ${SUBMIT}.`,
+        inputSchema: document.inputs as Tool["inputSchema"],
+      })),
+      CALL_TOOL,
+      SUBMIT_TOOL,
+      ...AUTHORING_TOOLS,
+    ],
   }));
 
-  server.setRequestHandler(CallToolRequestSchema, async (request, extra): Promise<CallToolResult> => {
-    const stepfile = byId.get(request.params.name);
-    if (stepfile === undefined) {
-      return failure(`no stepfile named ${request.params.name}`);
+  const started = async (stepfile: Stepfile, inputs: JsonObject): Promise<CallToolResult> => {
+    const call = randomUUID();
+    const { run, progress } = await startRun(stepfile, inputs, { ...options, ledger: (record) => options.ledger({ stepfile: stepfile.document.id, call }, record) });
+    if (progress.state !== "finished") {
+      active.set(run.id, { run, timer: expire(run.id) });
     }
-    if (server.getClientCapabilities()?.sampling?.tools === undefined) {
-      return failure("this client does not declare sampling with tools (capability sampling.tools), which stepfiles need to use its model");
+    return progressResult(run.id, progress);
+  };
+
+  const continued = async (id: string, act: (run: Run) => Promise<CallToolResult>): Promise<CallToolResult> => {
+    const entry = active.get(id);
+    if (entry === undefined) {
+      throw new RunNotActive(id);
     }
-    const progressToken = extra._meta?.progressToken;
-    const call = { stepfile: stepfile.document.id, call: randomUUID() };
-    const runContext: RunContext = {
-      model: samplingModel(server, extra, options),
-      credentials: options.credentials,
-      settings: options.settings,
-      limits: options.limits,
-      userAgent: options.userAgent,
-      ledger: async (record) => {
-        await options.ledger(call, record);
-        if (progressToken !== undefined) {
-          const step = typeof record.step === "string" ? ` ${record.step}` : "";
-          await extra.sendNotification({ method: "notifications/progress", params: { progressToken, progress: record.seq + 1, message: `${record.type}${step}` } });
-        }
-      },
-    };
+    clearTimeout(entry.timer);
+    entry.timer = expire(id);
     try {
-      const result = await run(stepfile, (request.params.arguments ?? {}) as JsonObject, runContext);
-      return { content: [{ type: "text", text: JSON.stringify(result.outputs) }], structuredContent: { identity: result.identity, outputs: result.outputs } };
+      const result = await act(entry.run);
+      if ((result.structuredContent as { state?: string } | undefined)?.state === "finished") {
+        forget(id);
+      }
+      return result;
+    } catch (error) {
+      forget(id);
+      throw error;
+    }
+  };
+
+  const authoring: Record<string, (args: JsonObject) => Promise<{ report: string; isError: boolean }>> = {
+    stepgate_guide: async () => ({ report: guide(), isError: false }),
+    stepgate_examples: async (args) => ({ report: examples(typeof args.name === "string" ? args.name : undefined), isError: false }),
+    stepgate_validate: async (args) => {
+      const { valid, report } = validateDraft(typeof args.stepfile === "string" ? args.stepfile : "", options.draftsMayUseLoopback);
+      return { report, isError: !valid };
+    },
+    stepgate_inspect_api: async (args) => ({
+      report: await inspectApi({
+        kind: args.kind === "mcp" ? "mcp" : "openapi",
+        url: typeof args.url === "string" ? args.url : "",
+        search: typeof args.search === "string" ? args.search : undefined,
+        operations: Array.isArray(args.operations) ? args.operations.map(String) : undefined,
+      }, options.userAgent, options.draftsMayUseLoopback),
+      isError: false,
+    }),
+  };
+
+  server.setRequestHandler(CallToolRequestSchema, async (request): Promise<CallToolResult> => {
+    const args = (request.params.arguments ?? {}) as JsonObject;
+    const id = typeof args.run === "string" ? args.run : null;
+    const tool = authoring[request.params.name];
+    if (tool !== undefined) {
+      try {
+        const { report, isError } = await tool(args);
+        return plain(report, isError);
+      } catch (error) {
+        if (error instanceof StepgateError) {
+          return plain(`${error.name}: ${error.message}`, true);
+        }
+        throw error;
+      }
+    }
+    try {
+      if (request.params.name === CALL) {
+        return await continued(String(args.run), async (run) => {
+          const result = await run.call(String(args.operation), args.arguments as Json | undefined);
+          // Some clients (Claude Code among them) show structuredContent in place of the text, so both carry the result.
+          return text(result.content, { run: run.id, state: "running", result: result.content }, result.isError);
+        });
+      }
+      if (request.params.name === SUBMIT) {
+        return await continued(String(args.run), async (run) => progressResult(run.id, await run.submit(isObject(args.output) ? args.output : null)));
+      }
+      if (request.params.name === TRY) {
+        const draft = load(typeof args.stepfile === "string" ? args.stepfile : "");
+        const problems = draftProblems(draft, options.draftsMayUseLoopback);
+        if (problems.length > 0) {
+          throw new DraftRefused(problems);
+        }
+        return await started(draft, isObject(args.inputs) ? args.inputs : {});
+      }
+      const stepfile = byId.get(request.params.name);
+      if (stepfile === undefined) {
+        return text(`no tool named ${request.params.name}`, { run: null, state: "failed", error: "UnknownTool" }, true);
+      }
+      return await started(stepfile, args);
     } catch (error) {
       if (error instanceof StepgateError) {
-        return failure(`${error.name}: ${error.message}`);
+        return failure(id, error);
       }
       throw error;
     }

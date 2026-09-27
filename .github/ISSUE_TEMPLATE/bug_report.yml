@@ -31,4 +31,4 @@ body:
     id: client
     attributes:
       label: MCP client and model
-      description: Which client connected, and which model answered sampling.
+      description: Which client connected, and which model it used.

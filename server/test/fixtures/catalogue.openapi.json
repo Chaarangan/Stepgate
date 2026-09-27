@@ -23,7 +23,27 @@
               "type": "string"
             }
           }
-        ]
+        ],
+        "responses": {
+          "200": {
+            "description": "The item.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "stock": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/flaky": {
@@ -85,7 +105,8 @@
             "required": true,
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "The item code, such as K-1."
           },
           {
             "name": "format",
@@ -188,6 +209,11 @@
             "key": []
           }
         ]
+      }
+    },
+    "/health": {
+      "get": {
+        "summary": "Report whether the catalogue is up."
       }
     }
   },
