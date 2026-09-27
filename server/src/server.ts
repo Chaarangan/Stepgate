@@ -242,7 +242,7 @@ export function createStepgateServer(stepfiles: Stepfile[], options: StepgateSer
         url: typeof args.url === "string" ? args.url : "",
         search: typeof args.search === "string" ? args.search : undefined,
         operations: Array.isArray(args.operations) ? args.operations.map(String) : undefined,
-      }, options.userAgent, options.drafts),
+      }, options, options.drafts),
       isError: false,
     }),
   };

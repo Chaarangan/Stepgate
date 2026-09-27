@@ -5,7 +5,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { parse as parseYaml } from "yaml";
 import { catalogDirectory, catalogFile, listCatalog } from "./catalog.ts";
 import { ApiDocumentInvalid, CredentialUnavailable, StepfileInvalid, StepgateError, ToolCallFailed, UrlNotPublic } from "./engine/errors.ts";
-import { guardedFetch, type HttpContext } from "./engine/http.ts";
+import { guardedFetch, readText, type HttpContext } from "./engine/http.ts";
 import { canonicalHash, textHash } from "./engine/identity.ts";
 import { load, toolUrl } from "./engine/load.ts";
 import { inlineLocalRefs, RefNotInlinable } from "./engine/json-schema.ts";
@@ -103,11 +103,14 @@ export function validateDraft(text: string, policy: DraftPolicy): { valid: boole
 
 export type InspectRequest = { kind: "openapi" | "mcp"; url: string; search: string | undefined; operations: string[] | undefined };
 
-function inspectionContext(url: URL, userAgent: string): HttpContext {
+/** Who inspection says it is and how long and how much it may read, taken from the operator's settings. */
+export type Outbound = Pick<HttpContext, "userAgent" | "limits">;
+
+function inspectionContext(url: URL, outbound: Outbound): HttpContext {
   return {
+    ...outbound,
     allowedHosts: new Set([url.host]),
     append: async () => undefined,
-    userAgent,
     credentials: async (name) => {
       throw new CredentialUnavailable(name, "inspection sends no credentials");
     },
@@ -154,7 +157,7 @@ function inlined(value: Json, document: JsonObject, url: URL): Json {
 
 async function inspectOpenApi(url: URL, context: HttpContext, request: InspectRequest): Promise<string> {
   const response = await guardedFetch(context, `inspect ${url}`, url, { method: "GET" }, null);
-  const text = await response.text();
+  const text = await readText(response, `inspect ${url}`);
   if (!response.ok) {
     throw new ToolCallFailed(`inspect ${url}`, response.status, text);
   }
@@ -237,11 +240,11 @@ async function inspectMcp(url: URL, context: HttpContext, request: InspectReques
 }
 
 /** Fetches an API description without credentials and reports what a stepfile needs to declare it. */
-export async function inspectApi(request: InspectRequest, userAgent: string, policy: DraftPolicy): Promise<string> {
+export async function inspectApi(request: InspectRequest, outbound: Outbound, policy: DraftPolicy): Promise<string> {
   if (!policy.urlAllowed(request.url)) {
     throw new UrlNotPublic(request.url);
   }
   const url = new URL(request.url);
-  const context = inspectionContext(url, userAgent);
+  const context = inspectionContext(url, outbound);
   return request.kind === "openapi" ? inspectOpenApi(url, context, request) : inspectMcp(url, context, request);
 }

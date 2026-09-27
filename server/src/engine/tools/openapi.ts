@@ -1,6 +1,6 @@
 import { parse as parseYaml } from "yaml";
 import { PreflightFailed, ToolCallFailed } from "../errors.ts";
-import { guardedFetch, type CredentialBinding, type HttpContext } from "../http.ts";
+import { guardedFetch, readText, type CredentialBinding, type HttpContext } from "../http.ts";
 import { textHash } from "../identity.ts";
 import { inlineLocalRefs, RefNotInlinable } from "../json-schema.ts";
 import type { Json, JsonObject, JsonSchema, ToolDeclaration, ToolDefinition } from "../types.ts";
@@ -178,8 +178,9 @@ async function fetchDocument(context: HttpContext, toolName: string, declaration
   }
   const url = new URL(declaration.url ?? "");
   const allowed = new Set([...context.allowedHosts, url.host]);
-  const response = await guardedFetch({ ...context, allowedHosts: allowed }, `fetch OpenAPI document for ${toolName}`, url, { method: "GET" }, null);
-  const text = await response.text();
+  const operation = `fetch OpenAPI document for ${toolName}`;
+  const response = await guardedFetch({ ...context, allowedHosts: allowed }, operation, url, { method: "GET" }, null);
+  const text = await readText(response, operation);
   if (!response.ok) {
     throw new PreflightFailed(`tool ${toolName}`, `document fetch returned ${response.status}: ${text.slice(0, 500)}`);
   }
@@ -256,7 +257,7 @@ export async function prepareOpenApiTool(
         init.body = operation.body.contentType === "application/json" ? JSON.stringify(args.body) : String(args.body);
       }
       const response = await guardedFetch(context, `${toolName}.${operationId}`, url, init, bindings.get(operationId) ?? null);
-      const text = await response.text();
+      const text = await readText(response, `${toolName}.${operationId}`);
       if (response.status === 401 || response.status === 403) {
         throw new ToolCallFailed(`${toolName}.${operationId}`, response.status, text);
       }

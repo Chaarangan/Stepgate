@@ -94,6 +94,27 @@ export async function startApi(flakyFailures: number): Promise<Fixture> {
       }
       return;
     }
+    if (path === "/redirect-away") {
+      const port = request.headers.host?.split(":")[1] ?? "";
+      response.writeHead(302, { location: `http://localhost:${port}/items/K-1` }).end();
+      return;
+    }
+    if (path === "/redirect-home") {
+      response.writeHead(302, { location: "/items/K-1" }).end();
+      return;
+    }
+    if (path === "/busy") {
+      send(response, 503, { error: "busy" });
+      return;
+    }
+    if (path === "/slow") {
+      setTimeout(() => send(response, 200, { ok: true }), 1000).unref();
+      return;
+    }
+    if (path === "/huge") {
+      send(response, 200, { padding: "x".repeat(2_000_000) });
+      return;
+    }
     if (path.startsWith("/search?")) {
       send(response, 200, { tags: new URL(path, "http://fixture").searchParams.getAll("tag"), results: [] });
       return;

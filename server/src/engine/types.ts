@@ -73,8 +73,8 @@ export type RunContext = {
   /** The operator's value for a setting, such as a site name; raises SettingUnavailable when unset. */
   settings: (name: string, declaration: SettingDeclaration) => Promise<string>;
   ledger: (record: LedgerRecord) => void | Promise<void>;
-  /** Budgets: tool calls one step may make, and the longest tool result passed to the client. */
-  limits: { callsPerStep: number; toolResultChars: number };
+  /** Budgets: tool calls one step may make, the longest tool result passed to the client, and the time and size one request may take. */
+  limits: { callsPerStep: number; toolResultChars: number; requestTimeoutMs: number; responseBytes: number };
   /** Sent on every outgoing request that does not set its own. */
   userAgent: string;
 };

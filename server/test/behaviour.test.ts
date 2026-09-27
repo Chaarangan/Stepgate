@@ -351,6 +351,58 @@ describe("tool calls", () => {
   });
 });
 
+describe("egress limits", () => {
+  const exposing = (operation: string) => (stepfile: JsonObject) => {
+    ((stepfile.tools as JsonObject).catalogue as JsonObject).exposes = ["getItem", "getFlaky", "getRevoked", operation];
+    (steps(stepfile)[0] as JsonObject).tools = [operation];
+  };
+
+  it("refuses a redirect to a host no tool declares, and never sends it the credential", async () => {
+    const { call, api } = await start({ edit: exposing("getRedirectAway"), actions: [use("getRedirectAway", {})] });
+
+    const result = await call({ item: "K-1" });
+
+    expect(resultText(result)).toMatch(/^EgressDenied: egress denied: catalogue\.getRedirectAway targeted undeclared host localhost:\d+/);
+    expect(api.received.filter((request) => request.path === "/items/K-1")).toEqual([]);
+  });
+
+  it("follows a redirect on the declared host and sends the credential again", async () => {
+    const { call, api, seen } = await start({ edit: exposing("getRedirectHome"), actions: [use("getRedirectHome", {}), GOOD_STOCK, GOOD_SUMMARY] });
+
+    await call({ item: "K-1" });
+
+    expect(textOf(seen[1])).toContain('"stock":4');
+    expect(api.received.find((request) => request.path === "/items/K-1")?.headers["x-api-key"]).toBe(API_KEY);
+  });
+
+  it("does not retry a POST after a 5xx, since it may already have taken effect", async () => {
+    const { call, api, records, seen } = await start({ edit: exposing("postBusy"), actions: [use("postBusy", {}), GOOD_STOCK, GOOD_SUMMARY] });
+
+    await call({ item: "K-1" });
+
+    expect(textOf(seen[1])).toMatch(/^HTTP 503: /);
+    expect(api.received.filter((request) => request.path === "/busy")).toHaveLength(1);
+    expect(records.some((record) => record.type === "retry")).toBe(false);
+  });
+
+  it("ends a request that outlasts the deadline with ToolCallFailed", async () => {
+    const { call } = await start({ limits: { requestTimeoutMs: 100 }, edit: exposing("postSlow"), actions: [use("postSlow", {})] });
+
+    const text = resultText(await call({ item: "K-1" }));
+
+    expect(text).toMatch(/^ToolCallFailed: catalogue\.postSlow failed with status none: no response before the request deadline; not retried/);
+  });
+
+  it("stops reading a response larger than the limit with ResponseTooLarge", async () => {
+    const { call, records } = await start({ limits: { responseBytes: 1_000 }, edit: exposing("getHuge"), actions: [use("getHuge", {})] });
+
+    const text = resultText(await call({ item: "K-1" }));
+
+    expect(text).toMatch(/^ResponseTooLarge: catalogue\.getHuge returned more than the 1000 bytes Stepgate reads/);
+    expect(records.at(-1)).toMatchObject({ type: "run_failed", error: "ResponseTooLarge" });
+  });
+});
+
 describe("external call failures", () => {
   it("retries a busy API with a ledger record per retry, then succeeds", async () => {
     const { call, records } = await start({

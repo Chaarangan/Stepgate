@@ -35,7 +35,9 @@ With no stepfiles it serves only the tools for writing new ones.
   --ledger-dir <dir>         write one ledger file per run there; otherwise records go to stderr
   --calls-per-step <n>       most tool calls one step may make (100)
   --tool-result-chars <n>    longest tool result passed to the client (20000)
-  --run-idle-ms <n>          how long a run waits for the client's next call before it is abandoned (1800000)`;
+  --run-idle-ms <n>          how long a run waits for the client's next call before it is abandoned (1800000)
+  --request-timeout-ms <n>   how long one outgoing request may take, body included (60000)
+  --response-bytes <n>       largest response Stepgate reads from an API (10485760)`;
 
 const { values, positionals } = parseArgs({
   allowPositionals: true,
@@ -45,6 +47,8 @@ const { values, positionals } = parseArgs({
     "calls-per-step": { type: "string", default: "100" },
     "tool-result-chars": { type: "string", default: "20000" },
     "run-idle-ms": { type: "string", default: "1800000" },
+    "request-timeout-ms": { type: "string", default: "60000" },
+    "response-bytes": { type: "string", default: "10485760" },
     help: { type: "boolean" },
     list: { type: "boolean" },
     contact: { type: "string" },
@@ -126,6 +130,8 @@ const options: StepgateServerOptions = {
   limits: {
     callsPerStep: positiveInteger("calls-per-step", values["calls-per-step"]),
     toolResultChars: positiveInteger("tool-result-chars", values["tool-result-chars"]),
+    requestTimeoutMs: positiveInteger("request-timeout-ms", values["request-timeout-ms"]),
+    responseBytes: positiveInteger("response-bytes", values["response-bytes"]),
   },
   runIdleMs: positiveInteger("run-idle-ms", values["run-idle-ms"]),
   userAgent: userAgent(contactEmail(values.contact)),

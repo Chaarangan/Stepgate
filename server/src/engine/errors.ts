@@ -79,6 +79,18 @@ export class ToolCallFailed extends StepgateError {
   }
 }
 
+/** A response was larger than the operator lets Stepgate read. */
+export class ResponseTooLarge extends StepgateError {
+  override name = "ResponseTooLarge";
+  readonly operation: string;
+  readonly limit: number;
+  constructor(operation: string, limit: number) {
+    super(`${operation} returned more than the ${limit} bytes Stepgate reads (--response-bytes)`);
+    this.operation = operation;
+    this.limit = limit;
+  }
+}
+
 export class PlaceholderUnresolved extends StepgateError {
   override name = "PlaceholderUnresolved";
   readonly placeholder: string;

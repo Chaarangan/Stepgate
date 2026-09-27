@@ -39,7 +39,7 @@ export type Setup = {
   actions: Action[];
   credentials?: Record<string, string>;
   settings?: (addresses: { cataloguePort: string }) => Record<string, string>;
-  limits?: RunContext["limits"];
+  limits?: Partial<RunContext["limits"]>;
   flakyFailures?: number;
   runIdleMs?: number;
   /** Defaults to letting drafts reach the loopback fixture servers as well as public https. */
@@ -80,7 +80,7 @@ export async function startHarness(setup: Setup): Promise<Harness> {
       return value;
     },
     ledger: (_call, record) => void records.push(record),
-    limits: setup.limits ?? { callsPerStep: 8, toolResultChars: 10_000 },
+    limits: { callsPerStep: 8, toolResultChars: 10_000, requestTimeoutMs: 5_000, responseBytes: 1_000_000, ...setup.limits },
     runIdleMs: setup.runIdleMs ?? 60_000,
     userAgent: userAgent(null),
     drafts: setup.drafts ?? { urlAllowed: (url) => isPublicHttpsUrl(url) || isLoopbackHttpUrl(url) },

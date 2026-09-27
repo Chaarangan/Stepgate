@@ -224,7 +224,7 @@ export async function startRun(written: Stepfile, inputs: JsonObject, runContext
   const session = await guarded(async () => {
     // Settings are filled in first, so the host allowlist below only ever holds concrete hosts.
     const stepfile: Stepfile = { ...written, document: await resolveSettings(written.document, runContext) };
-    const http: HttpContext = { allowedHosts: new Set(Object.values(stepfile.document.tools ?? {}).map(declaredToolHost)), append, userAgent: runContext.userAgent, credentials: runContext.credentials };
+    const http: HttpContext = { allowedHosts: new Set(Object.values(stepfile.document.tools ?? {}).map(declaredToolHost)), append, userAgent: runContext.userAgent, credentials: runContext.credentials, limits: runContext.limits };
     prepared = await preflight(stepfile, inputs, runContext, http);
     return { stepfile, http, tools: prepared.tools };
   });

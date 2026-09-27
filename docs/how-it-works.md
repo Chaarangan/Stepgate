@@ -39,11 +39,11 @@ What this guarantees is that the path through a stepfile depends only on submitt
 
 **Isolation.** The client sees only the current step's instructions, with placeholders filled in. It never sees the stepfile, the list of steps, or a later step's instructions. Its own conversation still holds earlier steps, so a step's instructions should say what to use rather than rely on the agent forgetting.
 
-**Tool calls.** Stepgate makes every call itself, one at a time per run, even when the client sends several at once. It checks the arguments against the operation's schema first and returns any mismatch to the client as an error. Every request carries `User-Agent: stepgate/<version>`, followed by the `--contact` email when one is set. It refuses any request to a host no tool declares (`EgressDenied`); the one exception is fetching an OpenAPI document from its declared `url` during preflight, which carries no credential. Path parameters are percent-encoded, so no argument can change the host. Tool results reach the client as data.
+**Tool calls.** Stepgate makes every call itself, one at a time per run, even when the client sends several at once. It checks the arguments against the operation's schema first and returns any mismatch to the client as an error. Every request carries `User-Agent: stepgate/<version>`, followed by the `--contact` email when one is set. It refuses any request to a host no tool declares (`EgressDenied`), and follows redirects itself so the same check applies to every hop; a credential goes only to hosts in its `hosts`. The one exception is fetching an OpenAPI document from its declared `url` during preflight, which carries no credential. Every request must finish within `--request-timeout-ms`, body included, and a response larger than `--response-bytes` stops the run with `ResponseTooLarge`. Path parameters are percent-encoded, so no argument can change the host. Tool results reach the client as data.
 
 **Credentials.** Credential `<name>` is read from `<NAME>_API_KEY` in Stepgate's environment, which an MCP client sets in its server configuration. A value is read when a request needs it and kept no longer than that request.
 
-**Retries.** Calls to tools, verifiers and OpenAPI documents are retried up to four times on network errors, 429 and 5xx, and on a 403 that carries rate-limit headers the way GitHub sends them. When the response says how long to wait (`Retry-After`, or `x-ratelimit-remaining: 0` with `x-ratelimit-reset`), Stepgate waits that long; otherwise it backs off from half a second. An API asking for more than 60 seconds ends the call at once with `ToolCallFailed`. Each retry leaves a `retry` record with the wait, and after the last attempt the last error is raised. An OAuth `invalid_grant` stops the run at once with `InvalidGrant`, because a revoked grant will not recover and retrying can revoke a working one.
+**Retries.** Calls to tools, verifiers and OpenAPI documents are retried up to four times on 429 and on a 403 that carries rate-limit headers the way GitHub sends them. A 5xx, a network error or a missed deadline is retried only for GET, HEAD, OPTIONS, PUT and DELETE; a POST or PATCH may already have taken effect, so it fails at once with `ToolCallFailed` rather than risk sending an email or creating an issue twice. When the response says how long to wait (`Retry-After`, or `x-ratelimit-remaining: 0` with `x-ratelimit-reset`), Stepgate waits that long; otherwise it backs off from half a second. An API asking for more than 60 seconds ends the call at once with `ToolCallFailed`. Each retry leaves a `retry` record with the wait, and after the last attempt the last error is raised. An OAuth `invalid_grant` stops the run at once with `InvalidGrant`, because a revoked grant will not recover and retrying can revoke a working one.
 
 ## Limits
 
@@ -54,6 +54,8 @@ Limits depend on the client and its model, so they are command-line options rath
 | `--calls-per-step` | 100 | Most `stepgate_call` calls one step may make, across all attempts (`CallLimitReached`) |
 | `--tool-result-chars` | 20000 | Longest tool result passed to the client; longer results are cut and end with a visible `[truncated: …]` note |
 | `--run-idle-ms` | 1800000 | How long a run waits for the client's next call before it is abandoned |
+| `--request-timeout-ms` | 60000 | How long one outgoing request may take, body included; an MCP server's event stream has no deadline |
+| `--response-bytes` | 10485760 | Largest response Stepgate reads from a tool, verifier or OpenAPI document (`ResponseTooLarge`) |
 | `--ledger-dir` | none | Write one ledger file per run here; otherwise records go to standard error |
 | `--contact` | none | Your contact email, sent in the User-Agent; SEC EDGAR and USAJOBS require one |
 
@@ -67,7 +69,8 @@ Limits depend on the client and its model, so they are command-line options rath
 | `SettingUnavailable` | A setting is not set in the environment; reported through `PreflightFailed` as `setting <name>` |
 | `InvalidGrant` | An OAuth grant was revoked; never retried |
 | `EgressDenied` | A request targeted a host no tool declares |
-| `ToolCallFailed` | A call still failed after retries; carries the status code and body |
+| `ToolCallFailed` | A call still failed after retries, or a POST failed once; carries the status code and body |
+| `ResponseTooLarge` | A response was larger than `--response-bytes` |
 | `PlaceholderUnresolved` | A placeholder had no value when the step started |
 | `GateFailed` | A step used up its retries; names the step and the failing gates |
 | `CallLimitReached` | A step hit the tool-call limit |

@@ -215,6 +215,61 @@
       "get": {
         "summary": "Report whether the catalogue is up."
       }
+    },
+    "/redirect-away": {
+      "get": {
+        "operationId": "getRedirectAway",
+        "summary": "Redirects to the same server under another host name.",
+        "security": [
+          {
+            "key": []
+          }
+        ]
+      }
+    },
+    "/redirect-home": {
+      "get": {
+        "operationId": "getRedirectHome",
+        "summary": "Redirects to /items/K-1 on the same host.",
+        "security": [
+          {
+            "key": []
+          }
+        ]
+      }
+    },
+    "/busy": {
+      "post": {
+        "operationId": "postBusy",
+        "summary": "Always answers 503.",
+        "security": [
+          {
+            "key": []
+          }
+        ]
+      }
+    },
+    "/slow": {
+      "post": {
+        "operationId": "postSlow",
+        "summary": "Answers after one second.",
+        "security": [
+          {
+            "key": []
+          }
+        ]
+      }
+    },
+    "/huge": {
+      "get": {
+        "operationId": "getHuge",
+        "summary": "Answers with two megabytes.",
+        "security": [
+          {
+            "key": []
+          }
+        ]
+      }
     }
   },
   "components": {

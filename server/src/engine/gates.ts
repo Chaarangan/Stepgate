@@ -1,7 +1,7 @@
 import type { Ajv2020 } from "ajv/dist/2020.js";
 import { ToolCallFailed } from "./errors.ts";
 import type { GateDiagnosis } from "./errors.ts";
-import { guardedFetch, type CredentialBinding, type HttpContext } from "./http.ts";
+import { guardedFetch, readText, type CredentialBinding, type HttpContext } from "./http.ts";
 import { compileWithDefs, describeErrors } from "./json-schema.ts";
 import { toolUrl } from "./load.ts";
 import { evaluatePredicate, type PredicateContext } from "./predicate.ts";
@@ -30,7 +30,7 @@ async function runHttpGate(input: GateInput, gateId: string, toolName: string): 
     { method: "POST", headers: { "content-type": "application/json" }, body },
     credential === null ? null : { ...credential, place: (secret, headers) => headers.set("Authorization", `Bearer ${secret}`) },
   );
-  const text = await response.text();
+  const text = await readText(response, `verifier ${toolName}`);
   if (!response.ok) {
     throw new ToolCallFailed(`verifier ${toolName}`, response.status, text);
   }
