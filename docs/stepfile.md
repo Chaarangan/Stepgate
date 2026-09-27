@@ -206,6 +206,26 @@ steps:
         http: { tool: checker }
 ```
 
+## Testing gates offline
+
+`stepgate --test <stepfile> [<cases.yaml>]` runs a stepfile's gates over recorded calls and outputs, with no model and no network, and exits 1 when a verdict differs from what the case expects. The cases default to `<id>.cases.yaml` beside the stepfile, and the catalog's CI runs every entry's cases.
+
+```yaml
+cases:
+  - name: a doc no search returned is rejected
+    inputs: { books: [{ title: Dune, author: Frank Herbert }] }
+    steps:
+      - step: search
+        calls:                        # what the step's operations returned, as gates see them in calls
+          - tool: searchByTitleAndAuthor
+            arguments: { title: Dune, author: Frank Herbert, limit: 5 }
+            result: { docs: [{ key: /works/OL893415W, title: Dune, author_name: [Frank Herbert] }] }
+        output: { books: [...] }      # what the step submits
+        expect: { fail: [docs-match-searches] }   # or: pass
+```
+
+Steps run in the order listed, and a step expected to `pass` becomes `steps.<id>` for the ones after it. `http` gates need their verifier, so they are skipped and named in the report. [media/book-list-verification](../stepfiles/media/book-list-verification/) has a complete cases file.
+
 ## When a gate fails
 
 The model gets back every failing gate's id and diagnosis as the result of its `stepgate_submit` call, and may submit again. Once a step has used its `retries`, the run stops with `GateFailed`. A step also stops at the tool-call limit whoever runs Stepgate has set.

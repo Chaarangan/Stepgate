@@ -164,6 +164,16 @@ export class ApiDocumentInvalid extends StepgateError {
   }
 }
 
+/** A gate test cases file failed its schema, or names a step or gate the stepfile does not have. */
+export class CasesInvalid extends StepgateError {
+  override name = "CasesInvalid";
+  readonly problems: string[];
+  constructor(problems: string[]) {
+    super(`cases invalid: ${problems.join("; ")}`);
+    this.problems = problems;
+  }
+}
+
 /** No catalog entry has this name. */
 export class UnknownStepfile extends StepgateError {
   override name = "UnknownStepfile";

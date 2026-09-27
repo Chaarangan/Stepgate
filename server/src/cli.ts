@@ -9,12 +9,14 @@
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { readFileSync } from "node:fs";
+import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import { isPublicHttpsUrl } from "./engine/http.ts";
 import { oneLine } from "./engine/tools/tool.ts";
 import { directorySink, firstBreak, streamSink } from "./engine/ledger.ts";
 import { load } from "./engine/load.ts";
 import { catalogDirectory, catalogFile, listCatalog } from "./catalog.ts";
+import { parseCases, testGates } from "./gate-test.ts";
 import { serveHttp } from "./http-server.ts";
 import { environmentCredentials, environmentSettings } from "./operator.ts";
 import { createStepgateServer, type StepgateServerOptions } from "./server.ts";
@@ -24,11 +26,13 @@ import type { LedgerRecord } from "./engine/types.ts";
 const HELP = `usage: stepgate [options] [<stepfile.yaml | catalog name>...]
        stepgate --list
        stepgate --verify <ledger.jsonl>...
+       stepgate --test <stepfile.yaml | catalog name> [<cases.yaml>]
 
 With no stepfiles it serves only the tools for writing new ones.
 
   --list                     show the stepfiles in the bundled catalog
   --verify                   check that each ledger file's hash chain is intact; exits 1 if one is broken
+  --test                     run a stepfile's gates over recorded cases, offline; the cases default to <id>.cases.yaml beside it
   --contact <email>          your contact email, sent in the User-Agent (SEC EDGAR and USAJOBS require one)
   --http <port>              serve Streamable HTTP on 127.0.0.1:<port>/mcp instead of stdio
   --ledger-dir <dir>         write one ledger file per run there; otherwise records go to stderr
@@ -54,6 +58,7 @@ const { values, positionals } = parseArgs({
     help: { type: "boolean" },
     list: { type: "boolean" },
     verify: { type: "boolean" },
+    test: { type: "boolean" },
     contact: { type: "string" },
     "draft-credential": { type: "string", multiple: true },
     "draft-setting": { type: "string", multiple: true },
@@ -82,6 +87,25 @@ if (values.verify === true) {
     console.log(found === null ? `${file}: intact, ${records.length} records` : `${file}: broken at seq ${found.seq}: ${found.reason}`);
   }
   process.exit(broken ? 1 : 0);
+}
+
+if (values.test === true) {
+  const [target, casesArgument] = positionals;
+  if (target === undefined) {
+    throw new Error("--test needs a stepfile path or catalog name");
+  }
+  const file = stepfilePath(target);
+  const stepfile = load(readFileSync(file, "utf8"));
+  const casesFile = casesArgument ?? new URL(`${stepfile.document.id}.cases.yaml`, typeof file === "string" ? pathToFileURL(file) : file);
+  const reports = await testGates(stepfile, parseCases(stepfile, readFileSync(casesFile, "utf8")));
+  for (const report of reports) {
+    const skipped = report.skipped.length === 0 ? "" : ` (verifier gates not run offline: ${report.skipped.join(", ")})`;
+    console.log(`${report.ok ? "ok" : "FAIL"}  ${report.case} / ${report.step}${skipped}${report.problem === null ? "" : `\n      ${report.problem}`}`);
+    for (const failure of report.ok ? [] : report.failed) {
+      console.log(`      ${failure.gate}: ${failure.diagnosis ?? ""}`);
+    }
+  }
+  process.exit(reports.every((report) => report.ok) ? 0 : 1);
 }
 
 if (values.help === true) {

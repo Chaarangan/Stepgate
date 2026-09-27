@@ -1,10 +1,11 @@
 import { spawnSync } from "node:child_process";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { catalogDirectory, catalogProblems, entryProblems, listCatalog } from "../src/catalog.ts";
+import { parseCases, testGates } from "../src/gate-test.ts";
 
 const SERVER = new URL("../", import.meta.url);
 const CATALOG = catalogDirectory();
@@ -38,6 +39,14 @@ describe("catalog", () => {
     for (const entry of entries) {
       expect(entryProblems(CATALOG, entry.domain, entry.id), `${entry.domain}/${entry.id}`).toEqual([]);
     }
+  });
+
+  it("passes every entry's recorded gate cases, offline", async () => {
+    const entries = listCatalog(CATALOG).filter((entry) => existsSync(new URL(`${entry.id}.cases.yaml`, entry.file)));
+    const reports = (await Promise.all(entries.map(async (entry) => testGates(entry.stepfile, parseCases(entry.stepfile, readFileSync(new URL(`${entry.id}.cases.yaml`, entry.file), "utf8")))))).flat();
+
+    expect(entries.length).toBeGreaterThan(0);
+    expect(reports.filter((report) => !report.ok)).toEqual([]);
   });
 
   it("lists entries by domain and serves one by name from the command line", () => {

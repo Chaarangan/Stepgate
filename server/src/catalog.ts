@@ -1,5 +1,6 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { CatalogEntryInvalid, StepfileInvalid, UnknownStepfile } from "./engine/errors.ts";
+import { CasesInvalid, CatalogEntryInvalid, StepfileInvalid, UnknownStepfile } from "./engine/errors.ts";
+import { parseCases } from "./gate-test.ts";
 import { isPublicHttpsUrl } from "./engine/http.ts";
 import { load, toolUrl } from "./engine/load.ts";
 import { withSampleSettings } from "./engine/settings.ts";
@@ -88,6 +89,17 @@ export function entryProblems(directory: URL, domain: string, id: string): strin
       return [...problems, ...error.issues.map((issue) => `${issue.path || "/"} ${issue.message}`)];
     }
     throw error;
+  }
+  const cases = new URL(`${id}.cases.yaml`, folder);
+  if (existsSync(cases)) {
+    try {
+      parseCases(stepfile, readFileSync(cases, "utf8"));
+    } catch (error) {
+      if (!(error instanceof CasesInvalid)) {
+        throw error;
+      }
+      problems.push(...error.problems.map((problem) => `${id}.cases.yaml: ${problem}`));
+    }
   }
   if (stepfile.document.id !== id) {
     problems.push(`id is ${stepfile.document.id}, but the folder is ${id}`);

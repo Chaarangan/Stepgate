@@ -1,0 +1,106 @@
+# Recorded calls and outputs for `stepgate --test book-list-verification`, which runs the gates offline.
+cases:
+  - name: one book verified and one under another author pass every gate
+    inputs:
+      books:
+        - { title: Dune, author: Frank Herbert }
+        - { title: Emma, author: Charlotte Brontë }
+    steps:
+      - step: search
+        calls:
+          - tool: searchByTitleAndAuthor
+            arguments: { title: Dune, author: Frank Herbert, limit: 5 }
+            result: { docs: [{ key: /works/OL893415W, title: Dune, author_name: [Frank Herbert], first_publish_year: 1965 }] }
+          - tool: searchByTitleAndAuthor
+            arguments: { title: Emma, author: Charlotte Brontë, limit: 5 }
+            result: { docs: [] }
+        output:
+          books:
+            - id: B-01
+              title: Dune
+              author: Frank Herbert
+              docs: [{ key: /works/OL893415W, title: Dune, author_name: [Frank Herbert] }]
+              match: { key: /works/OL893415W, title: Dune, author_name: [Frank Herbert] }
+            - { id: B-02, title: Emma, author: Charlotte Brontë, docs: [], match: null }
+        expect: pass
+      - step: crosscheck
+        calls:
+          - tool: searchByTitle
+            arguments: { title: Emma, limit: 5 }
+            result: { docs: [{ key: /works/OL66554W, title: Emma, author_name: [Jane Austen], first_publish_year: 1815 }] }
+        output:
+          checks:
+            - id: B-02
+              title: Emma
+              author: Charlotte Brontë
+              docs: [{ key: /works/OL66554W, title: Emma, author_name: [Jane Austen] }]
+              found: { key: /works/OL66554W, title: Emma, author_name: [Jane Austen] }
+        expect: pass
+      - step: publish
+        output:
+          verdicts:
+            - { id: B-01, title: Dune, author: Frank Herbert, verdict: verified, work_key: /works/OL893415W, open_library_authors: [Frank Herbert] }
+            - { id: B-02, title: Emma, author: Charlotte Brontë, verdict: wrong_author, work_key: /works/OL66554W, open_library_authors: [Jane Austen] }
+          confirmed:
+            - { title: Dune, author: Frank Herbert, work_key: /works/OL893415W }
+          counts: { verified: 1, wrong_author: 1, not_found: 0 }
+          summary: |
+            ## Confirmed
+            - Dune (B-01): https://openlibrary.org/works/OL893415W
+            ## Problems
+            - Emma (B-02) is by Jane Austen, not Charlotte Brontë: https://openlibrary.org/works/OL66554W
+        expect: pass
+
+  - name: a doc no search returned is rejected
+    inputs:
+      books:
+        - { title: Dune, author: Frank Herbert }
+    steps:
+      - step: search
+        calls:
+          - tool: searchByTitleAndAuthor
+            arguments: { title: Dune, author: Frank Herbert, limit: 5 }
+            result: { docs: [{ key: /works/OL893415W, title: Dune, author_name: [Frank Herbert] }] }
+        output:
+          books:
+            - id: B-01
+              title: Dune
+              author: Frank Herbert
+              docs: [{ key: /works/OL1W, title: Dune, author_name: [Frank Herbert] }]
+              match: { key: /works/OL1W, title: Dune, author_name: [Frank Herbert] }
+        expect: { fail: [docs-match-searches] }
+
+  - name: counts that disagree with the verdicts are rejected
+    inputs:
+      books:
+        - { title: Dune, author: Frank Herbert }
+    steps:
+      - step: search
+        calls:
+          - tool: searchByTitleAndAuthor
+            arguments: { title: Dune, author: Frank Herbert, limit: 5 }
+            result: { docs: [{ key: /works/OL893415W, title: Dune, author_name: [Frank Herbert] }] }
+        output:
+          books:
+            - id: B-01
+              title: Dune
+              author: Frank Herbert
+              docs: [{ key: /works/OL893415W, title: Dune, author_name: [Frank Herbert] }]
+              match: { key: /works/OL893415W, title: Dune, author_name: [Frank Herbert] }
+        expect: pass
+      - step: crosscheck
+        output: { checks: [] }
+        expect: pass
+      - step: publish
+        output:
+          verdicts:
+            - { id: B-01, title: Dune, author: Frank Herbert, verdict: verified, work_key: /works/OL893415W, open_library_authors: [Frank Herbert] }
+          confirmed:
+            - { title: Dune, author: Frank Herbert, work_key: /works/OL893415W }
+          counts: { verified: 2, wrong_author: 0, not_found: 0 }
+          summary: |
+            ## Confirmed
+            - Dune (B-01): https://openlibrary.org/works/OL893415W
+            ## Problems
+            None.
+        expect: { fail: [counts-match-verdicts] }
