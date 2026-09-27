@@ -370,7 +370,7 @@ steps:
         summary: { type: string, maxLength: 8000 }
     let:
       # Plain integers of seven or more digits, so an invented or altered dollar figure cannot hide behind formatting.
-      stated: { match_all: [{ var: output.summary }, "(?<![0-9-])(-?[0-9]{7,})(?:[^0-9-]|$)"] }
+      stated: { match_all: [{ var: output.summary }, "(?<![0-9.-])(-?[0-9]{7,})(?:[^0-9-]|$)"] }
       figures:
         map:
           - - { var: steps.balance-sheet.total_assets.value }
