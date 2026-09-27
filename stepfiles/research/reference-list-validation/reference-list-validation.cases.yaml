@@ -1,0 +1,904 @@
+# A run of reference-list-validation against the live APIs on 2026-09-27, recorded with --record-cases, for `stepgate --test reference-list-validation`.
+# Each step's first attempt was a deliberately wrong submission; the gates it breaks are expected to fail.
+cases:
+  - name: a recorded run rejects each wrong submission and accepts the corrected one
+    inputs:
+      references:
+        - LeCun, Y., Bengio, Y., & Hinton, G. (2015). Deep learning. Nature,
+          521(7553), 436-444. https://doi.org/10.1038/nature14539
+        - He, K., Zhang, X., Ren, S., & Sun, J. (2016). Deep residual learning
+          for image recognition. In Proceedings of the IEEE Conference on
+          Computer Vision and Pattern Recognition (pp. 770-778).
+        - Smith, J., & Patel, R. (2021). Neural citation grounding for large
+          language models. Journal of Machine Learning Research, 22(1), 1-30.
+          https://doi.org/10.5555/jmlr.2021.88412
+        - Silver, D., Huang, A., Maddison, C. J., et al. (2016). Mastering the
+          game of Go with deep neural networks and tree search. Nature,
+          529(7587), 484-489. https://doi.org/10.1038/nature14539
+    steps:
+      - step: parse
+        calls: &a1 []
+        output:
+          references:
+            - id: R-01
+              raw: LeCun, Y., Bengio, Y., & Hinton, G. (2015). Deep learning. Nature,
+                521(7553), 436-444. https://doi.org/10.1038/nature14539
+              title: DEEP LEARNING
+              first_author: LeCun
+              year: 2015
+              doi: 10.1038/nature14539
+            - &a2
+              id: R-02
+              raw: He, K., Zhang, X., Ren, S., & Sun, J. (2016). Deep residual learning for
+                image recognition. In Proceedings of the IEEE Conference on
+                Computer Vision and Pattern Recognition (pp. 770-778).
+              title: Deep residual learning for image recognition
+              first_author: He
+              year: 2016
+              doi: null
+            - &a3
+              id: R-03
+              raw: Smith, J., & Patel, R. (2021). Neural citation grounding for large language
+                models. Journal of Machine Learning Research, 22(1), 1-30.
+                https://doi.org/10.5555/jmlr.2021.88412
+              title: Neural citation grounding for large language models
+              first_author: Smith
+              year: 2021
+              doi: 10.5555/jmlr.2021.88412
+            - &a4
+              id: R-04
+              raw: Silver, D., Huang, A., Maddison, C. J., et al. (2016). Mastering the game
+                of Go with deep neural networks and tree search. Nature,
+                529(7587), 484-489. https://doi.org/10.1038/nature14539
+              title: Mastering the game of Go with deep neural networks and tree search
+              first_author: Silver
+              year: 2016
+              doi: 10.1038/nature14539
+        expect:
+          fail:
+            - fields-come-from-raw
+      - step: parse
+        calls: *a1
+        output:
+          references:
+            - id: R-01
+              raw: LeCun, Y., Bengio, Y., & Hinton, G. (2015). Deep learning. Nature,
+                521(7553), 436-444. https://doi.org/10.1038/nature14539
+              title: Deep learning
+              first_author: LeCun
+              year: 2015
+              doi: 10.1038/nature14539
+            - *a2
+            - *a3
+            - *a4
+        expect: pass
+      - step: lookup
+        calls:
+          - tool: lookupDoi
+            arguments:
+              filter: doi:10.1038/nature14539
+            result:
+              status: ok
+              message-type: work-list
+              message-version: 1.0.0
+              message:
+                facets: {}
+                total-results: 1
+                items:
+                  - DOI: 10.1038/nature14539
+                    title:
+                      - Deep learning
+                    author:
+                      - given: Yann
+                        family: LeCun
+                        sequence: first
+                        affiliation: []
+                        role:
+                          - vocabulary: crossref
+                            role: author
+                      - given: Yoshua
+                        family: Bengio
+                        sequence: additional
+                        affiliation: []
+                        role:
+                          - vocabulary: crossref
+                            role: author
+                      - given: Geoffrey
+                        family: Hinton
+                        sequence: additional
+                        affiliation: []
+                        role:
+                          - vocabulary: crossref
+                            role: author
+                    issued:
+                      date-parts:
+                        - - 2015
+                          - 5
+                          - 27
+                    container-title:
+                      - Nature
+                items-per-page: 20
+                query:
+                  start-index: 0
+                  search-terms: null
+            is_error: false
+          - tool: lookupDoi
+            arguments:
+              filter: doi:10.5555/jmlr.2021.88412
+            result:
+              status: ok
+              message-type: work-list
+              message-version: 1.0.0
+              message:
+                facets: {}
+                total-results: 0
+                items: []
+                items-per-page: 20
+                query:
+                  start-index: 0
+                  search-terms: null
+            is_error: false
+          - tool: searchWorks
+            arguments:
+              query: Deep learning LeCun
+              rows: 3
+            result:
+              status: ok
+              message-type: work-list
+              message-version: 1.0.0
+              message:
+                facets: {}
+                total-results: 3159707
+                items:
+                  - DOI: 10.1109/hotchips.2015.7477328
+                    title:
+                      - Deep learning &amp; convolutional networks
+                    author:
+                      - given: Yann
+                        family: LeCun
+                        sequence: first
+                        affiliation: []
+                        role:
+                          - vocabulary: crossref
+                            role: author
+                    issued:
+                      date-parts:
+                        - - 2015
+                          - 8
+                    container-title:
+                      - 2015 IEEE Hot Chips 27 Symposium (HCS)
+                  - DOI: 10.1109/isscc.2019.8662396
+                    title:
+                      - "1.1 Deep Learning Hardware: Past, Present, and Future"
+                    author:
+                      - given: Yann
+                        family: LeCun
+                        sequence: first
+                        affiliation: []
+                        role:
+                          - vocabulary: crossref
+                            role: author
+                    issued:
+                      date-parts:
+                        - - 2019
+                          - 2
+                    container-title:
+                      - 2019 IEEE International Solid- State Circuits Conference
+                        - (ISSCC)
+                  - DOI: 10.1038/nature14539
+                    title:
+                      - Deep learning
+                    author:
+                      - given: Yann
+                        family: LeCun
+                        sequence: first
+                        affiliation: []
+                        role:
+                          - vocabulary: crossref
+                            role: author
+                      - given: Yoshua
+                        family: Bengio
+                        sequence: additional
+                        affiliation: []
+                        role:
+                          - vocabulary: crossref
+                            role: author
+                      - given: Geoffrey
+                        family: Hinton
+                        sequence: additional
+                        affiliation: []
+                        role:
+                          - vocabulary: crossref
+                            role: author
+                    issued:
+                      date-parts:
+                        - - 2015
+                          - 5
+                          - 27
+                    container-title:
+                      - Nature
+                items-per-page: 3
+                query:
+                  start-index: 0
+                  search-terms: Deep learning LeCun
+            is_error: false
+          - tool: searchWorks
+            arguments:
+              query: Deep residual learning for image recognition He
+              rows: 3
+            result:
+              status: ok
+              message-type: work-list
+              message-version: 1.0.0
+              message:
+                facets: {}
+                total-results: 5722275
+                items:
+                  - DOI: 10.1109/cvpr.2016.90
+                    title:
+                      - Deep Residual Learning for Image Recognition
+                    author:
+                      - given: Kaiming
+                        family: He
+                        sequence: first
+                        affiliation: []
+                        role:
+                          - vocabulary: crossref
+                            role: author
+                      - given: Xiangyu
+                        family: Zhang
+                        sequence: additional
+                        affiliation: []
+                        role:
+                          - vocabulary: crossref
+                            role: author
+                      - given: Shaoqing
+                        family: Ren
+                        sequence: additional
+                        affiliation: []
+                        role:
+                          - vocabulary: crossref
+                            role: author
+                      - given: Jian
+                        family: Sun
+                        sequence: additional
+                        affiliation: []
+                        role:
+                          - vocabulary: crossref
+                            role: author
+                    issued:
+                      date-parts:
+                        - - 2016
+                          - 6
+                    container-title:
+                      - 2016 IEEE Conference on Computer Vision and Pattern
+                        Recognition (CVPR)
+                  - DOI: 10.22541/au.170666177.72403547/v1
+                    title:
+                      - Multiple butterflies recognition based on deep residual
+                        learning and image analyze
+                    author:
+                      - ORCID: https://orcid.org/0000-0001-9619-3721
+                        authenticated-orcid: false
+                        given: Tianyu
+                        family: Xi
+                        sequence: first
+                        affiliation:
+                          - name: University of the Chinese Academy of Sciences
+                        role:
+                          - role: author
+                            vocabulary: crossref
+                      - given: Jiangning
+                        family: Wang
+                        sequence: additional
+                        affiliation:
+                          - name: Institute of Zoology, Chinese Academy of Sciences
+                        role:
+                          - role: author
+                            vocabulary: crossref
+                      - given: Yan
+                        family: Han
+                        sequence: additional
+                        affiliation:
+                          - name: Institute of Zoology Chinese Academy of Sciences
+                        role:
+                          - role: author
+                            vocabulary: crossref
+                      - ORCID: https://orcid.org/0000-0002-4979-7618
+                        authenticated-orcid: false
+                        given: Congtian
+                        family: Lin
+                        sequence: additional
+                        affiliation:
+                          - name: Institute of Zoology Chinese Academy of Sciences
+                        role:
+                          - role: author
+                            vocabulary: crossref
+                      - given: Liqiang
+                        family: Ji
+                        sequence: additional
+                        affiliation:
+                          - name: Institute of Zoology, Chinese Academy of Sciences
+                        role:
+                          - role: author
+                            vocabulary: crossref
+                    issued:
+                      date-parts:
+                        - - 2024
+                          - 1
+                          - 31
+                  - DOI: 10.5220/0011270400003277
+                    title:
+                      - "RRConvNet: Recursive-residual Network for Real-life
+                        Character Image Recognition"
+                    author:
+                      - given: Tadele
+                        family: Mengiste
+                        sequence: first
+                        affiliation:
+                          - name: Faculty of Computing, Bahir Dar Institute of Technology, Bahir Dar,
+                              Ethiopia, --- Select a Country ---
+                        role:
+                          - role: author
+                            vocabulary: crossref
+                      - given: Birhanu
+                        family: Belay
+                        sequence: additional
+                        affiliation:
+                          - name: Faculty of Computing, Bahir Dar Institute of Technology, Bahir Dar,
+                              Ethiopia, --- Select a Country ---
+                        role:
+                          - role: author
+                            vocabulary: crossref
+                      - given: Bezawork
+                        family: Tilahun
+                        sequence: additional
+                        affiliation:
+                          - name: Faculty of Computing, Bahir Dar Institute of Technology, Bahir Dar,
+                              Ethiopia, --- Select a Country ---
+                        role:
+                          - role: author
+                            vocabulary: crossref
+                      - given: Tsiyon
+                        family: Worku
+                        sequence: additional
+                        affiliation:
+                          - name: Faculty of Computing, Bahir Dar Institute of Technology, Bahir Dar,
+                              Ethiopia, --- Select a Country ---
+                        role:
+                          - role: author
+                            vocabulary: crossref
+                      - given: Tesfa
+                        family: Tegegne
+                        sequence: additional
+                        affiliation:
+                          - name: Faculty of Computing, Bahir Dar Institute of Technology, Bahir Dar,
+                              Ethiopia, --- Select a Country ---
+                          - name: ICT4D Research Center, Bahir Dar Institute of Technology, Bahir Dar,
+                              Ethiopia, --- Select a Country ---
+                        role:
+                          - role: author
+                            vocabulary: crossref
+                    issued:
+                      date-parts:
+                        - - 2022
+                    container-title:
+                      - Proceedings of the 3rd International Conference on Deep
+                        Learning Theory and Applications
+                items-per-page: 3
+                query:
+                  start-index: 0
+                  search-terms: Deep residual learning for image recognition He
+            is_error: false
+          - tool: searchWorks
+            arguments:
+              query: Neural citation grounding for large language models Smith
+              rows: 3
+            result:
+              status: ok
+              message-type: work-list
+              message-version: 1.0.0
+              message:
+                facets: {}
+                total-results: 5002872
+                items:
+                  - DOI: 10.54499/2025.03013.bd
+                    issued:
+                      date-parts:
+                        - - 2026
+                          - 1
+                          - 1
+                  - DOI: 10.15760/etd.4205
+                    title:
+                      - Toward Contextual Adaptation and Knowledge Grounding in
+                        Large Language Models
+                    author:
+                      - given: Yufei
+                        family: Tao
+                        sequence: first
+                        affiliation: []
+                        role:
+                          - vocabulary: crossref
+                            role: author
+                    issued:
+                      date-parts:
+                        - - null
+                  - DOI: 10.22161/ijels.114.64
+                    title:
+                      - "Large Language Models for Citation Context and Cited
+                        Content Recognition: From Boundary Detection to Evidence
+                        Grounding"
+                    author:
+                      - given: Shuqiao
+                        family: Yang
+                        sequence: first
+                        affiliation: []
+                        role:
+                          - vocabulary: crossref
+                            role: author
+                      - given: Xiaolei
+                        family: Ma
+                        sequence: additional
+                        affiliation: []
+                        role:
+                          - vocabulary: crossref
+                            role: author
+                      - given: Ping
+                        family: He
+                        sequence: additional
+                        affiliation: []
+                        role:
+                          - vocabulary: crossref
+                            role: author
+                    issued:
+                      date-parts:
+                        - - 2026
+                    container-title:
+                      - International Journal of English Literature and Social
+                        Sciences
+                items-per-page: 3
+                query:
+                  start-index: 0
+                  search-terms: Neural citation grounding for large language models Smith
+            is_error: false
+          - tool: searchWorks
+            arguments:
+              query: Mastering the game of Go with deep neural networks and tree search Silver
+              rows: 3
+            result:
+              status: ok
+              message-type: work-list
+              message-version: 1.0.0
+              message:
+                facets: {}
+                total-results: 3762010
+                items:
+                  - DOI: 10.3410/f.726105619.793525345
+                    title:
+                      - Faculty Opinions recommendation of Mastering the game of
+                        Go with deep neural networks and tree search.
+                    author:
+                      - ORCID: https://orcid.org/0000-0001-8153-1732
+                        authenticated-orcid: true
+                        given: Lars
+                        family: Chittka
+                        sequence: first
+                        affiliation:
+                          - name: School of Biological and Chemical Sciences, Queen Mary, University of
+                              London, UK
+                        role:
+                          - vocabulary: crossref
+                            role: author
+                      - given: Vera
+                        family: Vasas
+                        sequence: additional
+                        affiliation:
+                          - name: School of Biological and Chemical Sciences, Queen Mary, University of
+                              London, UK
+                        role:
+                          - vocabulary: crossref
+                            role: author
+                    issued:
+                      date-parts:
+                        - - 2016
+                          - 11
+                          - 14
+                    container-title:
+                      - Faculty Opinions – Post-Publication Peer Review of the
+                        Biomedical Literature
+                  - DOI: 10.1038/nature16961
+                    title:
+                      - Mastering the game of Go with deep neural networks and
+                        tree search
+                    author:
+                      - given: David
+                        family: Silver
+                        sequence: first
+                        affiliation: []
+                        role:
+                          - vocabulary: crossref
+                            role: author
+                      - given: Aja
+                        family: Huang
+                        sequence: additional
+                        affiliation: []
+                        role:
+                          - vocabulary: crossref
+                            role: author
+                      - given: Chris J.
+                        family: Maddison
+                        sequence: additional
+                        affiliation: []
+                        role:
+                          - vocabulary: crossref
+                            role: author
+                      - given: Arthur
+                        family: Guez
+                        sequence: additional
+                        affiliation: []
+                        role:
+                          - vocabulary: crossref
+                            role: author
+                      - given: Laurent
+                        family: Sifre
+                        sequence: additional
+                        affiliation: []
+                        role:
+                          - vocabulary: crossref
+                            role: author
+                      - given: George
+                        family: van den Driessche
+                        sequence: additional
+                        affiliation: []
+                        role:
+                          - vocabulary: crossref
+                            role: author
+                      - given: Julian
+                        family: Schrittwieser
+                        sequence: additional
+                        affiliation: []
+                        role:
+                          - vocabulary: crossref
+                            role: author
+                      - given: Ioannis
+                        family: Antonoglou
+                        sequence: additional
+                        affiliation: []
+                        role:
+                          - vocabulary: crossref
+                            role: author
+                      - given: Veda
+                        family: Panneershelvam
+                        sequence: additional
+                        affiliation: []
+                        role:
+                          - vocabulary: crossref
+                            role: author
+                      - given: Marc
+                        family: Lanctot
+                        sequence: additional
+                        affiliation: []
+                        role:
+                          - vocabulary: crossref
+                            role: author
+                      - given: Sander
+                        family: Dieleman
+                        sequence: additional
+                        affiliation: []
+                        role:
+                          - vocabulary: crossref
+                            role: author
+                      - given: Dominik
+                        family: Grewe
+                        sequence: additional
+                        affiliation: []
+                        role:
+                          - vocabulary: crossref
+                            role: author
+                      - given: John
+                        family: Nham
+                        sequence: additional
+                        affiliation: []
+                        role:
+                          - vocabulary: crossref
+                            role: author
+                      - given: Nal
+                        family: Kalchbrenner
+                        sequence: additional
+                        affiliation: []
+                        role:
+                          - vocabulary: crossref
+                            role: author
+                      - given: Ilya
+                        family: Sutskever
+                        sequence: additional
+                        affiliation: []
+                        role:
+                          - vocabulary: crossref
+                            role: author
+                      - given: Timothy
+                        family: Lillicrap
+                        sequence: additional
+                        affiliation: []
+                        role:
+                          - vocabulary: crossref
+                            role: author
+                      - given: Madeleine
+                        family: Leach
+                        sequence: additional
+                        affiliation: []
+                        role:
+                          - vocabulary: crossref
+                            role: author
+                      - given: Koray
+                        family: Kavukcuoglu
+                        sequence: additional
+                        affiliation: []
+                        role:
+                          - vocabulary: crossref
+                            role: author
+                      - given: Thore
+                        family: Graepel
+                        sequence: additional
+                        affiliation: []
+                        role:
+                          - vocabulary: crossref
+                            role: author
+                      - given: Demis
+                        family: Hassabis
+                        sequence: additional
+                        affiliation: []
+                        role:
+                          - vocabulary: crossref
+                            role: author
+                    issued:
+                      date-parts:
+                        - - 2016
+                          - 1
+                          - 27
+                    container-title:
+                      - Nature
+                  - DOI: 10.1007/979-8-8688-2208-7_7
+                    title:
+                      - Deep Neural Networks and Advanced Architectures
+                    author:
+                      - given: Mehrdad
+                        family: Maleki
+                        sequence: first
+                        affiliation: []
+                        role:
+                          - role: author
+                            vocabulary: crossref
+                    issued:
+                      date-parts:
+                        - - 2025
+                          - 10
+                          - 31
+                    container-title:
+                      - Deep Learning with Rust
+                items-per-page: 3
+                query:
+                  start-index: 0
+                  search-terms: Mastering the game of Go with deep neural networks and tree search
+                    Silver
+            is_error: false
+        output:
+          references:
+            - id: R-01
+              raw: LeCun, Y., Bengio, Y., & Hinton, G. (2015). Deep learning. Nature,
+                521(7553), 436-444. https://doi.org/10.1038/nature14539
+              title: Deep learning
+              first_author: LeCun
+              year: 2015
+              doi: 10.1038/nature14539
+              search_terms: Deep learning LeCun
+              candidates:
+                - doi: 10.1109/hotchips.2015.7477328
+                  title: Deep learning &amp; convolutional networks
+                  first_author: LeCun
+                  year: 2015
+                - doi: 10.1109/isscc.2019.8662396
+                  title: "1.1 Deep Learning Hardware: Past, Present, and Future"
+                  first_author: LeCun
+                  year: 2019
+                - doi: 10.1038/nature14539
+                  title: Deep learning
+                  first_author: LeCun
+                  year: 2015
+              doi_record: &a5
+                doi: 10.1038/nature14539
+                title: Deep learning
+                first_author: LeCun
+                year: 2015
+            - id: R-02
+              raw: He, K., Zhang, X., Ren, S., & Sun, J. (2016). Deep residual learning for
+                image recognition. In Proceedings of the IEEE Conference on
+                Computer Vision and Pattern Recognition (pp. 770-778).
+              title: Deep residual learning for image recognition
+              first_author: He
+              year: 2016
+              doi: null
+              search_terms: Deep residual learning for image recognition He
+              candidates:
+                - doi: 10.1109/cvpr.2016.90
+                  title: Deep Residual Learning for Image Recognition
+                  first_author: He
+                  year: 2016
+                - doi: 10.22541/au.170666177.72403547/v1
+                  title: Multiple butterflies recognition based on deep residual learning and
+                    image analyze
+                  first_author: Xi
+                  year: 2024
+                - doi: 10.5220/0011270400003277
+                  title: "RRConvNet: Recursive-residual Network for Real-life Character Image
+                    Recognition"
+                  first_author: Mengiste
+                  year: 2022
+              doi_record: null
+            - id: R-03
+              raw: Smith, J., & Patel, R. (2021). Neural citation grounding for large language
+                models. Journal of Machine Learning Research, 22(1), 1-30.
+                https://doi.org/10.5555/jmlr.2021.88412
+              title: Neural citation grounding for large language models
+              first_author: Smith
+              year: 2021
+              doi: 10.5555/jmlr.2021.88412
+              search_terms: Neural citation grounding for large language models Smith
+              candidates:
+                - doi: 10.54499/2025.03013.bd
+                  title: null
+                  first_author: null
+                  year: 2026
+                - doi: 10.15760/etd.4205
+                  title: Toward Contextual Adaptation and Knowledge Grounding in Large Language
+                    Models
+                  first_author: Tao
+                  year: null
+                - doi: 10.22161/ijels.114.64
+                  title: "Large Language Models for Citation Context and Cited Content
+                    Recognition: From Boundary Detection to Evidence Grounding"
+                  first_author: Yang
+                  year: 2026
+              doi_record: null
+            - id: R-04
+              raw: Silver, D., Huang, A., Maddison, C. J., et al. (2016). Mastering the game
+                of Go with deep neural networks and tree search. Nature,
+                529(7587), 484-489. https://doi.org/10.1038/nature14539
+              title: Mastering the game of Go with deep neural networks and tree search
+              first_author: Silver
+              year: 2016
+              doi: 10.1038/nature14539
+              search_terms: Mastering the game of Go with deep neural networks and tree search
+                Silver
+              candidates:
+                - doi: 10.3410/f.726105619.793525345
+                  title: Faculty Opinions recommendation of Mastering the game of Go with deep
+                    neural networks and tree search.
+                  first_author: Chittka
+                  year: 2016
+                - doi: 10.1038/nature16961
+                  title: Mastering the game of Go with deep neural networks and tree search
+                  first_author: Silver
+                  year: 2016
+                - doi: 10.1007/979-8-8688-2208-7_7
+                  title: Deep Neural Networks and Advanced Architectures
+                  first_author: Maleki
+                  year: 2025
+              doi_record: *a5
+        expect: pass
+      - step: resolve
+        calls: &a6 []
+        output:
+          matches:
+            - id: R-01
+              matched:
+                doi: 10.9999/made.up
+                title: Deep learning
+                first_author: LeCun
+                year: 2015
+              note: "Crossref title matches: Deep learning"
+            - &a7
+              id: R-02
+              matched:
+                doi: 10.1109/cvpr.2016.90
+                title: Deep Residual Learning for Image Recognition
+                first_author: He
+                year: 2016
+              note: "Crossref title matches: Deep Residual Learning for Image Recognition"
+            - &a8
+              id: R-03
+              matched: null
+              note: No Crossref record has this title.
+            - &a9
+              id: R-04
+              matched:
+                doi: 10.1038/nature16961
+                title: Mastering the game of Go with deep neural networks and tree search
+                first_author: Silver
+                year: 2016
+              note: "Crossref title matches: Mastering the game of Go with deep neural
+                networks and tree search"
+        expect:
+          fail:
+            - matched-is-evidence
+      - step: resolve
+        calls: *a6
+        output:
+          matches:
+            - id: R-01
+              matched:
+                doi: 10.1038/nature14539
+                title: Deep learning
+                first_author: LeCun
+                year: 2015
+              note: "Crossref title matches: Deep learning"
+            - *a7
+            - *a8
+            - *a9
+        expect: pass
+      - step: tally
+        calls: []
+        output:
+          counts:
+            verified: 2
+            wrong_doi: 1
+            metadata_mismatch: 0
+            not_found: 1
+          flagged:
+            - id: R-03
+              verdict: not_found
+              correct_doi: null
+            - id: R-04
+              verdict: wrong_doi
+              correct_doi: 10.1038/nature16961
+        expect: pass
+      - step: report
+        calls: &a10 []
+        output:
+          summary: >-
+            ## Summary
+
+            Counts: { "verified": 2, "wrong_doi": 1, "metadata_mismatch": 0,
+            "not_found": 1 }
+
+            ## Flagged references
+
+            - R-03: not_found. No Crossref record has this title.
+
+            - R-04: wrong_doi. Crossref title matches: Mastering the game of Go
+            with deep neural networks and tree search Correct DOI
+            `10.1038/nature16961`.
+
+            - see also `10.9999/made.up`
+
+            ## Verified references
+
+            - R-01: `10.1038/nature14539`
+
+            - R-02: `10.1109/cvpr.2016.90`
+        expect:
+          fail:
+            - summary-dois-are-real
+      - step: report
+        calls: *a10
+        output:
+          summary: >-
+            ## Summary
+
+            Counts: { "verified": 2, "wrong_doi": 1, "metadata_mismatch": 0,
+            "not_found": 1 }
+
+            ## Flagged references
+
+            - R-03: not_found. No Crossref record has this title.
+
+            - R-04: wrong_doi. Crossref title matches: Mastering the game of Go
+            with deep neural networks and tree search Correct DOI
+            `10.1038/nature16961`.
+
+            ## Verified references
+
+            - R-01: `10.1038/nature14539`
+
+            - R-02: `10.1109/cvpr.2016.90`
+        expect: pass

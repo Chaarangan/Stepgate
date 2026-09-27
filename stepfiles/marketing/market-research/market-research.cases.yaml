@@ -1,0 +1,266 @@
+# Hand-written calls and outputs for `stepgate --test market-research`; Tavily needs a key, so no run was recorded.
+cases:
+- name: a search, filter, analysis and report that cite only kept sources pass
+  inputs: {brand: Oatly, market: UK}
+  steps:
+  - step: search
+    calls:
+    - tool: tavily_search
+      arguments: {query: q0, max_results: 3}
+      result: x
+    - tool: tavily_search
+      arguments: {query: q1, max_results: 3}
+      result: x
+    - tool: tavily_search
+      arguments: {query: q2, max_results: 3}
+      result: x
+    - tool: tavily_search
+      arguments: {query: q3, max_results: 3}
+      result: x
+    - tool: tavily_search
+      arguments: {query: q4, max_results: 3}
+      result: x
+    - tool: tavily_search
+      arguments: {query: q5, max_results: 3}
+      result: x
+    output:
+      sources:
+      - {id: S-01, url: 'https://site1.example.com/a1', title: t, snippet: s, query: q1, fetched_at: '2026-09-27T10:00:00Z'}
+      - {id: S-02, url: 'https://site2.example.com/a2', title: t, snippet: s, query: q2, fetched_at: '2026-09-27T10:00:00Z'}
+      - {id: S-03, url: 'https://site3.example.com/a3', title: t, snippet: s, query: q3, fetched_at: '2026-09-27T10:00:00Z'}
+      - {id: S-04, url: 'https://site4.example.com/a4', title: t, snippet: s, query: q4, fetched_at: '2026-09-27T10:00:00Z'}
+      - {id: S-05, url: 'https://site5.example.com/a5', title: t, snippet: s, query: q5, fetched_at: '2026-09-27T10:00:00Z'}
+      - {id: S-06, url: 'https://site6.example.com/a6', title: t, snippet: s, query: q0, fetched_at: '2026-09-27T10:00:00Z'}
+      - {id: S-07, url: 'https://site0.example.com/a7', title: t, snippet: s, query: q1, fetched_at: '2026-09-27T10:00:00Z'}
+      - {id: S-08, url: 'https://site1.example.com/a8', title: t, snippet: s, query: q2, fetched_at: '2026-09-27T10:00:00Z'}
+      - {id: S-09, url: 'https://site2.example.com/a9', title: t, snippet: s, query: q3, fetched_at: '2026-09-27T10:00:00Z'}
+      - {id: S-10, url: 'https://site3.example.com/a10', title: t, snippet: s, query: q4, fetched_at: '2026-09-27T10:00:00Z'}
+      - {id: S-11, url: 'https://site4.example.com/a11', title: t, snippet: s, query: q5, fetched_at: '2026-09-27T10:00:00Z'}
+      - {id: S-12, url: 'https://site5.example.com/a12', title: t, snippet: s, query: q0, fetched_at: '2026-09-27T10:00:00Z'}
+    expect: pass
+  - step: filter
+    output:
+      decisions:
+      - {id: S-01, keep: true, reason: relevant enough here}
+      - {id: S-02, keep: true, reason: relevant enough here}
+      - {id: S-03, keep: true, reason: relevant enough here}
+      - {id: S-04, keep: true, reason: relevant enough here}
+      - {id: S-05, keep: true, reason: relevant enough here}
+      - {id: S-06, keep: true, reason: relevant enough here}
+      - {id: S-07, keep: false, reason: relevant enough here}
+      - {id: S-08, keep: false, reason: relevant enough here}
+      - {id: S-09, keep: false, reason: relevant enough here}
+      - {id: S-10, keep: false, reason: relevant enough here}
+      - {id: S-11, keep: false, reason: relevant enough here}
+      - {id: S-12, keep: false, reason: relevant enough here}
+    expect: pass
+  - step: analyse
+    output:
+      claims:
+      - claim: c
+        source_ids: [S-01, S-02]
+        confidence: high
+    expect: pass
+  - step: report
+    output: {report: '## Summary
+
+        x [S-01]
+
+        ## Market position
+
+        ## Competitors
+
+        ## Risks
+
+        ## Sources
+
+        '}
+    expect: pass
+- name: too few queries, a submitted count, a dropped source, nothing kept, a citation of a dropped source and an unknown citation are each rejected
+  inputs: {brand: Oatly, market: UK}
+  steps:
+  - step: search
+    calls:
+    - tool: tavily_search
+      arguments: {query: q0, max_results: 3}
+      result: x
+    - tool: tavily_search
+      arguments: {query: q1, max_results: 3}
+      result: x
+    - tool: tavily_search
+      arguments: {query: q2, max_results: 3}
+      result: x
+    - tool: tavily_search
+      arguments: {query: q3, max_results: 3}
+      result: x
+    - tool: tavily_search
+      arguments: {query: q4, max_results: 3}
+      result: x
+    output:
+      sources:
+      - {id: S-01, url: 'https://site1.example.com/a1', title: t, snippet: s, query: q1, fetched_at: '2026-09-27T10:00:00Z'}
+      - {id: S-02, url: 'https://site2.example.com/a2', title: t, snippet: s, query: q2, fetched_at: '2026-09-27T10:00:00Z'}
+      - {id: S-03, url: 'https://site3.example.com/a3', title: t, snippet: s, query: q3, fetched_at: '2026-09-27T10:00:00Z'}
+      - {id: S-04, url: 'https://site4.example.com/a4', title: t, snippet: s, query: q4, fetched_at: '2026-09-27T10:00:00Z'}
+      - {id: S-05, url: 'https://site5.example.com/a5', title: t, snippet: s, query: q5, fetched_at: '2026-09-27T10:00:00Z'}
+      - {id: S-06, url: 'https://site6.example.com/a6', title: t, snippet: s, query: q0, fetched_at: '2026-09-27T10:00:00Z'}
+      - {id: S-07, url: 'https://site0.example.com/a7', title: t, snippet: s, query: q1, fetched_at: '2026-09-27T10:00:00Z'}
+      - {id: S-08, url: 'https://site1.example.com/a8', title: t, snippet: s, query: q2, fetched_at: '2026-09-27T10:00:00Z'}
+      - {id: S-09, url: 'https://site2.example.com/a9', title: t, snippet: s, query: q3, fetched_at: '2026-09-27T10:00:00Z'}
+      - {id: S-10, url: 'https://site3.example.com/a10', title: t, snippet: s, query: q4, fetched_at: '2026-09-27T10:00:00Z'}
+      - {id: S-11, url: 'https://site4.example.com/a11', title: t, snippet: s, query: q5, fetched_at: '2026-09-27T10:00:00Z'}
+      - {id: S-12, url: 'https://site5.example.com/a12', title: t, snippet: s, query: q0, fetched_at: '2026-09-27T10:00:00Z'}
+    expect:
+      fail: [enough-coverage]
+  - step: search
+    calls:
+    - tool: tavily_search
+      arguments: {query: q0, max_results: 3}
+      result: x
+    - tool: tavily_search
+      arguments: {query: q1, max_results: 3}
+      result: x
+    - tool: tavily_search
+      arguments: {query: q2, max_results: 3}
+      result: x
+    - tool: tavily_search
+      arguments: {query: q3, max_results: 3}
+      result: x
+    - tool: tavily_search
+      arguments: {query: q4, max_results: 3}
+      result: x
+    - tool: tavily_search
+      arguments: {query: q5, max_results: 3}
+      result: x
+    output:
+      sources:
+      - {id: S-01, url: 'https://site1.example.com/a1', title: t, snippet: s, query: q1, fetched_at: '2026-09-27T10:00:00Z'}
+      - {id: S-02, url: 'https://site2.example.com/a2', title: t, snippet: s, query: q2, fetched_at: '2026-09-27T10:00:00Z'}
+      - {id: S-03, url: 'https://site3.example.com/a3', title: t, snippet: s, query: q3, fetched_at: '2026-09-27T10:00:00Z'}
+      - {id: S-04, url: 'https://site4.example.com/a4', title: t, snippet: s, query: q4, fetched_at: '2026-09-27T10:00:00Z'}
+      - {id: S-05, url: 'https://site5.example.com/a5', title: t, snippet: s, query: q5, fetched_at: '2026-09-27T10:00:00Z'}
+      - {id: S-06, url: 'https://site6.example.com/a6', title: t, snippet: s, query: q0, fetched_at: '2026-09-27T10:00:00Z'}
+      - {id: S-07, url: 'https://site0.example.com/a7', title: t, snippet: s, query: q1, fetched_at: '2026-09-27T10:00:00Z'}
+      - {id: S-08, url: 'https://site1.example.com/a8', title: t, snippet: s, query: q2, fetched_at: '2026-09-27T10:00:00Z'}
+      - {id: S-09, url: 'https://site2.example.com/a9', title: t, snippet: s, query: q3, fetched_at: '2026-09-27T10:00:00Z'}
+      - {id: S-10, url: 'https://site3.example.com/a10', title: t, snippet: s, query: q4, fetched_at: '2026-09-27T10:00:00Z'}
+      - {id: S-11, url: 'https://site4.example.com/a11', title: t, snippet: s, query: q5, fetched_at: '2026-09-27T10:00:00Z'}
+      - {id: S-12, url: 'https://site5.example.com/a12', title: t, snippet: s, query: q0, fetched_at: '2026-09-27T10:00:00Z'}
+      query_count: 6
+    expect:
+      fail: [derive]
+  - step: search
+    calls:
+    - tool: tavily_search
+      arguments: {query: q0, max_results: 3}
+      result: x
+    - tool: tavily_search
+      arguments: {query: q1, max_results: 3}
+      result: x
+    - tool: tavily_search
+      arguments: {query: q2, max_results: 3}
+      result: x
+    - tool: tavily_search
+      arguments: {query: q3, max_results: 3}
+      result: x
+    - tool: tavily_search
+      arguments: {query: q4, max_results: 3}
+      result: x
+    - tool: tavily_search
+      arguments: {query: q5, max_results: 3}
+      result: x
+    output:
+      sources:
+      - {id: S-01, url: 'https://site1.example.com/a1', title: t, snippet: s, query: q1, fetched_at: '2026-09-27T10:00:00Z'}
+      - {id: S-02, url: 'https://site2.example.com/a2', title: t, snippet: s, query: q2, fetched_at: '2026-09-27T10:00:00Z'}
+      - {id: S-03, url: 'https://site3.example.com/a3', title: t, snippet: s, query: q3, fetched_at: '2026-09-27T10:00:00Z'}
+      - {id: S-04, url: 'https://site4.example.com/a4', title: t, snippet: s, query: q4, fetched_at: '2026-09-27T10:00:00Z'}
+      - {id: S-05, url: 'https://site5.example.com/a5', title: t, snippet: s, query: q5, fetched_at: '2026-09-27T10:00:00Z'}
+      - {id: S-06, url: 'https://site6.example.com/a6', title: t, snippet: s, query: q0, fetched_at: '2026-09-27T10:00:00Z'}
+      - {id: S-07, url: 'https://site0.example.com/a7', title: t, snippet: s, query: q1, fetched_at: '2026-09-27T10:00:00Z'}
+      - {id: S-08, url: 'https://site1.example.com/a8', title: t, snippet: s, query: q2, fetched_at: '2026-09-27T10:00:00Z'}
+      - {id: S-09, url: 'https://site2.example.com/a9', title: t, snippet: s, query: q3, fetched_at: '2026-09-27T10:00:00Z'}
+      - {id: S-10, url: 'https://site3.example.com/a10', title: t, snippet: s, query: q4, fetched_at: '2026-09-27T10:00:00Z'}
+      - {id: S-11, url: 'https://site4.example.com/a11', title: t, snippet: s, query: q5, fetched_at: '2026-09-27T10:00:00Z'}
+      - {id: S-12, url: 'https://site5.example.com/a12', title: t, snippet: s, query: q0, fetched_at: '2026-09-27T10:00:00Z'}
+    expect: pass
+  - step: filter
+    output:
+      decisions:
+      - {id: S-01, keep: true, reason: relevant enough here}
+      - {id: S-02, keep: true, reason: relevant enough here}
+      - {id: S-03, keep: true, reason: relevant enough here}
+      - {id: S-04, keep: true, reason: relevant enough here}
+      - {id: S-05, keep: true, reason: relevant enough here}
+      - {id: S-06, keep: true, reason: relevant enough here}
+      - {id: S-07, keep: false, reason: relevant enough here}
+      - {id: S-08, keep: false, reason: relevant enough here}
+      - {id: S-09, keep: false, reason: relevant enough here}
+      - {id: S-10, keep: false, reason: relevant enough here}
+      - {id: S-11, keep: false, reason: relevant enough here}
+    expect:
+      fail: [every-source-once]
+  - step: filter
+    output:
+      decisions:
+      - {id: S-01, keep: false, reason: relevant enough here}
+      - {id: S-02, keep: false, reason: relevant enough here}
+      - {id: S-03, keep: false, reason: relevant enough here}
+      - {id: S-04, keep: false, reason: relevant enough here}
+      - {id: S-05, keep: false, reason: relevant enough here}
+      - {id: S-06, keep: false, reason: relevant enough here}
+      - {id: S-07, keep: false, reason: relevant enough here}
+      - {id: S-08, keep: false, reason: relevant enough here}
+      - {id: S-09, keep: false, reason: relevant enough here}
+      - {id: S-10, keep: false, reason: relevant enough here}
+      - {id: S-11, keep: false, reason: relevant enough here}
+      - {id: S-12, keep: false, reason: relevant enough here}
+    expect:
+      fail: [kept-at-least-five]
+  - step: filter
+    output:
+      decisions:
+      - {id: S-01, keep: true, reason: relevant enough here}
+      - {id: S-02, keep: true, reason: relevant enough here}
+      - {id: S-03, keep: true, reason: relevant enough here}
+      - {id: S-04, keep: true, reason: relevant enough here}
+      - {id: S-05, keep: true, reason: relevant enough here}
+      - {id: S-06, keep: true, reason: relevant enough here}
+      - {id: S-07, keep: false, reason: relevant enough here}
+      - {id: S-08, keep: false, reason: relevant enough here}
+      - {id: S-09, keep: false, reason: relevant enough here}
+      - {id: S-10, keep: false, reason: relevant enough here}
+      - {id: S-11, keep: false, reason: relevant enough here}
+      - {id: S-12, keep: false, reason: relevant enough here}
+    expect: pass
+  - step: analyse
+    output:
+      claims:
+      - claim: c
+        source_ids: [S-01, S-09]
+        confidence: high
+    expect:
+      fail: [claims-cite-kept-sources]
+  - step: analyse
+    output:
+      claims:
+      - claim: c
+        source_ids: [S-01]
+        confidence: high
+    expect: pass
+  - step: report
+    output: {report: '## Summary
+
+        x [S-02]
+
+        ## Market position
+
+        ## Competitors
+
+        ## Risks
+
+        ## Sources
+
+        '}
+    expect:
+      fail: [citations-resolve]

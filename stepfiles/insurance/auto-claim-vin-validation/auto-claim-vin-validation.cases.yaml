@@ -1,0 +1,445 @@
+# A run of auto-claim-vin-validation against the live APIs on 2026-09-27, recorded with --record-cases, for `stepgate --test auto-claim-vin-validation`.
+# Each step's first attempt was a deliberately wrong submission; the gates it breaks are expected to fail.
+cases:
+  - name: a recorded run rejects each wrong submission and accepts the corrected one
+    inputs:
+      vin: JTDKB20U693456789
+      claimed_make: Toyota
+      claimed_model: Camry
+      claimed_year: 2010
+    steps:
+      - step: decode
+        calls:
+          - tool: decodeVin
+            arguments:
+              vin: JTDKB20U693456789
+            result:
+              Count: 1
+              Message: "Results returned successfully. NOTE: Any missing decoded values should
+                be interpreted as NHTSA does not have data on the specific
+                variable. Missing value should NOT be interpreted as an
+                indication that a feature or technology is unavailable for a
+                vehicle."
+              SearchCriteria: "VIN(s): JTDKB20U693456789"
+              Results:
+                - ABS: ""
+                  ActiveSafetySysNote: ""
+                  AdaptiveCruiseControl: ""
+                  AdaptiveDrivingBeam: ""
+                  AdaptiveHeadlights: ""
+                  AdditionalErrorText: ""
+                  AirBagLocCurtain: 1st Row (Driver and Passenger)
+                  AirBagLocFront: 1st Row (Driver and Passenger)
+                  AirBagLocKnee: ""
+                  AirBagLocSeatCushion: ""
+                  AirBagLocSide: 1st Row (Driver and Passenger)
+                  AutoReverseSystem: ""
+                  AutomaticPedestrianAlertingSound: ""
+                  AxleConfiguration: ""
+                  Axles: ""
+                  BasePrice: ""
+                  BatteryA: ""
+                  BatteryA_to: ""
+                  BatteryCells: ""
+                  BatteryInfo: ""
+                  BatteryKWh: ""
+                  BatteryKWh_to: ""
+                  BatteryModules: ""
+                  BatteryPacks: ""
+                  BatteryType: ""
+                  BatteryV: ""
+                  BatteryV_to: ""
+                  BedLengthIN: ""
+                  BedType: Not Applicable
+                  BlindSpotIntervention: ""
+                  BlindSpotMon: ""
+                  BodyCabType: Not Applicable
+                  BodyClass: Hatchback/Liftback/Notchback
+                  BrakeSystemDesc: ""
+                  BrakeSystemType: ""
+                  BusFloorConfigType: Not Applicable
+                  BusLength: ""
+                  BusType: Not Applicable
+                  CAN_AACN: ""
+                  CIB: ""
+                  CashForClunkers: ""
+                  ChargerLevel: ""
+                  ChargerPowerKW: ""
+                  CombinedBrakingSystem: ""
+                  CoolingType: ""
+                  CurbWeightLB: ""
+                  CustomMotorcycleType: Not Applicable
+                  DaytimeRunningLight: ""
+                  DestinationMarket: ""
+                  DisplacementCC: "1500.0"
+                  DisplacementCI: "91.53561614209"
+                  DisplacementL: "1.5"
+                  Doors: "4"
+                  DriveType: 4x2
+                  DriverAssist: ""
+                  DynamicBrakeSupport: ""
+                  EDR: ""
+                  ESC: ""
+                  EVDriveUnit: ""
+                  ElectrificationLevel: Strong HEV (Hybrid Electric Vehicle)
+                  EngineConfiguration: In-Line
+                  EngineCycles: ""
+                  EngineCylinders: "4"
+                  EngineHP: "76"
+                  EngineHP_to: ""
+                  EngineKW: ""
+                  EngineManufacturer: ""
+                  EngineModel: INZ-FXE+3CM
+                  EntertainmentSystem: ""
+                  ErrorCode: "0"
+                  ErrorText: 0 - VIN decoded clean. Check Digit (9th position) is correct
+                  ForwardCollisionWarning: ""
+                  FuelInjectionType: ""
+                  FuelTankMaterial: ""
+                  FuelTankType: ""
+                  FuelTypePrimary: Gasoline
+                  FuelTypeSecondary: Electric
+                  GCWR: ""
+                  GCWR_to: ""
+                  GVWR: "Class 1: 6,000 lb or less (2,722 kg or less)"
+                  GVWR_to: "Class 1: 6,000 lb or less (2,722 kg or less)"
+                  KeylessIgnition: ""
+                  LaneCenteringAssistance: ""
+                  LaneDepartureWarning: ""
+                  LaneKeepSystem: ""
+                  LowerBeamHeadlampLightSource: ""
+                  Make: TOYOTA
+                  MakeID: "448"
+                  Manufacturer: TOYOTA MOTOR CORPORATION
+                  ManufacturerId: "1057"
+                  Model: Prius
+                  ModelID: "2209"
+                  ModelYear: "2009"
+                  MotorcycleChassisType: Not Applicable
+                  MotorcycleSuspensionType: Not Applicable
+                  NCSABodyType: ""
+                  NCSAMake: ""
+                  NCSAMapExcApprovedBy: ""
+                  NCSAMapExcApprovedOn: ""
+                  NCSAMappingException: ""
+                  NCSAModel: ""
+                  NCSANote: ""
+                  NonLandUse: ""
+                  Note: ""
+                  OtherBusInfo: ""
+                  OtherEngineInfo: ""
+                  OtherMotorcycleInfo: ""
+                  OtherRestraintSystemInfo: ""
+                  OtherTrailerInfo: ""
+                  ParkAssist: ""
+                  PedestrianAutomaticEmergencyBraking: ""
+                  PlantCity: TOYOTA CITY
+                  PlantCompanyName: Toyota Motor Corporation - Tsutsumi Plant
+                  PlantCountry: JAPAN
+                  PlantState: AICHI
+                  PossibleValues: ""
+                  Pretensioner: ""
+                  RearAutomaticEmergencyBraking: ""
+                  RearCrossTrafficAlert: ""
+                  RearVisibilitySystem: ""
+                  SAEAutomationLevel: ""
+                  SAEAutomationLevel_to: ""
+                  SeatBeltsAll: Manual
+                  SeatRows: ""
+                  Seats: ""
+                  SemiautomaticHeadlampBeamSwitching: ""
+                  Series: NHW20L
+                  Series2: ""
+                  SteeringLocation: ""
+                  SuggestedVIN: ""
+                  TPMS: Direct
+                  TopSpeedMPH: ""
+                  TrackWidth: ""
+                  TractionControl: ""
+                  TrailerBodyType: Not Applicable
+                  TrailerLength: ""
+                  TrailerType: Not Applicable
+                  TransmissionSpeeds: ""
+                  TransmissionStyle: ""
+                  Trim: ""
+                  Trim2: ""
+                  Turbo: ""
+                  VIN: JTDKB20U693456789
+                  ValveTrainDesign: ""
+                  VehicleDescriptor: JTDKB20U*93
+                  VehicleType: PASSENGER CAR
+                  WheelBaseLong: ""
+                  WheelBaseShort: ""
+                  WheelBaseType: ""
+                  WheelSizeFront: ""
+                  WheelSizeRear: ""
+                  WheelieMitigation: ""
+                  Wheels: ""
+                  Windows: ""
+            is_error: false
+        output:
+          vin: JTDKB20U693456789
+          make: TOYOTA
+          model: Prius
+          model_year: "2009"
+          body_class: Hatchback/Liftback/Notchback
+          error_code: "0"
+          error_text: 0 - VIN decoded clean. Check Digit (9th position) is correct
+        expect: pass
+      - step: compare
+        calls: []
+        output:
+          make:
+            claimed: Toyota
+            decoded: TOYOTA
+            match: true
+          model:
+            claimed: Camry
+            decoded: Prius
+            match: false
+          model_year:
+            claimed: 2010
+            decoded: "2009"
+            match: false
+          any_mismatch: true
+        expect: pass
+      - step: recalls
+        calls:
+          - tool: getRecallsByVehicle
+            arguments:
+              make: TOYOTA
+              model: Prius
+              modelYear: "2009"
+            result:
+              Count: 6
+              Message: Results returned successfully
+              results:
+                - Manufacturer: Southeast Toyota Distributors, LLC
+                  NHTSACampaignNumber: 13V014000
+                  parkIt: false
+                  parkOutSide: false
+                  overTheAirUpdate: false
+                  ReportReceivedDate: 16/01/2013
+                  Component: AIR BAGS:FRONTAL:SENSOR/CONTROL MODULE-INACTIVE
+                  Summary: "Southeast Toyota Distributors, LLC (SET) is recalling certain models
+                    interspersed through model years 2009 through 2013 as
+                    follows: model year 2009-2012 Tacoma, 4Runner, Camry, Camry
+                    Hybrid, Prius, and RAV4; model year 2009-2010 Avalon, FJ
+                    Cruiser, and Highlander Hybrid; model year 2010-2013 model
+                    year Corolla, Sienna and Tundra; model year 2009-2013
+                    Highlander and Venza; model year 2012 Prius V; and model
+                    year 2010-2012 Sequoia.  During modification by SET to
+                    include accessories such as leather seat covers, seat
+                    heaters or headrest DVD systems, these vehicles may not have
+                    had the passenger seat occupant sensing system calibration
+                    tested.  Without passing the calibration test, the occupant
+                    sensing system may not operate as designed."
+                  Consequence: If the front passenger seat occupant sensing system is out of
+                    calibration, the front passenger airbags may not deploy or
+                    they may deploy inappropriately for the passenger's size and
+                    position.  This could increase the risk of personal injury
+                    during the event of a vehicle crash necessitating airbag
+                    deployment.
+                  Remedy: Southeast Toyota will notify owners, and dealers will test the
+                    sensitivity of the occupant detection sensors, and
+                    recalibrate them as necessary.  The recall began on March
+                    21, 2013.  Owners may contact Southeast Toyota at
+                    1-800-301-6859.
+                  Notes: Owners may also contact the National Highway Traffic Safety
+                    Administration Vehicle Safety Hotline at 1-888-327-4236 (TTY
+                    1-800-424-9153), or go to www.safercar.gov.
+                  ModelYear: "2009"
+                  Make: TOYOTA
+                  Model: PRIUS
+                - Manufacturer: Toyota Motor Engineering & Manufacturing
+                  NHTSACampaignNumber: 12V537000
+                  parkIt: false
+                  parkOutSide: false
+                  overTheAirUpdate: false
+                  ReportReceivedDate: 14/11/2012
+                  Component: STEERING
+                  Summary: Toyota is recalling certain model year 2004-2009 Prius vehicles
+                    manufactured August 5, 2003, through March 30, 2009.  The
+                    affected vehicles have a steering intermediate extension
+                    shaft assembly built with metal splines that complete the
+                    connection from the steering wheel to the steering
+                    gear.  These splines may have been manufactured with an
+                    insufficient hardness.
+                  Consequence: Over time, the splines may wear and eventually fail resulting in a
+                    loss of steering ability, increasing the risk of a vehicle
+                    crash.
+                  Remedy: Toyota will notify owners, and dealers will inspect the extension shaft
+                    and replace it if it is one with insufficient hardness, free
+                    of charge.  The recall began during December 2012.  Owners
+                    may contact their Toyota dealer or the Toyota Customer
+                    Experience Center at 1-800-331-4331.
+                  Notes: Owners may also contact the National Highway Traffic Safety
+                    Administration Vehicle Safety Hotline at 1-888-327-4236 (TTY
+                    1-800-424-9153), or go to www.safercar.gov.
+                  ModelYear: "2009"
+                  Make: TOYOTA
+                  Model: PRIUS
+                - Manufacturer: Toyota Motor Engineering & Manufacturing
+                  NHTSACampaignNumber: 12V536000
+                  parkIt: false
+                  parkOutSide: false
+                  overTheAirUpdate: false
+                  ReportReceivedDate: 14/11/2012
+                  Component: ENGINE AND ENGINE COOLING
+                  Summary: Toyota is recalling certain model year 2004-2009 Prius vehicles
+                    manufactured August 6, 2003, through March 30, 2009 and
+                    FCHV-adv vehicles manufactured December 12, 2008, through
+                    September 13, 2011.  During manufacturing, a scratch may
+                    have occurred inside of the electrically driven water pump
+                    at the coil wire. The coil wire may corrode at the scratched
+                    portion.
+                  Consequence: The corroded coil wire may break and the water pump could
+                    stop.  The corroded coil wire could cause a short circuit
+                    between coil wires and a possible open fuse, creating a
+                    stall-like condition of the hybrid system while the vehicle
+                    is being driven.  This may increase the risk of a vehicle
+                    crash.
+                  Remedy: Toyota will notify its owners, and dealers will replace the electric
+                    water pump, free of charge.  The recall began on January 17,
+                    2013.  Owners may contact their Toyota dealer or the Toyota
+                    Customer Experience Center at 1-800-331-4331.
+                  Notes: Owners may also contact the National Highway Traffic Safety
+                    Administration Vehicle Safety Hotline at 1-888-327-4236 (TTY
+                    1-800-424-9153), or go to www.safercar.gov.
+                  ModelYear: "2009"
+                  Make: TOYOTA
+                  Model: PRIUS
+                - Manufacturer: TOYOTA MOTOR NORTH AMERICA, INC.
+                  NHTSACampaignNumber: 09V388000
+                  parkIt: false
+                  parkOutSide: false
+                  overTheAirUpdate: false
+                  ReportReceivedDate: 05/10/2009
+                  Component: VEHICLE SPEED CONTROL:ACCELERATOR PEDAL
+                  Summary: TOYOTA IS RECALLING CERTAIN MODEL YEAR 2004-2010 PASSENGER
+                    VEHICLES.  THE ACCELERATOR PEDAL CAN GET STUCK IN THE WIDE
+                    OPEN POSITION DUE TO ITS BEING TRAPPED BY AN UNSECURED OR
+                    INCOMPATIBLE DRIVER'S FLOOR MAT.
+                  Consequence: A STUCK OPEN ACCELERATOR PEDAL MAY RESULT IN VERY HIGH VEHICLE
+                    SPEEDS AND MAKE IT DIFFICULT TO STOP THE VEHICLE, WHICH
+                    COULD CAUSE A CRASH, SERIOUS INJURY OR DEATH.
+                  Remedy: TOYOTA FILED AN AMENDED DEFECT REPORT ON NOVEMBER 25, 2009, STATING THAT
+                    DEALERS WILL MODIFY THE ACCELERATOR PEDAL AND, ON CERTAIN
+                    VEHICLES, ALTER THE SHAPE OF THE FLOOR SURFACE UNDER THE
+                    PEDAL.  THESE CHANGES ADDRESS THE RISK OF PEDAL ENTRAPMENT
+                    DUE TO INTERFERENCE WITH THE FLOOR MAT.  REDESIGNED
+                    ACCELERATOR PEDALS WILL BECOME AVAILABLE BEGINNING IN APRIL
+                    2010 AND DEALERS WILL REPLACE ANY MODIFIED PEDAL WITH THE
+                    NEW PEDAL IF DESIRED.  ALSO, DEALERS WILL REPLACE ANY
+                    GENUINE TOYOTA OR LEXUS ALL-WEATHER FLOOR MATS WITH
+                    REDESIGNED ALL-WEATHER MATS, OR REPURCHASE THE PREVIOUS MATS
+                    FROM OWNERS WHO DO NOT WANT THE NEW ONES.  ADDITIONALLY,
+                    SOFTWARE MODIFICATIONS WILL BE INSTALLED ON CAMRY, AVALON
+                    AND LEXUS ES 350, IS 350 AND IS 250 MODELS THAT WILL ENSURE
+                    THAT THE BRAKE OVERRIDES THE ACCELERATOR IN THE EVENT BOTH
+                    BRAKE AND ACCELERATOR PEDALS ARE APPLIED.  TOYOTA WILL BEGIN
+                    MAILING LETTERS TO OWNERS ON DECEMBER 31, 2009.  OWNERS MAY
+                    CONTACT TOYOTA AT 1-800-331-4331, LEXUS AT 1-800-255-3987.
+                  Notes: TOYOTA RECALL NO. 90L/90LG.  OWNERS MAY ALSO CONTACT THE NATIONAL HIGHWAY
+                    TRAFFIC SAFETY ADMINISTRATION'S VEHICLE SAFETY HOTLINE AT
+                    1-888-327-4236 (TTY 1-800-424-9153), OR GO TO <A
+                    HREF=HTTP://WWW.SAFERCAR.GOV>HTTP://WWW.SAFERCAR.GOV</A> .
+                  ModelYear: "2009"
+                  Make: TOYOTA
+                  Model: PRIUS
+                - Manufacturer: SOUTHEAST TOYOTA DISTRIBUTORS, LLC
+                  NHTSACampaignNumber: 10V036000
+                  parkIt: false
+                  parkOutSide: false
+                  overTheAirUpdate: false
+                  ReportReceivedDate: 03/02/2010
+                  Component: EQUIPMENT:OTHER:LABELS
+                  Summary: SOUTHEAST TOYOTA IS RECALLING CERTAIN MODEL YEAR 2005-2011 PASSENGER
+                    VEHICLES FOR FAILING TO COMPLY WITH THE REQUIREMENTS OF
+                    FEDERAL MOTOR VEHICLE SAFETY STANDARD NO. 110, "TIRE
+                    SELECTION AND RIMS."  THESE VEHICLES WERE SOLD WITHOUT THE
+                    REQUISITE LOAD CARRYING CAPACITY MODIFICATION LABELS.
+                  Consequence: A DRIVER MAY OVERLOAD A VEHICLE WHICH MAY INCREASE THE RISK OF A
+                    CRASH.
+                  Remedy: DEALERS WILL MAIL TO CONSUMERS THE CORRECTED LABEL OR THE CUSTOMER WILL
+                    HAVE THE OPTION FOR DEALERS TO INSTALL THE LABEL FREE OF
+                    CHARGE.  THE SAFETY RECALL BEGAN ON MAY 27, 2010.  OWNERS
+                    MAY CONTACT SOUTHEAST TOYOTA AT 1-800-301-6859.
+                  Notes: OWNERS MAY ALSO CONTACT THE NATIONAL HIGHWAY TRAFFIC SAFETY
+                    ADMINISTRATION'S VEHICLE SAFETY HOTLINE AT 1-888-327-4236
+                    (TTY 1-800-424-9153), OR GO TO <A
+                    HREF=HTTP://WWW.SAFERCAR.GOV>HTTP://WWW.SAFERCAR.GOV</A> .
+                  ModelYear: "2009"
+                  Make: TOYOTA
+                  Model: PRIUS
+                - Manufacturer: GULF STATES TOYOTA, INC.
+                  NHTSACampaignNumber: 10V035000
+                  parkIt: false
+                  parkOutSide: false
+                  overTheAirUpdate: false
+                  ReportReceivedDate: 03/02/2010
+                  Component: EQUIPMENT:OTHER:LABELS
+                  Summary: GULF STATES TOYOTA IS RECALLING CERTAIN MODEL YEAR 2005-2010 VEHICLES
+                    FOR FAILING TO COMPLY WITH THE REQUIREMENTS OF FEDERAL MOTOR
+                    VEHICLE SAFETY STANDARD NO. 110, "TIRE SELECTION AND
+                    RIMS."  THESE VEHICLES WERE SOLD BETWEEN SEPTEMBER 1, 2005
+                    AND JUNE 2, 2008 WITHOUT THE REQUISITE LOAD CARRYING
+                    CAPACITY MODIFICATION LABELS.
+                  Consequence: THIS DOES NOT MEET THE STANDARD REQUIREMENTS.
+                  Remedy: DEALERS WILL MAIL TO CONSUMERS THE CORRECTED LABEL OR THE CUSTOMER WILL
+                    HAVE THE OPTION FOR DEALERS TO INSTALL THE LABEL FREE OF
+                    CHARGE. DEALERS WILL ALSO CORRECT THE OWNER'S MANUAL.  THE
+                    SAFETY RECALL BEGAN ON MAY 27, 2010.  OWNERS MAY CONTACT
+                    GULF STATES TOYOTA AT 713-580-3300.
+                  Notes: OWNERS MAY ALSO CONTACT THE NATIONAL HIGHWAY TRAFFIC SAFETY
+                    ADMINISTRATION'S VEHICLE SAFETY HOTLINE AT 1-888-327-4236
+                    (TTY 1-800-424-9153), OR GO TO <A
+                    HREF=HTTP://WWW.SAFERCAR.GOV>HTTP://WWW.SAFERCAR.GOV</A> .
+                  ModelYear: "2009"
+                  Make: TOYOTA
+                  Model: PRIUS
+            is_error: false
+        output:
+          recall_count: 6
+          recalls:
+            - campaign_number: 13V014000
+              component: AIR BAGS:FRONTAL:SENSOR/CONTROL MODULE-INACTIVE
+              report_received_date: 16/01/2013
+            - campaign_number: 12V537000
+              component: STEERING
+              report_received_date: 14/11/2012
+            - campaign_number: 12V536000
+              component: ENGINE AND ENGINE COOLING
+              report_received_date: 14/11/2012
+            - campaign_number: 09V388000
+              component: VEHICLE SPEED CONTROL:ACCELERATOR PEDAL
+              report_received_date: 05/10/2009
+            - campaign_number: 10V036000
+              component: EQUIPMENT:OTHER:LABELS
+              report_received_date: 03/02/2010
+            - campaign_number: 10V035000
+              component: EQUIPMENT:OTHER:LABELS
+              report_received_date: 03/02/2010
+        expect: pass
+      - step: verdict
+        calls: []
+        output:
+          reasons:
+            - model_mismatch
+            - model_year_mismatch
+          verdict: refer
+          recall_count: 6
+        expect: pass
+      - step: report
+        calls: &a1 []
+        output:
+          summary_markdown: VIN JTDKB20U693456789 decodes to TOYOTA. Recall 99V999999 applies.
+        expect:
+          fail:
+            - summary-names-vehicle-and-verdict
+            - summary-cites-listed-recalls
+      - step: report
+        calls: *a1
+        output:
+          summary_markdown: "VIN JTDKB20U693456789 decodes to TOYOTA Prius 2009. Verdict: refer."
+        expect: pass

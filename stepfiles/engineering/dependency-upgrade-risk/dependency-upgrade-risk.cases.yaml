@@ -1,0 +1,1636 @@
+# A run of dependency-upgrade-risk against the live APIs on 2026-09-27, recorded with --record-cases, for `stepgate --test dependency-upgrade-risk`.
+# Maintainer and author fields, which hold personal emails, were removed from the npm responses.
+# Each step's first attempt was a deliberately wrong submission; the gates it breaks are expected to fail.
+cases:
+- name: a recorded run rejects each wrong submission and accepts the corrected one
+  inputs:
+    packages:
+    - name: lodash
+      version: 4.17.20
+    - name: express
+      version: 4.17.1
+    - name: minimist
+      version: 1.2.5
+    - name: ms
+      version: 2.1.3
+  steps:
+  - step: resolve
+    calls:
+    - tool: getPackageVersion
+      arguments:
+        package: lodash
+        version: 4.17.20
+      result:
+        bugs:
+          url: https://github.com/lodash/lodash/issues
+        dist:
+          shasum: b44a9b6297bcb698f1c51a3545a2b3b368d59c52
+          tarball: https://registry.npmjs.org/lodash/-/lodash-4.17.20.tgz
+          fileCount: 1049
+          integrity: sha512-PlhdFcillOINfeV7Ni6oF1TAEayyZBoZ8bcshTHqOYJYlrqzRK5hagpagky5o4HfCzzd1TRkXPMFq6cKk9rGmA==
+          signatures:
+          - sig: MEUCIQDPF8qtGU3yxHj4Yw4h9hpt+DCVT9dlk9ApvKxVXPwv7AIgSLC2TkL6ONbFlhyV2ZcE4v52ANJMoA/HwKY+zKt9Kh4=
+            keyid: SHA256:jl3bwswu80PjjokCgh0o2w5c2U4LhQAE57gj9cz1kzA
+          unpackedSize: 1406354
+          npm-signature: "-----BEGIN PGP SIGNATURE-----\r\nVersion: OpenPGP.js v3.0.4\r\nComment: https://openpgpjs.org\r\n\r\nwsFcBAEBCAAQBQJfNXAiCRA9TVsSAnZWagAAtmYP/2G2ijVcDDyRacsKXn8Q\niX5zNGG+Od+xSuOXrMRG32hjB1giuXR2t8mlsJLQpFyQVgAexcr22J0oq0Kb\n\
+            UouNSYrjm6qfK/u5ZUg8lR/Q3L+QiaxsfNnS7FWCO4xqUB0FlI5rKtnq4zhH\nWpPscWw1S/0vV1tz9OvibtfiMDWw5m9AYHk7ckISHmiEMBWURWyDjStxVjmn\nIupfRuCjJdNoxdFyRMaXktbFaCqdMoaT00x5ImxTbIR2ZQdTQT7fA8l3FvvZ\nX/avXT8sqsY0gMCJqZGZITWI/6jIvoMLeE8IqPvAweX+rjHpTFbj9u+SjhNI\n\
+            oLRY2Ya3bCCUM/T7ZeShMDOeNCyqaU4p3s5VWBQ7PG8FRUjtRdJXpmBf44B4\n6ew+lh2qK+P7FcIcJ4NDpo0/pek4keOpKmUyOYEsrXbnFKdXyzMxAztydu2U\nYR20ePPVsAh2dxwnTVW+jxoutB09gmM3YhgtuOEf16dSEsu47Tntd039li0A\nOSwvLK2jEiyyaeGh7nZSaNPr2Sgj5uq1DrOjR/eKOhY0nFUzdcDAjm8ocVSe\n\
+            ncavD4t+VFnABdnog5Ub11luRNoOTBvIX+c/9DshlfRzGKIu6pq8SirU6P2j\n3y40bR5yzjhxVM/E2RsqAsPgSPl/1BLyO4+4MKIxhVTh259tWf3YxbWbuXo8\n5EAn\r\n=w2Gq\r\n-----END PGP SIGNATURE-----\r\n"
+        icon: https://lodash.com/icon.svg
+        main: lodash.js
+        name: lodash
+        gitHead: f2e7063ee409ff40a60b14370c58dceee1a2efd4
+        license: MIT
+        scripts:
+          test: echo "See https://travis-ci.org/lodash-archive/lodash-cli for testing details."
+        homepage: https://lodash.com/
+        keywords:
+        - modules
+        - stdlib
+        - util
+        repository:
+          url: git+https://github.com/lodash/lodash.git
+          type: git
+        _npmVersion: 6.14.7
+        description: Lodash modular utilities.
+        directories: {}
+        _nodeVersion: 12.18.0
+        _hasShrinkwrap: false
+        _npmOperationalInternal:
+          tmp: tmp/lodash_4.17.20_1597337634014_0.4491479741207298
+          host: s3://npm-registry-packages
+        _id: lodash@4.17.20
+        version: 4.17.20
+      is_error: false
+    - tool: getPackageVersion
+      arguments:
+        package: express
+        version: 4.17.1
+      result:
+        bugs:
+          url: https://github.com/expressjs/express/issues
+        dist:
+          shasum: 4491fc38605cf51f8629d39c2b5d026f98a4c134
+          tarball: https://registry.npmjs.org/express/-/express-4.17.1.tgz
+          fileCount: 16
+          integrity: sha512-mHJ9O79RqluphRrcw2X/GTh3k9tVv8YcoyY4Kkh4WDMUYKRZUq0h1o0w2rrrxBqM7VoeUVqgb27xlEMXTnYt4g==
+          signatures:
+          - sig: MEUCICQgcHZI8QrmBKcFkCxEopG6oFx7tOFQ/5MEphrR6yzDAiEAk/lgG7aANiylDTtQ31NrvELKJ4MmRQ+3u89poClP2Io=
+            keyid: SHA256:jl3bwswu80PjjokCgh0o2w5c2U4LhQAE57gj9cz1kzA
+          unpackedSize: 208133
+          npm-signature: "-----BEGIN PGP SIGNATURE-----\r\nVersion: OpenPGP.js v3.0.4\r\nComment: https://openpgpjs.org\r\n\r\nwsFcBAEBCAAQBQJc6hU/CRA9TVsSAnZWagAAFc4QAJzqxI1sgdfreUHk+NIa\n38jYea65Xg8N9JgZVF67j7aXqPT6VXhGu2j54oveGIkr+RL2Xm58RrRWn+Sg\n\
+            VWOOSZzotLKtx1qCYS4ozPRYvujKMLYDeiLxePDCSrrLYt48+IJwkHF04Un1\nJ0ZUmtlEqgLL85gvaCrKa9qF8TfwbQhhIzQ914vum11tJ506ePpffN2xFY0M\nsHf0CiuV1OFOD7Wne/RR7DVsxQwZ/FXomkxLJm8+T+T9ZYm3WQxWVD7BRQpA\nN08+zkPd1XMEZiVZkR9Ie4+7ydZomJE8PNCOt5SzvEW6ekDW10QuuF0521Wj\n\
+            5lHp4AflVFq1LTJB0WDR6VIPJRp0H5aYTh1tBRxWHUx/EP2LfFS/XEz1bUvm\nBDVj2e1iA4ZWz8aeu9p/2N8Zp05WGINF3/E4YG9smxxs5EDJZGA9k1DAj6US\nzKWTOemaqypRshFWThvfA70a1Rcwdj+0XGboscg/S20XTT0FvG2GLkEY0OO/\niHBy5fKYplUQsths48V8I9P9Gx6U534iaFJlxlzzVEsDleBkH+NBSP8OB7dx\n\
+            8N/0ZQDBY6JWL5ZSW9yVY2FzrTEmUOPC1Rts5Uj4m7SBmu8yK154ylnPQ4T6\nMr0jG8XQPYhTLc5pYNTFZNV1Ydu4d01xIrLhGy/3dc7kRlwy3FN5ceNVsB88\njyN+\r\n=QYw2\r\n-----END PGP SIGNATURE-----\r\n"
+        name: express
+        engines:
+          node: '>= 0.10.0'
+        gitHead: e1b45ebd050b6f06aa38cda5aaf0c21708b0c71e
+        license: MIT
+        scripts:
+          lint: eslint .
+          test: mocha --require test/support/env --reporter spec --bail --check-leaks test/ test/acceptance/
+          test-ci: istanbul cover node_modules/mocha/bin/_mocha --report lcovonly -- --require test/support/env --reporter spec --check-leaks test/ test/acceptance/
+          test-cov: istanbul cover node_modules/mocha/bin/_mocha -- --require test/support/env --reporter dot --check-leaks test/ test/acceptance/
+          test-tap: mocha --require test/support/env --reporter tap --check-leaks test/ test/acceptance/
+        homepage: http://expressjs.com/
+        keywords:
+        - express
+        - framework
+        - sinatra
+        - web
+        - rest
+        - restful
+        - router
+        - app
+        - api
+        repository:
+          url: git+https://github.com/expressjs/express.git
+          type: git
+        _npmVersion: 6.4.1
+        description: Fast, unopinionated, minimalist web framework
+        directories: {}
+        _nodeVersion: 8.16.0
+        dependencies:
+          qs: 6.7.0
+          depd: ~1.1.2
+          etag: ~1.8.1
+          send: 0.17.1
+          vary: ~1.1.2
+          debug: 2.6.9
+          fresh: 0.5.2
+          cookie: 0.4.0
+          accepts: ~1.3.7
+          methods: ~1.1.2
+          type-is: ~1.6.18
+          parseurl: ~1.3.3
+          statuses: ~1.5.0
+          encodeurl: ~1.0.2
+          proxy-addr: ~2.0.5
+          body-parser: 1.19.0
+          escape-html: ~1.0.3
+          on-finished: ~2.3.0
+          safe-buffer: 5.1.2
+          utils-merge: 1.0.1
+          content-type: ~1.0.4
+          finalhandler: ~1.1.2
+          range-parser: ~1.2.1
+          serve-static: 1.14.1
+          array-flatten: 1.1.1
+          path-to-regexp: 0.1.7
+          setprototypeof: 1.1.1
+          cookie-signature: 1.0.6
+          merge-descriptors: 1.0.1
+          content-disposition: 0.5.3
+        _hasShrinkwrap: false
+        devDependencies:
+          ejs: 2.6.1
+          hbs: 4.0.4
+          after: 0.8.2
+          mocha: 5.2.0
+          vhost: ~3.0.2
+          eslint: 2.13.1
+          marked: 0.6.2
+          morgan: 1.9.1
+          should: 13.2.3
+          istanbul: 0.4.5
+          supertest: 3.3.0
+          multiparty: 4.2.1
+          connect-redis: 3.4.1
+          cookie-parser: ~1.4.4
+          cookie-session: 1.3.3
+          express-session: 1.16.1
+          method-override: 3.0.0
+          pbkdf2-password: 1.2.1
+        _npmOperationalInternal:
+          tmp: tmp/express_4.17.1_1558844734329_0.21547943776855627
+          host: s3://npm-registry-packages
+        _id: express@4.17.1
+        version: 4.17.1
+      is_error: false
+    - tool: getPackageVersion
+      arguments:
+        package: minimist
+        version: 1.2.5
+      result:
+        bugs:
+          url: https://github.com/substack/minimist/issues
+        dist:
+          shasum: 67d66014b66a6a8aaa0c083c5fd58df4e4e97602
+          tarball: https://registry.npmjs.org/minimist/-/minimist-1.2.5.tgz
+          fileCount: 21
+          integrity: sha512-FM9nNUYrRBAELZQT3xeZQ7fmMOBg6nWNmJKTcgsJeaLstP/UODVpGsr5OhXhhXg6f+qtJ8uiZ+PUxkDWcgIXLw==
+          signatures:
+          - sig: MEQCIHwhJJC96df5g2uJ/Z2O3bWpeoTVR+vobC7mpr670NCDAiAHG/cChsUv606ls0GVUuWTa2OfWnRtykvXmtBPRCe3Cg==
+            keyid: SHA256:jl3bwswu80PjjokCgh0o2w5c2U4LhQAE57gj9cz1kzA
+          unpackedSize: 32384
+          npm-signature: "-----BEGIN PGP SIGNATURE-----\r\nVersion: OpenPGP.js v3.0.4\r\nComment: https://openpgpjs.org\r\n\r\nwsFcBAEBCAAQBQJearSzCRA9TVsSAnZWagAAdXQP/37gxveGMGnYPLHEtnLE\nxGoFFRWU82yPya40/uMK45UZl5S48tCIJF+QgifQl4dnRJ0pvPBobZtovjQ3\n\
+            9kD9E9my/JJEvytLoM3rIhyaMpfpr68zABVYA8MUVUHsDOIjn6HVr1UR6B7L\nj8AfsLdtmO6Sy6nb8t5TfBuDprsLbGCKqXyUXWOMOJc/9fQN5PEKMJ9bZa2d\nT5gcJ3wxWKJYRt4Wiv6ddQ5xN+4Tnc7pA9yqxz73bn6aaRgLq3c2vam0leGE\nxjVC9OX8riWiPVMJNUqGwC7qa8u59QFos1TZQ8HpBiJLP9L33UdHcYbDNAoZ\n\
+            RSSBw3gM3H+eRWIN369POOO8AFrdbAGovSmWcS9RFLDjSm8rWmB+Jx22Z1Na\nc54umOQDXuuAS8TbWsVyLvjKd+UwxHRc0h8e/gMQO2AGFQzTlJAgarCanTrz\nZBAcjJNsE6MKANRqWHobiE38viQOOGqVnCgQ5L4CwcMI7BMH7MFc4ntMLVIO\nxZPbBXHzYi5dfWucd8C11ZTN5Id4D+mdRZbUe8jePZ0WsD/xjABokZuhZziW\n\
+            90inv759CQn4JjnDKPQrZlBt+/6L3a+QQHhmNf+WWFKKPdDIpSZ395Kxmqov\nVLunRv2RigRd0r7GQGthStV+sxjCmy/ZgV56PpeFj1j1d/GvUu6/jYwG+J8X\nMbJT\r\n=myam\r\n-----END PGP SIGNATURE-----\r\n"
+        main: index.js
+        name: minimist
+        gitHead: aeb3e27dae0412de5c0494e9563a5f10c82cc7a9
+        license: MIT
+        scripts:
+          test: tap test/*.js
+          coverage: covert test/*.js
+        homepage: https://github.com/substack/minimist
+        keywords:
+        - argv
+        - getopt
+        - parser
+        - optimist
+        testling:
+          files: test/*.js
+          browsers:
+          - ie/6..latest
+          - ff/5
+          - firefox/latest
+          - chrome/10
+          - chrome/latest
+          - safari/5.1
+          - safari/latest
+          - opera/12
+        repository:
+          url: git://github.com/substack/minimist.git
+          type: git
+        _npmVersion: 6.13.4
+        description: parse argument options
+        directories: {}
+        _nodeVersion: 12.16.1
+        _hasShrinkwrap: false
+        devDependencies:
+          tap: ~0.4.0
+          tape: ^3.5.0
+          covert: ^1.0.0
+        _npmOperationalInternal:
+          tmp: tmp/minimist_1.2.5_1584051379289_0.11145357496686259
+          host: s3://npm-registry-packages
+        _id: minimist@1.2.5
+        version: 1.2.5
+      is_error: false
+    - tool: getPackageVersion
+      arguments:
+        package: ms
+        version: 2.1.3
+      result:
+        bugs:
+          url: https://github.com/vercel/ms/issues
+        dist:
+          shasum: 574c8138ce1d2b5861f0b44579dbadd60c6615b2
+          tarball: https://registry.npmjs.org/ms/-/ms-2.1.3.tgz
+          fileCount: 4
+          integrity: sha512-6FlzubTLZG3J2a/NVCAleEhjzq5oxgHyaCU9yYXvcLsvoVaHJq/s5xXI6/XXP6tz7R9xAOtHnSO/tXtF3WRTlA==
+          signatures:
+          - sig: MEYCIQCpp8dz4QhYMwrrNgFARRXozR4wAyDcUVNXEBw0PmSj+wIhALlCZH2KJyCo9qv/3CfMFsvx9bXKQNQBOqmLstIPXP2L
+            keyid: SHA256:jl3bwswu80PjjokCgh0o2w5c2U4LhQAE57gj9cz1kzA
+          unpackedSize: 6721
+          npm-signature: "-----BEGIN PGP SIGNATURE-----\r\nVersion: OpenPGP.js v3.0.13\r\nComment: https://openpgpjs.org\r\n\r\nwsFcBAEBCAAQBQJfz4WbCRA9TVsSAnZWagAA5A8P/jNowbVOl1ORENKivAXb\nQ3NncrkWHdRjUGeUhX89Ih3N+woNugnSTOEKACswARtqXMf5M1Iy8GODorDp\n\
+            oz+pqU0HGU+KjLO/sL+TGxJJJAMfX3vhRZTHk5ZzKDi9s6iAM3nMeE5rwNUS\n7wprOzbKNE9hev82zLgfY8kF7UhxY09BH/GBS+kWGD3ViM8R5vl49JEfrvN9\nSKris0FTSP/YL1QrRNjvMMfGh9WhMOC/FLkJnIErcw2I8g/XmBOApjqM9KhG\n42/ls4gXuaUinNXC68wAbntxhHtJo2403NVmU7UJDDdulEBbTXZ18cKHt520\n\
+            UkRZp8piQb1m3QR8XPjvpnShlOutYdQJfjltY5z12Wfwj5OBVsurWeFtJRme\nBxn9pdrKW45doypT1Lc7LXoIftLBtToVtWRThEVihq4I9f4zpR9Uzc3qp1jU\nlEo9ndqf9rg9oVV8fSK+dIDuUUyp7NrI5uCfcUMfKEgwWortapNKNvMuHp7r\noZhuGRekRc1kG8YmsYfLKv3kRS8uiXa/jbwD4PkNGbev7KhEptCnGZm78z9k\n\
+            V0KOdaCU3Igo6rK23kgsAFhxDvMANHby3dLYQMbZOoqkZLv4qiPS/7raPOLc\n5q/ezwT2JZLWZlTbZnigAVuZ5aHmLb6QEuMLcIQaelDkH7XWCNpED8cM2pFX\nTllW\r\n=eZCP\r\n-----END PGP SIGNATURE-----\r\n"
+        main: ./index
+        name: ms
+        gitHead: 1c6264b795492e8fdecbc82cb8802fcfbfc08d26
+        license: MIT
+        scripts:
+          lint: eslint lib/* bin/*
+          test: mocha tests.js
+          precommit: lint-staged
+        homepage: https://github.com/vercel/ms#readme
+        repository:
+          url: git+https://github.com/vercel/ms.git
+          type: git
+        _npmVersion: 6.14.6
+        description: Tiny millisecond conversion utility
+        directories: {}
+        lint-staged:
+          '*.js':
+          - npm run lint
+          - prettier --single-quote --write
+          - git add
+        _nodeVersion: 12.18.3
+        eslintConfig:
+          env:
+            es6: true
+            node: true
+          extends: eslint:recommended
+        _hasShrinkwrap: false
+        devDependencies:
+          husky: 0.14.3
+          mocha: 4.0.1
+          eslint: 4.18.2
+          prettier: 2.0.5
+          expect.js: 0.3.1
+          lint-staged: 5.0.0
+        _npmOperationalInternal:
+          tmp: tmp/ms_2.1.3_1607435675054_0.7617026089064693
+          host: s3://npm-registry-packages
+        _id: ms@2.1.3
+        version: 2.1.3
+      is_error: false
+    - tool: getPackageVersion
+      arguments:
+        package: lodash
+        version: latest
+      result:
+        bugs:
+          url: https://github.com/lodash/lodash/issues
+        dist:
+          shasum: ff2b66c1f6326d59513de2407bf881439812771c
+          tarball: https://registry.npmjs.org/lodash/-/lodash-4.18.1.tgz
+          fileCount: 1051
+          integrity: sha512-dMInicTPVE8d1e5otfwmmjlxkZoUpiVLwyeTdUsi/Caj/gfzzblBcCE5sRHV/AsjuCmxWrte2TNGSYuCeCq+0Q==
+          signatures:
+          - sig: MEUCIQDZo+W4JJ5T/9RkS8Wz1uN7Gw+CBvP16yGeT8H9lnb+sAIgKM5Nqj636zyRL2YOUuhbSK2e1DhK2VBaMXiVNIYMq1M=
+            keyid: SHA256:DhQ8wR5APBvFHLF/+Tc+AYvPOdTpcIDqOhxsBHRwC7U
+          unpackedSize: 1413741
+        icon: https://lodash.com/icon.svg
+        main: lodash.js
+        name: lodash
+        gitHead: 4f0b76e2eca13de1c1fe8b4305abc1f7d63f4b86
+        license: MIT
+        scripts:
+          test: echo "See https://travis-ci.org/lodash-archive/lodash-cli for testing details."
+        homepage: https://lodash.com/
+        keywords:
+        - modules
+        - stdlib
+        - util
+        repository:
+          url: git+https://github.com/lodash/lodash.git
+          type: git
+        _npmVersion: 10.9.4
+        description: Lodash modular utilities.
+        directories: {}
+        _nodeVersion: 22.21.1
+        _hasShrinkwrap: false
+        _npmOperationalInternal:
+          tmp: tmp/lodash_4.18.1_1775077280191_0.6534118914634555
+          host: s3://npm-registry-packages-npm-production
+        _id: lodash@4.18.1
+        version: 4.18.1
+      is_error: false
+    - tool: getPackageVersion
+      arguments:
+        package: express
+        version: latest
+      result:
+        bugs:
+          url: https://github.com/expressjs/express/issues
+        dist:
+          shasum: 8f21d15b6d327f92b4794ecf8cb08a72f956ac04
+          tarball: https://registry.npmjs.org/express/-/express-5.2.1.tgz
+          fileCount: 10
+          integrity: sha512-hIS4idWWai69NezIdRt2xFVofaF4j+6INOpJlVOLDO8zXGpUVEVzIYk12UUi2JzjEzWL3IOAxcTubgz9Po0yXw==
+          signatures:
+          - sig: MEQCIFiG4BbRCfOtJiV9BkwAfmuZ6j6WDPSwLTUxm8z4HbwxAiBRQBV8eXLNJmyYnSS5oLT12Q44o71/CetyWd+uifoylA==
+            keyid: SHA256:DhQ8wR5APBvFHLF/+Tc+AYvPOdTpcIDqOhxsBHRwC7U
+          unpackedSize: 75429
+        name: express
+        engines:
+          node: '>= 18'
+        funding:
+          url: https://opencollective.com/express
+          type: opencollective
+        gitHead: dbac741a49a5a64336b70c06e85c2e2706e36336
+        license: MIT
+        scripts:
+          lint: eslint .
+          test: mocha --require test/support/env --reporter spec --check-leaks test/ test/acceptance/
+          test-ci: nyc --exclude examples --exclude test --exclude benchmarks --reporter=lcovonly --reporter=text npm test
+          lint:fix: eslint . --fix
+          test-cov: nyc --exclude examples --exclude test --exclude benchmarks --reporter=html --reporter=text npm test
+          test-tap: mocha --require test/support/env --reporter tap --check-leaks test/ test/acceptance/
+        homepage: https://expressjs.com/
+        keywords:
+        - express
+        - framework
+        - sinatra
+        - web
+        - http
+        - rest
+        - restful
+        - router
+        - app
+        - api
+        repository:
+          url: git+https://github.com/expressjs/express.git
+          type: git
+        _npmVersion: 10.8.2
+        description: Fast, unopinionated, minimalist web framework
+        directories: {}
+        _nodeVersion: 20.19.5
+        dependencies:
+          qs: ^6.14.0
+          depd: ^2.0.0
+          etag: ^1.8.1
+          once: ^1.4.0
+          send: ^1.1.0
+          vary: ^1.1.2
+          debug: ^4.4.0
+          fresh: ^2.0.0
+          cookie: ^0.7.1
+          router: ^2.2.0
+          accepts: ^2.0.0
+          type-is: ^2.0.1
+          parseurl: ^1.3.3
+          statuses: ^2.0.1
+          encodeurl: ^2.0.0
+          mime-types: ^3.0.0
+          proxy-addr: ^2.0.7
+          body-parser: ^2.2.1
+          escape-html: ^1.0.3
+          http-errors: ^2.0.0
+          on-finished: ^2.4.1
+          content-type: ^1.0.5
+          finalhandler: ^2.1.0
+          range-parser: ^1.2.1
+          serve-static: ^2.2.0
+          cookie-signature: ^1.2.1
+          merge-descriptors: ^2.0.0
+          content-disposition: ^1.0.0
+        _hasShrinkwrap: false
+        devDependencies:
+          ejs: ^3.1.10
+          hbs: 4.2.0
+          nyc: ^17.1.0
+          after: 0.8.2
+          mocha: ^10.7.3
+          vhost: ~3.0.2
+          eslint: 8.47.0
+          marked: ^15.0.3
+          morgan: 1.10.1
+          supertest: ^6.3.0
+          connect-redis: ^8.0.1
+          cookie-parser: 1.4.7
+          cookie-session: 2.1.1
+          express-session: ^1.18.1
+          method-override: 3.0.0
+          pbkdf2-password: 1.2.1
+        _npmOperationalInternal:
+          tmp: tmp/express_5.2.1_1764622183077_0.4726542587013707
+          host: s3://npm-registry-packages-npm-production
+        _id: express@5.2.1
+        version: 5.2.1
+      is_error: false
+    - tool: getPackageVersion
+      arguments:
+        package: minimist
+        version: latest
+      result:
+        bugs:
+          url: https://github.com/minimistjs/minimist/issues
+        dist:
+          shasum: c1a464e7693302e082a075cee0c057741ac4772c
+          tarball: https://registry.npmjs.org/minimist/-/minimist-1.2.8.tgz
+          fileCount: 24
+          integrity: sha512-2yyAR8qBkN3YuheJanUpWC5U3bb5osDywNB8RzDVlDwDHbocAJveqqj1u8+SVD7jkWT4yvsHCpWqqWqAxb0zCA==
+          signatures:
+          - sig: MEQCIE/uB8pUkpXsJIGjGPJIRRIM/9D62XpwJl6Yg3btMkeXAiA/cv8nZVixZjGdNXEgMX11f/N/2VXu+o5woeX5b9tn2A==
+            keyid: SHA256:jl3bwswu80PjjokCgh0o2w5c2U4LhQAE57gj9cz1kzA
+          unpackedSize: 54477
+          npm-signature: "-----BEGIN PGP SIGNATURE-----\r\nVersion: OpenPGP.js v4.10.10\r\nComment: https://openpgpjs.org\r\n\r\nwsFzBAEBCAAGBQJj5V7FACEJED1NWxICdlZqFiEECWMYAoorWMhJKdjhPU1b\r\nEgJ2VmrRgQ//UOnz6KMAn81WnyW7HHaDJod7K1B/7esKtuUjltRxB2l8ddE/\r\
+            \nY0hTaRokSzDACo9p+x1OK/1d6OuCsoOlIn2ypAdGbftaTdDSWLJ0empTGXeq\r\n4Eh6+ND9/JF4H6293+zV0feEJ29EiBgI2x9izYeo/1qGufQwszGL6JNNl0OV\r\nvtJz1xJWnYyWKDSUoQhsf3C5GAqCUW4GDS8/XI8ZsaV6UTRJl/kawFGX0glC\r\
+            \nc2NZtzvoKWduVyBa5XKAGyq4x1lGCDDHGwi8pt0Dt32Vm8eci9nDBc8yvRUv\r\nTBAjRR8FkjGKNSAyR+3WU54CLyFMWCZcCaMtFBLrstR1YDP+S1ICDku6yy8I\r\nt4Ir+HAswSkimWnMh/ehvzKQIDOw2po5QEIlS6ZZyavWFZaHCAGbJb+RbCbV\r\
+            \nw6v1lQL8edEumEM5oJSJ5rYR+YfkWbfWRf+x3GAaqv1lSgMb1Ujen704KcNy\r\nXMSPsYh7yuO+Vmr9Zyith0XLsBpd/aHmrQoTW9tdic/xS0RTC1g7sk5BrpNd\r\n9ywPe0Va5F2nC22dBalXzI6qgdLBOdOC4A5IdpUoH0IivdBirifW8ncOAIy9\r\
+            \nIJaF5ZmslIf2kLuq2+mhc3X6Z7cjBqug58whq2AEYeCRop1POtTZ4ihmGkI0\r\nkaVMSKOyvBcFQzpShsO8Ajsn9O45p5TJ42A=\r\n=h76k\r\n-----END PGP SIGNATURE-----\r\n"
+        main: index.js
+        name: minimist
+        funding:
+          url: https://github.com/sponsors/ljharb
+        gitHead: 6901ee286bc4c16da6830b48b46ce1574703cea1
+        license: MIT
+        scripts:
+          lint: eslint --ext=js,mjs .
+          test: npm run tests-only
+          prepack: npmignore --auto --commentLines=auto
+          pretest: npm run lint
+          version: auto-changelog && git add CHANGELOG.md
+          posttest: aud --production
+          prepublish: not-in-publish || npm run prepublishOnly
+          tests-only: nyc tape 'test/**/*.js'
+          postversion: auto-changelog && git add CHANGELOG.md && git commit --no-edit --amend && git tag -f "v$(node -e "console.log(require('./package.json').version)")"
+          prepublishOnly: safe-publish-latest
+        homepage: https://github.com/minimistjs/minimist
+        keywords:
+        - argv
+        - getopt
+        - parser
+        - optimist
+        testling:
+          files: test/*.js
+          browsers:
+          - ie/6..latest
+          - ff/5
+          - firefox/latest
+          - chrome/10
+          - chrome/latest
+          - safari/5.1
+          - safari/latest
+          - opera/12
+        repository:
+          url: git://github.com/minimistjs/minimist.git
+          type: git
+        _npmVersion: 9.4.0
+        description: parse argument options
+        directories: {}
+        _nodeVersion: 19.6.0
+        publishConfig:
+          ignore:
+          - .github/workflows
+        _hasShrinkwrap: false
+        auto-changelog:
+          output: CHANGELOG.md
+          template: keepachangelog
+          hideCredit: true
+          unreleased: false
+          commitLimit: false
+          backfillLimit: false
+        devDependencies:
+          aud: ^2.0.2
+          nyc: ^10.3.2
+          tape: ^5.6.3
+          eslint: =8.8.0
+          npmignore: ^0.3.0
+          in-publish: ^2.0.1
+          auto-changelog: ^2.4.0
+          safe-publish-latest: ^2.0.0
+          '@ljharb/eslint-config': ^21.0.1
+        _npmOperationalInternal:
+          tmp: tmp/minimist_1.2.8_1675976389053_0.6943044069255115
+          host: s3://npm-registry-packages
+        _id: minimist@1.2.8
+        version: 1.2.8
+      is_error: false
+    - tool: getPackageVersion
+      arguments:
+        package: ms
+        version: latest
+      result:
+        bugs:
+          url: https://github.com/vercel/ms/issues
+        dist:
+          shasum: 574c8138ce1d2b5861f0b44579dbadd60c6615b2
+          tarball: https://registry.npmjs.org/ms/-/ms-2.1.3.tgz
+          fileCount: 4
+          integrity: sha512-6FlzubTLZG3J2a/NVCAleEhjzq5oxgHyaCU9yYXvcLsvoVaHJq/s5xXI6/XXP6tz7R9xAOtHnSO/tXtF3WRTlA==
+          signatures:
+          - sig: MEYCIQCpp8dz4QhYMwrrNgFARRXozR4wAyDcUVNXEBw0PmSj+wIhALlCZH2KJyCo9qv/3CfMFsvx9bXKQNQBOqmLstIPXP2L
+            keyid: SHA256:jl3bwswu80PjjokCgh0o2w5c2U4LhQAE57gj9cz1kzA
+          unpackedSize: 6721
+          npm-signature: "-----BEGIN PGP SIGNATURE-----\r\nVersion: OpenPGP.js v3.0.13\r\nComment: https://openpgpjs.org\r\n\r\nwsFcBAEBCAAQBQJfz4WbCRA9TVsSAnZWagAA5A8P/jNowbVOl1ORENKivAXb\nQ3NncrkWHdRjUGeUhX89Ih3N+woNugnSTOEKACswARtqXMf5M1Iy8GODorDp\n\
+            oz+pqU0HGU+KjLO/sL+TGxJJJAMfX3vhRZTHk5ZzKDi9s6iAM3nMeE5rwNUS\n7wprOzbKNE9hev82zLgfY8kF7UhxY09BH/GBS+kWGD3ViM8R5vl49JEfrvN9\nSKris0FTSP/YL1QrRNjvMMfGh9WhMOC/FLkJnIErcw2I8g/XmBOApjqM9KhG\n42/ls4gXuaUinNXC68wAbntxhHtJo2403NVmU7UJDDdulEBbTXZ18cKHt520\n\
+            UkRZp8piQb1m3QR8XPjvpnShlOutYdQJfjltY5z12Wfwj5OBVsurWeFtJRme\nBxn9pdrKW45doypT1Lc7LXoIftLBtToVtWRThEVihq4I9f4zpR9Uzc3qp1jU\nlEo9ndqf9rg9oVV8fSK+dIDuUUyp7NrI5uCfcUMfKEgwWortapNKNvMuHp7r\noZhuGRekRc1kG8YmsYfLKv3kRS8uiXa/jbwD4PkNGbev7KhEptCnGZm78z9k\n\
+            V0KOdaCU3Igo6rK23kgsAFhxDvMANHby3dLYQMbZOoqkZLv4qiPS/7raPOLc\n5q/ezwT2JZLWZlTbZnigAVuZ5aHmLb6QEuMLcIQaelDkH7XWCNpED8cM2pFX\nTllW\r\n=eZCP\r\n-----END PGP SIGNATURE-----\r\n"
+        main: ./index
+        name: ms
+        gitHead: 1c6264b795492e8fdecbc82cb8802fcfbfc08d26
+        license: MIT
+        scripts:
+          lint: eslint lib/* bin/*
+          test: mocha tests.js
+          precommit: lint-staged
+        homepage: https://github.com/vercel/ms#readme
+        repository:
+          url: git+https://github.com/vercel/ms.git
+          type: git
+        _npmVersion: 6.14.6
+        description: Tiny millisecond conversion utility
+        directories: {}
+        lint-staged:
+          '*.js':
+          - npm run lint
+          - prettier --single-quote --write
+          - git add
+        _nodeVersion: 12.18.3
+        eslintConfig:
+          env:
+            es6: true
+            node: true
+          extends: eslint:recommended
+        _hasShrinkwrap: false
+        devDependencies:
+          husky: 0.14.3
+          mocha: 4.0.1
+          eslint: 4.18.2
+          prettier: 2.0.5
+          expect.js: 0.3.1
+          lint-staged: 5.0.0
+        _npmOperationalInternal:
+          tmp: tmp/ms_2.1.3_1607435675054_0.7617026089064693
+          host: s3://npm-registry-packages
+        _id: ms@2.1.3
+        version: 2.1.3
+      is_error: false
+    output:
+      packages:
+      - name: lodash
+        current_version: 4.17.20
+        current_exists: true
+        latest_version: 4.18.1
+      - name: express
+        current_version: 4.17.1
+        current_exists: true
+        latest_version: 5.2.1
+      - name: minimist
+        current_version: 1.2.5
+        current_exists: true
+        latest_version: 1.2.8
+      - name: ms
+        current_version: 2.1.3
+        current_exists: true
+        latest_version: 2.1.3
+    expect: pass
+  - step: vulns
+    calls:
+    - tool: queryVulns
+      arguments:
+        body:
+          package:
+            name: lodash
+            ecosystem: npm
+          version: 4.17.20
+      result:
+        vulns:
+        - id: GHSA-29mw-wpgm-hmr9
+          summary: Regular Expression Denial of Service (ReDoS) in lodash
+          details: "All versions of package lodash prior to 4.17.21 are vulnerable to Regular Expression Denial of Service (ReDoS) via the `toNumber`, `trim` and `trimEnd` functions. \n\nSteps to reproduce\
+            \ (provided by reporter Liyuan Chen):\n```js\nvar lo = require('lodash');\n\nfunction build_blank(n) {\n    var ret = \"1\"\n    for (var i = 0; i < n; i++) {\n        ret += \" \"\n    }\n\
+            \    return ret + \"1\";\n}\nvar s = build_blank(50000) var time0 = Date.now();\nlo.trim(s) \nvar time_cost0 = Date.now() - time0;\nconsole.log(\"time_cost0: \" + time_cost0);\nvar time1 = Date.now();\n\
+            lo.toNumber(s) var time_cost1 = Date.now() - time1;\nconsole.log(\"time_cost1: \" + time_cost1);\nvar time2 = Date.now();\nlo.trimEnd(s);\nvar time_cost2 = Date.now() - time2;\nconsole.log(\"\
+            time_cost2: \" + time_cost2);\n```"
+          aliases:
+          - CVE-2020-28500
+          modified: 2025-09-29 21:12:31.102523+00:00
+          published: 2022-01-06 20:30:46+00:00
+          database_specific:
+            severity: MODERATE
+            github_reviewed: true
+            github_reviewed_at: 2021-03-19 22:45:28+00:00
+            nvd_published_at: 2021-02-15 11:15:00+00:00
+            cwe_ids:
+            - CWE-1333
+            - CWE-400
+          references:
+          - type: ADVISORY
+            url: https://nvd.nist.gov/vuln/detail/CVE-2020-28500
+          - type: WEB
+            url: https://github.com/github/advisory-database/pull/6139
+          - type: WEB
+            url: https://github.com/lodash/lodash/pull/5065
+          - type: WEB
+            url: https://github.com/lodash/lodash/pull/5065/commits/02906b8191d3c100c193fe6f7b27d1c40f200bb7
+          - type: WEB
+            url: https://github.com/lodash/lodash/commit/c4847ebe7d14540bb28a8b932a9ce1b9ecbfee1a
+          - type: WEB
+            url: https://www.oracle.com/security-alerts/cpuoct2021.html
+          - type: WEB
+            url: https://www.oracle.com/security-alerts/cpujul2022.html
+          - type: WEB
+            url: https://www.oracle.com/security-alerts/cpujan2022.html
+          - type: WEB
+            url: https://www.oracle.com//security-alerts/cpujul2021.html
+          - type: WEB
+            url: https://snyk.io/vuln/SNYK-JS-LODASH-1018905
+          - type: WEB
+            url: https://snyk.io/vuln/SNYK-JAVA-ORGWEBJARSNPM-1074893
+          - type: WEB
+            url: https://snyk.io/vuln/SNYK-JAVA-ORGWEBJARSBOWERGITHUBLODASH-1074895
+          - type: WEB
+            url: https://snyk.io/vuln/SNYK-JAVA-ORGWEBJARSBOWER-1074892
+          - type: WEB
+            url: https://snyk.io/vuln/SNYK-JAVA-ORGWEBJARS-1074894
+          - type: WEB
+            url: https://snyk.io/vuln/SNYK-JAVA-ORGFUJIONWEBJARS-1074896
+          - type: WEB
+            url: https://security.netapp.com/advisory/ntap-20210312-0006
+          - type: WEB
+            url: https://github.com/rubysec/ruby-advisory-db/blob/master/gems/lodash-rails/CVE-2020-28500.yml
+          - type: WEB
+            url: https://github.com/lodash/lodash/blob/npm/trimEnd.js%23L8
+          - type: PACKAGE
+            url: https://github.com/lodash/lodash
+          - type: WEB
+            url: https://cert-portal.siemens.com/productcert/pdf/ssa-637483.pdf
+          affected:
+          - package:
+              name: lodash
+              ecosystem: npm
+              purl: pkg:npm/lodash
+            ranges:
+            - type: SEMVER
+              events:
+              - introduced: 4.0.0
+              - fixed: 4.17.21
+            database_specific:
+              source: https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2022/01/GHSA-29mw-wpgm-hmr9/GHSA-29mw-wpgm-hmr9.json
+          - package:
+              name: lodash-es
+              ecosystem: npm
+              purl: pkg:npm/lodash-es
+            ranges:
+            - type: SEMVER
+              events:
+              - introduced: 4.0.0
+              - fixed: 4.17.21
+            database_specific:
+              source: https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2022/01/GHSA-29mw-wpgm-hmr9/GHSA-29mw-wpgm-hmr9.json
+          - package:
+              name: lodash.trimend
+              ecosystem: npm
+              purl: pkg:npm/lodash.trimend
+            ranges:
+            - type: SEMVER
+              events:
+              - introduced: 4.0.0
+              - last_affected: 4.5.1
+            database_specific:
+              source: https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2022/01/GHSA-29mw-wpgm-hmr9/GHSA-29mw-wpgm-hmr9.json
+          - package:
+              name: lodash.trim
+              ecosystem: npm
+              purl: pkg:npm/lodash.trim
+            ranges:
+            - type: SEMVER
+              events:
+              - introduced: 4.0.0
+              - last_affected: 4.5.1
+            database_specific:
+              source: https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2022/01/GHSA-29mw-wpgm-hmr9/GHSA-29mw-wpgm-hmr9.json
+          - package:
+              name: lodash-rails
+              ecosystem: RubyGems
+              purl: pkg:gem/lodash-rails
+            ranges:
+            - type: ECOSYSTEM
+              events:
+              - introduced: 4.0.0
+              - fixed: 4.17.21
+            versions:
+            - 4.0.0
+            - 4.11.2
+            - 4.12.0
+            - 4.13.1
+            - 4.14.1
+            - 4.15.0
+            - 4.16.1
+            - 4.16.3
+            - 4.16.4
+            - 4.16.6
+            - 4.17.10
+            - 4.17.11
+            - 4.17.14
+            - 4.17.15
+            - 4.17.2
+            - 4.17.4
+            - 4.17.5
+            - 4.3.0
+            - 4.5.1
+            - 4.6.1
+            database_specific:
+              source: https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2022/01/GHSA-29mw-wpgm-hmr9/GHSA-29mw-wpgm-hmr9.json
+          schema_version: 1.9.0
+          severity:
+          - type: CVSS_V3
+            score: CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:L
+        - id: GHSA-35jh-r3h4-6jhm
+          summary: Command Injection in lodash
+          details: '`lodash` versions prior to 4.17.21 are vulnerable to Command Injection via the template function.'
+          aliases:
+          - CVE-2021-23337
+          - CVE-2026-4800
+          - GHSA-r5fr-rjxr-66jc
+          modified: 2026-09-10 03:49:04.067984+00:00
+          published: 2021-05-06 16:05:51+00:00
+          database_specific:
+            github_reviewed: true
+            github_reviewed_at: 2021-03-31 23:59:26+00:00
+            nvd_published_at: 2021-02-15 13:15:00+00:00
+            cwe_ids:
+            - CWE-77
+            - CWE-94
+            severity: HIGH
+          references:
+          - type: ADVISORY
+            url: https://nvd.nist.gov/vuln/detail/CVE-2021-23337
+          - type: WEB
+            url: https://github.com/lodash/lodash/commit/3469357cff396a26c363f8c1b5a91dde28ba4b1c
+          - type: WEB
+            url: https://www.oracle.com/security-alerts/cpuoct2021.html
+          - type: WEB
+            url: https://www.oracle.com/security-alerts/cpujul2022.html
+          - type: WEB
+            url: https://www.oracle.com/security-alerts/cpujan2022.html
+          - type: WEB
+            url: https://www.oracle.com//security-alerts/cpujul2021.html
+          - type: WEB
+            url: https://snyk.io/vuln/SNYK-JS-LODASH-1040724
+          - type: WEB
+            url: https://snyk.io/vuln/SNYK-JAVA-ORGWEBJARSNPM-1074929
+          - type: WEB
+            url: https://snyk.io/vuln/SNYK-JAVA-ORGWEBJARSBOWERGITHUBLODASH-1074931
+          - type: WEB
+            url: https://snyk.io/vuln/SNYK-JAVA-ORGWEBJARSBOWER-1074928
+          - type: WEB
+            url: https://snyk.io/vuln/SNYK-JAVA-ORGWEBJARS-1074930
+          - type: WEB
+            url: https://snyk.io/vuln/SNYK-JAVA-ORGFUJIONWEBJARS-1074932
+          - type: WEB
+            url: https://security.netapp.com/advisory/ntap-20210312-0006
+          - type: WEB
+            url: https://github.com/rubysec/ruby-advisory-db/blob/master/gems/lodash-rails/CVE-2021-23337.yml
+          - type: WEB
+            url: https://github.com/lodash/lodash/blob/ddfd9b11a0126db2302cb70ec9973b66baec0975/lodash.js#L14851
+          - type: PACKAGE
+            url: https://github.com/lodash/lodash
+          - type: WEB
+            url: https://cert-portal.siemens.com/productcert/pdf/ssa-637483.pdf
+          affected:
+          - package:
+              name: lodash
+              ecosystem: npm
+              purl: pkg:npm/lodash
+            ranges:
+            - type: SEMVER
+              events:
+              - introduced: '0'
+              - fixed: 4.17.21
+            database_specific:
+              source: https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2021/05/GHSA-35jh-r3h4-6jhm/GHSA-35jh-r3h4-6jhm.json
+          - package:
+              name: lodash-es
+              ecosystem: npm
+              purl: pkg:npm/lodash-es
+            ranges:
+            - type: SEMVER
+              events:
+              - introduced: '0'
+              - fixed: 4.17.21
+            database_specific:
+              source: https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2021/05/GHSA-35jh-r3h4-6jhm/GHSA-35jh-r3h4-6jhm.json
+          - package:
+              name: lodash.template
+              ecosystem: npm
+              purl: pkg:npm/lodash.template
+            ranges:
+            - type: SEMVER
+              events:
+              - introduced: '0'
+              - last_affected: 4.5.0
+            database_specific:
+              source: https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2021/05/GHSA-35jh-r3h4-6jhm/GHSA-35jh-r3h4-6jhm.json
+          - package:
+              name: lodash-template
+              ecosystem: npm
+              purl: pkg:npm/lodash-template
+            ranges:
+            - type: SEMVER
+              events:
+              - introduced: '0'
+              - last_affected: 1.0.0
+            database_specific:
+              source: https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2021/05/GHSA-35jh-r3h4-6jhm/GHSA-35jh-r3h4-6jhm.json
+          - package:
+              name: lodash-rails
+              ecosystem: RubyGems
+              purl: pkg:gem/lodash-rails
+            ranges:
+            - type: ECOSYSTEM
+              events:
+              - introduced: '0'
+              - fixed: 4.17.21
+            versions:
+            - 0.10.0
+            - 0.7.0
+            - 0.8.1
+            - 0.8.2
+            - 0.9.0
+            - 0.9.1
+            - 0.9.2
+            - 1.0.0.rc.1
+            - 1.0.0.rc.2
+            - 1.0.0.rc.3
+            - 1.0.1
+            - 1.1.0
+            - 1.1.1
+            - 1.2.0
+            - 1.2.1
+            - 1.3.1
+            - 2.0.0
+            - 2.1.0
+            - 2.2.0
+            - 2.2.1
+            - 2.3.0
+            - 2.4.0
+            - 2.4.1
+            - 3.1.0
+            - 3.10.0
+            - 3.10.1
+            - 3.2.0
+            - 3.3.0
+            - 3.3.1
+            - 3.3.1.1
+            - 3.4.0
+            - 3.5.0
+            - 3.6.0
+            - 3.7.0
+            - 3.9.3
+            - 4.0.0
+            - 4.11.2
+            - 4.12.0
+            - 4.13.1
+            - 4.14.1
+            - 4.15.0
+            - 4.16.1
+            - 4.16.3
+            - 4.16.4
+            - 4.16.6
+            - 4.17.10
+            - 4.17.11
+            - 4.17.14
+            - 4.17.15
+            - 4.17.2
+            - 4.17.4
+            - 4.17.5
+            - 4.3.0
+            - 4.5.1
+            - 4.6.1
+            database_specific:
+              source: https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2021/05/GHSA-35jh-r3h4-6jhm/GHSA-35jh-r3h4-6jhm.json
+          schema_version: 1.9.0
+          severity:
+          - type: CVSS_V3
+            score: CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:H/A:H
+        - id: GHSA-f23m-r3pf-42rh
+          summary: lodash vulnerable to Prototype Pollution via array path bypass in `_.unset` and `_.omit`
+          details: '### Impact
+
+
+            Lodash versions 4.17.23 and earlier are vulnerable to prototype pollution in the `_.unset` and `_.omit` functions. The fix for [CVE-2025-13465](https://github.com/lodash/lodash/security/advisories/GHSA-xxjr-mmjv-4gpg)
+            only guards against string key members, so an attacker can bypass the check by passing array-wrapped path segments. This allows deletion of properties from built-in prototypes such as `Object.prototype`,
+            `Number.prototype`, and `String.prototype`.
+
+
+            The issue permits deletion of prototype properties but does not allow overwriting their original behavior.
+
+
+            ### Patches
+
+
+            This issue is patched in 4.18.0.
+
+
+            ### Workarounds
+
+
+            None. Upgrade to the patched version.'
+          aliases:
+          - CVE-2025-13465
+          - CVE-2026-2950
+          - GHSA-xxjr-mmjv-4gpg
+          modified: 2026-09-10 03:50:44.050013+00:00
+          published: 2026-04-01 23:50:27+00:00
+          database_specific:
+            cwe_ids:
+            - CWE-1321
+            severity: MODERATE
+            github_reviewed: true
+            github_reviewed_at: 2026-04-01 23:50:27+00:00
+            nvd_published_at: 2026-03-31 20:16:26+00:00
+          references:
+          - type: WEB
+            url: https://github.com/lodash/lodash/security/advisories/GHSA-f23m-r3pf-42rh
+          - type: WEB
+            url: https://github.com/lodash/lodash/security/advisories/GHSA-xxjr-mmjv-4gpg
+          - type: ADVISORY
+            url: https://nvd.nist.gov/vuln/detail/CVE-2026-2950
+          - type: PACKAGE
+            url: https://github.com/lodash/lodash
+          affected:
+          - package:
+              name: lodash
+              ecosystem: npm
+              purl: pkg:npm/lodash
+            ranges:
+            - type: SEMVER
+              events:
+              - introduced: '0'
+              - fixed: 4.18.0
+            database_specific:
+              last_known_affected_version_range: <= 4.17.23
+              source: https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2026/04/GHSA-f23m-r3pf-42rh/GHSA-f23m-r3pf-42rh.json
+          - package:
+              name: lodash-es
+              ecosystem: npm
+              purl: pkg:npm/lodash-es
+            ranges:
+            - type: SEMVER
+              events:
+              - introduced: '0'
+              - fixed: 4.18.0
+            database_specific:
+              last_known_affected_version_range: <= 4.17.23
+              source: https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2026/04/GHSA-f23m-r3pf-42rh/GHSA-f23m-r3pf-42rh.json
+          - package:
+              name: lodash-amd
+              ecosystem: npm
+              purl: pkg:npm/lodash-amd
+            ranges:
+            - type: SEMVER
+              events:
+              - introduced: '0'
+              - fixed: 4.18.0
+            database_specific:
+              last_known_affected_version_range: <= 4.17.23
+              source: https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2026/04/GHSA-f23m-r3pf-42rh/GHSA-f23m-r3pf-42rh.json
+          - package:
+              name: lodash.unset
+              ecosystem: npm
+              purl: pkg:npm/lodash.unset
+            ranges:
+            - type: SEMVER
+              events:
+              - introduced: 4.0.0
+              - fixed: 4.18.0
+            database_specific:
+              source: https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2026/04/GHSA-f23m-r3pf-42rh/GHSA-f23m-r3pf-42rh.json
+          schema_version: 1.9.0
+          severity:
+          - type: CVSS_V3
+            score: CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:L/A:L
+        - id: GHSA-r5fr-rjxr-66jc
+          summary: lodash vulnerable to Code Injection via `_.template` imports key names
+          details: '### Impact
+
+
+            The fix for [CVE-2021-23337](https://github.com/advisories/GHSA-35jh-r3h4-6jhm) added validation for the `variable` option in `_.template` but did not apply the same validation to `options.imports`
+            key names. Both paths flow into the same `Function()` constructor sink.
+
+
+            When an application passes untrusted input as `options.imports` key names, an attacker can inject default-parameter expressions that execute arbitrary code at template compilation time.
+
+
+            Additionally, `_.template` uses `assignInWith` to merge imports, which enumerates inherited properties via `for..in`. If `Object.prototype` has been polluted by any other vector, the polluted
+            keys are copied into the imports object and passed to `Function()`.
+
+
+            ### Patches
+
+
+            Users should upgrade to version 4.18.0.
+
+
+            The fix applies two changes:
+
+            1. Validate `importsKeys` against the existing `reForbiddenIdentifierChars` regex (same check already used for the `variable` option)
+
+            2. Replace `assignInWith` with `assignWith` when merging imports, so only own properties are enumerated
+
+
+            ### Workarounds
+
+
+            Do not pass untrusted input as key names in `options.imports`. Only use developer-controlled, static key names.'
+          aliases:
+          - CVE-2021-23337
+          - CVE-2026-4800
+          - GHSA-35jh-r3h4-6jhm
+          modified: 2026-09-10 03:51:02.970455+00:00
+          published: 2026-04-01 23:51:12+00:00
+          database_specific:
+            nvd_published_at: 2026-03-31 20:16:29+00:00
+            cwe_ids:
+            - CWE-94
+            severity: HIGH
+            github_reviewed: true
+            github_reviewed_at: 2026-04-01 23:51:12+00:00
+          references:
+          - type: WEB
+            url: https://github.com/lodash/lodash/security/advisories/GHSA-r5fr-rjxr-66jc
+          - type: ADVISORY
+            url: https://nvd.nist.gov/vuln/detail/CVE-2026-4800
+          - type: WEB
+            url: https://github.com/lodash/lodash/commit/3469357cff396a26c363f8c1b5a91dde28ba4b1c
+          - type: WEB
+            url: https://cna.openjsf.org/security-advisories.html
+          - type: ADVISORY
+            url: https://github.com/advisories/GHSA-35jh-r3h4-6jhm
+          - type: PACKAGE
+            url: https://github.com/lodash/lodash
+          affected:
+          - package:
+              name: lodash
+              ecosystem: npm
+              purl: pkg:npm/lodash
+            ranges:
+            - type: SEMVER
+              events:
+              - introduced: 4.0.0
+              - fixed: 4.18.0
+            database_specific:
+              last_known_affected_version_range: <= 4.17.23
+              source: https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2026/04/GHSA-r5fr-rjxr-66jc/GHSA-r5fr-rjxr-66jc.json
+          - package:
+              name: lodash-es
+              ecosystem: npm
+              purl: pkg:npm/lodash-es
+            ranges:
+            - type: SEMVER
+              events:
+              - introduced: 4.0.0
+              - fixed: 4.18.0
+            database_specific:
+              last_known_affected_version_range: <= 4.17.23
+              source: https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2026/04/GHSA-r5fr-rjxr-66jc/GHSA-r5fr-rjxr-66jc.json
+          - package:
+              name: lodash-amd
+              ecosystem: npm
+              purl: pkg:npm/lodash-amd
+            ranges:
+            - type: SEMVER
+              events:
+              - introduced: 4.0.0
+              - fixed: 4.18.0
+            database_specific:
+              last_known_affected_version_range: <= 4.17.23
+              source: https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2026/04/GHSA-r5fr-rjxr-66jc/GHSA-r5fr-rjxr-66jc.json
+          - package:
+              name: lodash.template
+              ecosystem: npm
+              purl: pkg:npm/lodash.template
+            ranges:
+            - type: SEMVER
+              events:
+              - introduced: 4.0.0
+              - fixed: 4.18.0
+            database_specific:
+              source: https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2026/04/GHSA-r5fr-rjxr-66jc/GHSA-r5fr-rjxr-66jc.json
+          schema_version: 1.9.0
+          severity:
+          - type: CVSS_V3
+            score: CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H
+        - id: GHSA-xxjr-mmjv-4gpg
+          summary: Lodash has Prototype Pollution Vulnerability in `_.unset` and `_.omit` functions
+          details: "### Impact\n\nLodash versions 4.0.0 through 4.17.22 are vulnerable to prototype pollution in the `_.unset` and `_.omit` functions. An attacker can pass crafted paths which cause Lodash\
+            \ to delete methods from global prototypes. \n\nThe issue permits deletion of properties but does not allow overwriting their original behavior.  \n\n### Patches\n\nThis issue is patched on\
+            \ 4.17.23."
+          aliases:
+          - CVE-2025-13465
+          - CVE-2026-2950
+          - GHSA-f23m-r3pf-42rh
+          modified: 2026-09-10 03:50:33.722177+00:00
+          published: 2026-01-21 23:01:22+00:00
+          database_specific:
+            cwe_ids:
+            - CWE-1321
+            severity: MODERATE
+            github_reviewed: true
+            github_reviewed_at: 2026-01-21 23:01:22+00:00
+            nvd_published_at: 2026-01-21 20:16:05+00:00
+          references:
+          - type: WEB
+            url: https://github.com/lodash/lodash/security/advisories/GHSA-xxjr-mmjv-4gpg
+          - type: ADVISORY
+            url: https://nvd.nist.gov/vuln/detail/CVE-2025-13465
+          - type: WEB
+            url: https://github.com/lodash/lodash/commit/edadd452146f7e4bad4ea684e955708931d84d81
+          - type: WEB
+            url: https://cert-portal.siemens.com/productcert/html/ssa-253495.html
+          - type: PACKAGE
+            url: https://github.com/lodash/lodash
+          affected:
+          - package:
+              name: lodash
+              ecosystem: npm
+              purl: pkg:npm/lodash
+            ranges:
+            - type: SEMVER
+              events:
+              - introduced: 4.0.0
+              - fixed: 4.17.23
+            database_specific:
+              last_known_affected_version_range: <= 4.17.22
+              source: https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2026/01/GHSA-xxjr-mmjv-4gpg/GHSA-xxjr-mmjv-4gpg.json
+          - package:
+              name: lodash.unset
+              ecosystem: npm
+              purl: pkg:npm/lodash.unset
+            ranges:
+            - type: SEMVER
+              events:
+              - introduced: 4.0.0
+              - last_affected: 4.5.2
+            database_specific:
+              source: https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2026/01/GHSA-xxjr-mmjv-4gpg/GHSA-xxjr-mmjv-4gpg.json
+          - package:
+              name: lodash-es
+              ecosystem: npm
+              purl: pkg:npm/lodash-es
+            ranges:
+            - type: SEMVER
+              events:
+              - introduced: 4.0.0
+              - fixed: 4.17.23
+            database_specific:
+              last_known_affected_version_range: <= 4.17.22
+              source: https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2026/01/GHSA-xxjr-mmjv-4gpg/GHSA-xxjr-mmjv-4gpg.json
+          - package:
+              name: lodash-amd
+              ecosystem: npm
+              purl: pkg:npm/lodash-amd
+            ranges:
+            - type: SEMVER
+              events:
+              - introduced: 4.0.0
+              - fixed: 4.17.23
+            database_specific:
+              last_known_affected_version_range: <= 4.17.22
+              source: https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2026/01/GHSA-xxjr-mmjv-4gpg/GHSA-xxjr-mmjv-4gpg.json
+          schema_version: 1.9.0
+          severity:
+          - type: CVSS_V3
+            score: CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:L/A:L
+          - type: CVSS_V4
+            score: CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:N/VI:L/VA:L/SC:H/SI:H/SA:H/E:P
+      is_error: false
+    - tool: queryVulns
+      arguments:
+        body:
+          package:
+            name: express
+            ecosystem: npm
+          version: 4.17.1
+      result:
+        vulns:
+        - id: GHSA-qw6h-vgh9-j6wx
+          summary: express vulnerable to XSS via response.redirect()
+          details: '### Impact
+
+
+            In express <4.20.0, passing untrusted user input - even after sanitizing it - to `response.redirect()` may execute untrusted code
+
+
+            ### Patches
+
+
+            this issue is patched in express 4.20.0
+
+
+            ### Workarounds
+
+
+            users are encouraged to upgrade to the patched version of express, but otherwise can workaround this issue by making sure any untrusted inputs are safe, ideally by validating them against an
+            explicit allowlist
+
+
+            ### Details
+
+
+            successful exploitation of this vector requires the following:
+
+
+            1. The attacker MUST control the input to response.redirect()
+
+            1. express MUST NOT redirect before the template appears
+
+            1. the browser MUST NOT complete redirection before:
+
+            1. the user MUST click on the link in the template
+
+            '
+          aliases:
+          - CVE-2024-43796
+          modified: 2026-09-10 03:50:18.298562+00:00
+          published: 2024-09-10 19:41:04+00:00
+          database_specific:
+            cwe_ids:
+            - CWE-79
+            severity: LOW
+            github_reviewed: true
+            github_reviewed_at: 2024-09-10 19:41:04+00:00
+            nvd_published_at: 2024-09-10 15:15:17+00:00
+          references:
+          - type: WEB
+            url: https://github.com/expressjs/express/security/advisories/GHSA-qw6h-vgh9-j6wx
+          - type: ADVISORY
+            url: https://nvd.nist.gov/vuln/detail/CVE-2024-43796
+          - type: WEB
+            url: https://github.com/expressjs/express/commit/54271f69b511fea198471e6ff3400ab805d6b553
+          - type: PACKAGE
+            url: https://github.com/expressjs/express
+          affected:
+          - package:
+              name: express
+              ecosystem: npm
+              purl: pkg:npm/express
+            ranges:
+            - type: SEMVER
+              events:
+              - introduced: '0'
+              - fixed: 4.20.0
+            database_specific:
+              source: https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2024/09/GHSA-qw6h-vgh9-j6wx/GHSA-qw6h-vgh9-j6wx.json
+          - package:
+              name: express
+              ecosystem: npm
+              purl: pkg:npm/express
+            ranges:
+            - type: SEMVER
+              events:
+              - introduced: 5.0.0-alpha.1
+              - fixed: 5.0.0
+            database_specific:
+              source: https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2024/09/GHSA-qw6h-vgh9-j6wx/GHSA-qw6h-vgh9-j6wx.json
+          schema_version: 1.9.0
+          severity:
+          - type: CVSS_V3
+            score: CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:U/C:L/I:L/A:L
+          - type: CVSS_V4
+            score: CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:P/VC:N/VI:N/VA:N/SC:L/SI:L/SA:L
+        - id: GHSA-rv95-896h-c2vc
+          summary: Express.js Open Redirect in malformed URLs
+          details: '### Impact
+
+
+            Versions of Express.js prior to 4.19.2 and pre-release alpha and beta versions before 5.0.0-beta.3 are affected by an open redirect vulnerability using malformed URLs.
+
+
+            When a user of Express performs a redirect using a user-provided URL Express performs an encode [using `encodeurl`](https://github.com/pillarjs/encodeurl) on the contents before passing it to
+            the `location` header. This can cause malformed URLs to be evaluated in unexpected ways by common redirect allow list implementations in Express applications, leading to an Open Redirect via
+            bypass of a properly implemented allow list.
+
+
+            The main method impacted is `res.location()` but this is also called from within `res.redirect()`.
+
+
+            ### Patches
+
+
+            https://github.com/expressjs/express/commit/0867302ddbde0e9463d0564fea5861feb708c2dd
+
+            https://github.com/expressjs/express/commit/0b746953c4bd8e377123527db11f9cd866e39f94
+
+
+            An initial fix went out with `express@4.19.0`, we then patched a feature regression in `4.19.1` and added improved handling for the bypass in `4.19.2`.
+
+
+            ### Workarounds
+
+
+            The fix for this involves pre-parsing the url string with either `require(''node:url'').parse` or `new URL`. These are steps you can take on your own before passing the user input string to
+            `res.location` or `res.redirect`.
+
+
+            ### Resources
+
+
+            https://github.com/expressjs/express/pull/5539
+
+            https://github.com/koajs/koa/issues/1800
+
+            https://expressjs.com/en/4x/api.html#res.location'
+          aliases:
+          - CVE-2024-29041
+          modified: 2026-09-10 03:50:10.750068+00:00
+          published: 2024-03-25 19:40:26+00:00
+          database_specific:
+            nvd_published_at: 2024-03-25 21:15:46+00:00
+            cwe_ids:
+            - CWE-1286
+            - CWE-601
+            severity: MODERATE
+            github_reviewed: true
+            github_reviewed_at: 2024-03-25 19:40:26+00:00
+          references:
+          - type: WEB
+            url: https://github.com/expressjs/express/security/advisories/GHSA-rv95-896h-c2vc
+          - type: ADVISORY
+            url: https://nvd.nist.gov/vuln/detail/CVE-2024-29041
+          - type: WEB
+            url: https://github.com/koajs/koa/issues/1800
+          - type: WEB
+            url: https://github.com/expressjs/express/pull/5539
+          - type: WEB
+            url: https://github.com/expressjs/express/commit/0867302ddbde0e9463d0564fea5861feb708c2dd
+          - type: WEB
+            url: https://github.com/expressjs/express/commit/0b746953c4bd8e377123527db11f9cd866e39f94
+          - type: WEB
+            url: https://expressjs.com/en/4x/api.html#res.location
+          - type: PACKAGE
+            url: https://github.com/expressjs/express
+          affected:
+          - package:
+              name: express
+              ecosystem: npm
+              purl: pkg:npm/express
+            ranges:
+            - type: SEMVER
+              events:
+              - introduced: '0'
+              - fixed: 4.19.2
+            database_specific:
+              source: https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2024/03/GHSA-rv95-896h-c2vc/GHSA-rv95-896h-c2vc.json
+          - package:
+              name: express
+              ecosystem: npm
+              purl: pkg:npm/express
+            ranges:
+            - type: SEMVER
+              events:
+              - introduced: 5.0.0-alpha.1
+              - fixed: 5.0.0-beta.3
+            database_specific:
+              source: https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2024/03/GHSA-rv95-896h-c2vc/GHSA-rv95-896h-c2vc.json
+          schema_version: 1.9.0
+          severity:
+          - type: CVSS_V3
+            score: CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N
+      is_error: false
+    - tool: queryVulns
+      arguments:
+        body:
+          package:
+            name: minimist
+            ecosystem: npm
+          version: 1.2.5
+      result:
+        vulns:
+        - id: GHSA-xvch-5gv4-984h
+          summary: Prototype Pollution in minimist
+          details: Minimist prior to 1.2.6 and 0.2.4 is vulnerable to Prototype Pollution via file `index.js`, function `setKey()` (lines 69-95).
+          aliases:
+          - CVE-2021-44906
+          modified: 2026-03-13 22:11:59.523514+00:00
+          published: 2022-03-18 00:01:09+00:00
+          database_specific:
+            cwe_ids:
+            - CWE-1321
+            severity: CRITICAL
+            github_reviewed: true
+            github_reviewed_at: 2022-03-18 23:13:40+00:00
+            nvd_published_at: 2022-03-17 16:15:00+00:00
+          references:
+          - type: ADVISORY
+            url: https://nvd.nist.gov/vuln/detail/CVE-2021-44906
+          - type: WEB
+            url: https://github.com/minimistjs/minimist/issues/11
+          - type: WEB
+            url: https://github.com/substack/minimist/issues/164
+          - type: WEB
+            url: https://github.com/minimistjs/minimist/pull/24
+          - type: WEB
+            url: https://github.com/minimistjs/minimist/commit/34e20b8461118608703d6485326abbb8e35e1703
+          - type: WEB
+            url: https://github.com/minimistjs/minimist/commit/bc8ecee43875261f4f17eb20b1243d3ed15e70eb
+          - type: WEB
+            url: https://github.com/minimistjs/minimist/commit/c2b981977fa834b223b408cfb860f933c9811e4d
+          - type: WEB
+            url: https://github.com/minimistjs/minimist/commit/ef9153fc52b6cea0744b2239921c5dcae4697f11
+          - type: WEB
+            url: https://github.com/Marynk/JavaScript-vulnerability-detection/blob/main/minimist%20PoC.zip
+          - type: WEB
+            url: https://github.com/minimistjs/minimist/commits/v0.2.4
+          - type: PACKAGE
+            url: https://github.com/substack/minimist
+          - type: WEB
+            url: https://github.com/substack/minimist/blob/master/index.js#L69
+          - type: WEB
+            url: https://security.netapp.com/advisory/ntap-20240621-0006
+          - type: WEB
+            url: https://snyk.io/vuln/SNYK-JS-MINIMIST-559764
+          - type: WEB
+            url: https://stackoverflow.com/questions/8588563/adding-custom-properties-to-a-function/20278068#20278068
+          affected:
+          - package:
+              name: minimist
+              ecosystem: npm
+              purl: pkg:npm/minimist
+            ranges:
+            - type: SEMVER
+              events:
+              - introduced: 1.0.0
+              - fixed: 1.2.6
+            database_specific:
+              source: https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2022/03/GHSA-xvch-5gv4-984h/GHSA-xvch-5gv4-984h.json
+          - package:
+              name: minimist
+              ecosystem: npm
+              purl: pkg:npm/minimist
+            ranges:
+            - type: SEMVER
+              events:
+              - introduced: '0'
+              - fixed: 0.2.4
+            database_specific:
+              source: https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2022/03/GHSA-xvch-5gv4-984h/GHSA-xvch-5gv4-984h.json
+          schema_version: 1.9.0
+          severity:
+          - type: CVSS_V3
+            score: CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H
+      is_error: false
+    - tool: queryVulns
+      arguments:
+        body:
+          package:
+            name: ms
+            ecosystem: npm
+          version: 2.1.3
+      result: {}
+      is_error: false
+    - tool: queryVulns
+      arguments:
+        body:
+          package:
+            name: lodash
+            ecosystem: npm
+          version: 4.18.1
+      result: {}
+      is_error: false
+    - tool: queryVulns
+      arguments:
+        body:
+          package:
+            name: express
+            ecosystem: npm
+          version: 5.2.1
+      result: {}
+      is_error: false
+    - tool: queryVulns
+      arguments:
+        body:
+          package:
+            name: minimist
+            ecosystem: npm
+          version: 1.2.8
+      result: {}
+      is_error: false
+    - tool: queryVulns
+      arguments:
+        body:
+          package:
+            name: ms
+            ecosystem: npm
+          version: 2.1.3
+      result: {}
+      is_error: false
+    output:
+      packages:
+      - name: lodash
+        current_version: 4.17.20
+        latest_version: 4.18.1
+        current_vulns:
+        - id: GHSA-29mw-wpgm-hmr9
+          severity: MODERATE
+          summary: Regular Expression Denial of Service (ReDoS) in lodash
+        - id: GHSA-35jh-r3h4-6jhm
+          severity: HIGH
+          summary: Command Injection in lodash
+        - id: GHSA-f23m-r3pf-42rh
+          severity: MODERATE
+          summary: lodash vulnerable to Prototype Pollution via array path bypass in `_.unset` and `_.omit`
+        - id: GHSA-r5fr-rjxr-66jc
+          severity: HIGH
+          summary: lodash vulnerable to Code Injection via `_.template` imports key names
+        - id: GHSA-xxjr-mmjv-4gpg
+          severity: MODERATE
+          summary: Lodash has Prototype Pollution Vulnerability in `_.unset` and `_.omit` functions
+        latest_vulns: []
+      - name: express
+        current_version: 4.17.1
+        latest_version: 5.2.1
+        current_vulns:
+        - id: GHSA-qw6h-vgh9-j6wx
+          severity: LOW
+          summary: express vulnerable to XSS via response.redirect()
+        - id: GHSA-rv95-896h-c2vc
+          severity: MODERATE
+          summary: Express.js Open Redirect in malformed URLs
+        latest_vulns: []
+      - name: minimist
+        current_version: 1.2.5
+        latest_version: 1.2.8
+        current_vulns:
+        - id: GHSA-xvch-5gv4-984h
+          severity: CRITICAL
+          summary: Prototype Pollution in minimist
+        latest_vulns: []
+      - name: ms
+        current_version: 2.1.3
+        latest_version: 2.1.3
+        current_vulns: []
+        latest_vulns: []
+    expect: pass
+  - step: recommend
+    calls: []
+    output:
+      packages:
+      - name: lodash
+        current_version: 4.17.20
+        latest_version: 4.18.1
+        action: upgrade
+        highest_severity: HIGH
+        advisory_count: 5
+      - name: express
+        current_version: 4.17.1
+        latest_version: 5.2.1
+        action: upgrade
+        highest_severity: MODERATE
+        advisory_count: 2
+      - name: minimist
+        current_version: 1.2.5
+        latest_version: 1.2.8
+        action: upgrade
+        highest_severity: CRITICAL
+        advisory_count: 1
+      - name: ms
+        current_version: 2.1.3
+        latest_version: 2.1.3
+        action: keep
+        highest_severity: NONE
+        advisory_count: 0
+    expect: pass
+  - step: report
+    calls: &id001 []
+    output:
+      summary: '- lodash: upgrade; GHSA-aaaa-bbbb-cccc (HIGH)'
+    expect:
+      fail:
+      - summary-names-every-package
+      - summary-lists-pinned-advisories
+      - summary-cites-known-advisories
+  - step: report
+    calls: *id001
+    output:
+      summary: '- lodash: 4.17.20 -> 4.18.1, upgrade; GHSA-29mw-wpgm-hmr9 (MODERATE), GHSA-35jh-r3h4-6jhm (HIGH), GHSA-f23m-r3pf-42rh (MODERATE), GHSA-r5fr-rjxr-66jc (HIGH), GHSA-xxjr-mmjv-4gpg (MODERATE)
+
+        - express: 4.17.1 -> 5.2.1, upgrade; GHSA-qw6h-vgh9-j6wx (LOW), GHSA-rv95-896h-c2vc (MODERATE)
+
+        - minimist: 1.2.5 -> 1.2.8, upgrade; GHSA-xvch-5gv4-984h (CRITICAL)
+
+        - ms: 2.1.3 -> 2.1.3, keep
+
+
+        Upgrade the packages with the most severe advisories first.'
+    expect: pass
