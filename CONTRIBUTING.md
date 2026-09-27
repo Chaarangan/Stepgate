@@ -22,10 +22,10 @@ npm run check
 
 `npm run check` runs the type checker and every test. It must pass before a pull request is merged, and CI runs it too.
 
-To try a stepfile against a real model, run the demo client in `server/`. It launches Stepgate, answers its sampling requests with any OpenAI-compatible model, and runs the market-research example:
+To try a stepfile against a real model, connect a client as [docs/connect.md](docs/connect.md) describes, or run the demo client in `server/`. The demo client launches Stepgate and drives a run with any OpenAI-compatible model, the way Claude or another agent would:
 
 ```sh
-MODEL_BASE_URL=https://openrouter.ai/api/v1 MODEL_NAME=<model> MODEL_API_KEY=... TAVILY_API_KEY=... npm run demo
+MODEL_BASE_URL=https://openrouter.ai/api/v1 MODEL_NAME=<model> MODEL_API_KEY=... TAVILY_API_KEY=... npm run demo -- market-research '{"brand":"Oatly","market":"UK plant-based milk"}'
 ```
 
 ## Layout
@@ -42,11 +42,31 @@ MODEL_BASE_URL=https://openrouter.ai/api/v1 MODEL_NAME=<model> MODEL_API_KEY=...
 ## Making a change
 
 - **Change the docs, the schema and the code in the same pull request** when the format changes. The server validates stepfiles against `server/schema/stepfile.schema.json` directly, and a test checks every catalog entry.
-- **Test through the server.** Tests in `server/test/` call a stepfile as an MCP tool through the harness, against real local HTTP and MCP fixture servers. The scripted model is the only fake, because a real model is not deterministic. Add a test that fails without your change.
+- **Test through the server.** Tests in `server/test/` call a stepfile as an MCP tool through the harness, against real local HTTP and MCP fixture servers. The scripted client, which plays each run's calls and submissions, is the only fake, because a real model is not deterministic. Add a test that fails without your change.
 - **Keep stepfiles model-agnostic.** A field that only makes sense for one model, provider or framework does not belong in the format.
 
 ## Commits and pull requests
 
 Commit subjects take the form `area: short lowercase summary`, where the area is one of `stepfiles`, `schema`, `server`, `docs`, `ci` or `chore`. Keep each commit to one change, and explain why in the body.
+
+## Releasing
+
+Maintainers release by publishing a GitHub release; [.github/workflows/release.yml](.github/workflows/release.yml) does the rest.
+
+1. Set the new version in `server/package.json`, `server/src/version.ts`, and both `version` fields of `server/server.json`, then merge that to `main`.
+2. Publish a release on GitHub with the tag `v<version>` on `main`: `gh release create v0.2.0 --generate-notes`, or the Releases page with **Generate release notes**. [.github/release.yml](.github/release.yml) groups the notes by label.
+3. The workflow checks that the tag matches every version field and that `npm run check` passes, then:
+   - publishes `stepgate` to npm, so `npx -y stepgate` runs the new version;
+   - publishes `@chaarangan/stepgate` to GitHub Packages;
+   - publishes the server to the MCP Registry as `io.github.Chaarangan/stepgate`;
+   - attaches the package tarball to the release.
+
+A release marked as a pre-release, such as `v0.2.0-rc.1`, goes to the npm dist-tag `next` (`npx -y stepgate@next`) and is not sent to the MCP Registry.
+
+npm publishing uses trusted publishing, so the repository holds no npm token. It needs one-time setup, and provenance needs the repository to be public:
+
+1. npm adds a trusted publisher from an existing package's settings, so publish the first version by hand: `npm login`, then `npm publish` in `server/`.
+2. On npmjs.com, open the package's **Settings**, add a trusted publisher for GitHub Actions with owner `Chaarangan`, repository `stepgate`, workflow `release.yml` and environment `npm`, and set publishing access to require two-factor authentication and disallow tokens.
+3. Optionally add protection rules to the `npm` environment under **Settings > Environments** on GitHub, such as a required reviewer.
 
 By contributing you agree that your contributions are licensed under the [Apache License 2.0](LICENSE).

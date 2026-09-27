@@ -9,6 +9,8 @@ npx -y stepgate market-research   # serve one over stdio
 
 Every folder has a README with what the stepfile does, its inputs, and the credentials it needs.
 
+A stepfile does not need to be here to run: pass the path of your own file to `stepgate` instead of a catalog name, as [docs/connect.md](../docs/connect.md#your-own-stepfiles) describes. The catalog is for stepfiles worth sharing.
+
 ## Add yours
 
 A stepfile is worth sharing when it turns a task people repeat into steps with real checks. You need Node.js 22.18 or later.

@@ -2,7 +2,7 @@
 
 A stepfile is one YAML or JSON file that describes an agent's procedure: its inputs, the remote APIs and MCP servers it may call, and an ordered list of steps with the checks each step must pass. It names no model, provider or framework, so the same file runs on any MCP client.
 
-The JSON Schema is [server/schema/stepfile.schema.json](../server/schema/stepfile.schema.json), and [stepfiles/marketing/market-research](../stepfiles/marketing/market-research/) is a complete example from the [catalog](../stepfiles/). Name files `<id>.stepfile.yaml`. For what Stepgate does when it runs one, see [how-it-works.md](how-it-works.md).
+The JSON Schema is [server/schema/stepfile.schema.json](../server/schema/stepfile.schema.json), and [stepfiles/marketing/market-research](../stepfiles/marketing/market-research/) is a complete example from the [catalog](../stepfiles/). Name files `<id>.stepfile.yaml`. To run your own file, pass its path to `stepgate`, as [connect.md](connect.md#your-own-stepfiles) describes; it does not need to be in the catalog. For what Stepgate does when it runs one, see [how-it-works.md](how-it-works.md).
 
 The format version is `"1"`. It is a draft, so fields may still change before a stable release.
 
@@ -119,7 +119,7 @@ Steps run in file order. There is no branching, looping or parallel block; `when
 
 **Placeholders.** `{{inputs.<path>}}` and `{{steps.<id>.<path>}}` are replaced in `instructions` before the step starts. A string is inserted as-is and anything else as indented JSON. Placeholders work only in `instructions` and have no conditionals, loops or filters. A path that cannot be resolved is an error, caught at load time where possible.
 
-**Submitting.** Every step gets one extra tool, `submit`, whose input schema is `produces`. The model finishes a step by calling it. A turn that ends without calling `submit` counts as a failed attempt, and the model is asked to call it.
+**Submitting.** The client finishes a step by sending an output matching `produces` to Stepgate's `stepgate_submit` tool. Each submission is one attempt.
 
 ## Gates
 
@@ -192,7 +192,7 @@ steps:
 
 ## When a gate fails
 
-The model gets back every failing gate's id and diagnosis as the result of its `submit` call, in the same conversation, and may submit again. Once a step has used its `retries`, the run stops with `GateFailed`. A step also stops at the turn limit whoever runs Stepgate has set.
+The model gets back every failing gate's id and diagnosis as the result of its `stepgate_submit` call, and may submit again. Once a step has used its `retries`, the run stops with `GateFailed`. A step also stops at the tool-call limit whoever runs Stepgate has set.
 
 ## Identity
 
