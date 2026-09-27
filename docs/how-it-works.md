@@ -34,11 +34,13 @@ The MCP spec suggests clients let a person approve each sampling request. A step
 
 ## During a run
 
-**Preflight.** Before step 1, Stepgate validates the inputs, checks that every declared credential is set, fetches each OpenAPI document and checks its digest and exposed operations, and connects to each MCP server to check its exposed tools and pinned schemas. Any failure stops the run with `PreflightFailed` naming what failed, before the model is asked anything.
+**Preflight.** Before step 1, Stepgate fills in the stepfile's settings from its environment (setting `jira-site` from `JIRA_SITE`) and checks each value against its pattern, validates the inputs, checks that every declared credential is set, fetches each OpenAPI document and checks its digest and exposed operations, and connects to each MCP server to check its exposed tools and pinned schemas. Any failure stops the run with `PreflightFailed` naming what failed, before the model is asked anything.
+
+**Evidence.** Every call a step makes, with its arguments and full result, is kept for that step's gates as `calls`, so a gate can check the model's output against what the APIs really returned. It is held in memory only; the ledger records hashes, not results.
 
 **Isolation.** Every step starts a fresh conversation holding only its own instructions, with placeholders filled in. The model never sees the stepfile, the list of steps, or another step's instructions.
 
-**Tool calls.** Stepgate makes every call itself. It checks the model's arguments against the tool's schema first and returns any mismatch to the model as an error. It refuses any request to a host no tool declares (`EgressDenied`); the one exception is fetching an OpenAPI document from its declared `url` during preflight, which carries no credential. Path parameters are percent-encoded, so no argument can change the host. Tool results reach the model as data.
+**Tool calls.** Stepgate makes every call itself. It checks the model's arguments against the tool's schema first and returns any mismatch to the model as an error. Every request carries `User-Agent: stepgate/<version>`, followed by the `--contact` email when one is set. It refuses any request to a host no tool declares (`EgressDenied`); the one exception is fetching an OpenAPI document from its declared `url` during preflight, which carries no credential. Path parameters are percent-encoded, so no argument can change the host. Tool results reach the model as data.
 
 **Credentials.** Credential `<name>` is read from `<NAME>_API_KEY` in Stepgate's environment, which an MCP client sets in its server configuration. A value is read when a request needs it and kept no longer than that request.
 
@@ -55,14 +57,16 @@ Limits depend on the model's context, so they are command-line options rather th
 | `--max-tokens` | 16000 | `maxTokens` on each sampling request |
 | `--sampling-timeout-ms` | 600000 | How long one sampling request may take |
 | `--ledger-dir` | none | Write one ledger file per call here; otherwise records go to standard error |
+| `--contact` | none | Your contact email, sent in the User-Agent; SEC EDGAR and USAJOBS require one |
 
 ## Errors
 
 | Error | Meaning |
 |---|---|
 | `StepfileInvalid` | The file failed the schema or a load-time rule; carries each issue's path |
-| `PreflightFailed` | A check before step 1 failed; names the `item` (`inputs`, `credential <name>` or `tool <name>`) |
+| `PreflightFailed` | A check before step 1 failed; names the `item` (`inputs`, `setting <name>`, `credential <name>` or `tool <name>`) |
 | `CredentialUnavailable` | A credential is not set in the environment |
+| `SettingUnavailable` | A setting is not set in the environment; reported through `PreflightFailed` as `setting <name>` |
 | `InvalidGrant` | An OAuth grant was revoked; never retried |
 | `EgressDenied` | A request targeted a host no tool declares |
 | `ToolCallFailed` | A call still failed after retries; carries the status code and body |

@@ -14,7 +14,7 @@ A **stepfile** declares its inputs, the remote APIs and MCP servers it may call,
 When an agent is handed a plan as text, it decides how much of the plan to follow, a step counts as done when the agent says so, and nothing records afterwards what actually ran. A stepfile moves those decisions out of the model:
 
 - **Steps run in order, one at a time.** The model sees only the current step's instructions and tools, never the whole plan, so it cannot skip ahead.
-- **Gates decide, not the model.** A step passes only when its output satisfies JSON Schema, JSONLogic or an HTTP verifier. A failed gate's diagnosis goes back to the model for a bounded number of retries.
+- **Gates decide, not the model.** A step passes only when its output satisfies JSON Schema, JSONLogic or an HTTP verifier, and gates can check that output against what the APIs actually returned, so a fabricated value fails. A failed gate's diagnosis goes back to the model for a bounded number of retries.
 - **The model never holds a key.** The server makes every tool call and attaches credentials itself, and it refuses requests to hosts the stepfile does not declare.
 - **Every run leaves a record.** A hash-chained ledger lists each step, tool call, gate verdict and retry, and editing it afterwards breaks the chain.
 - **Nothing to install on the client side.** Stepfiles call remote APIs only, and the client adds one MCP server to its configuration.
@@ -89,7 +89,7 @@ steps:
   # ... filter, analyse and report steps
 ```
 
-Credentials say what is needed, never where it lives: the server reads `tavily` from `TAVILY_API_KEY`. The complete file is [stepfiles/market-research](stepfiles/market-research/), and editors that support `yaml-language-server` validate against [server/schema/stepfile.schema.json](server/schema/stepfile.schema.json), which the npm package also ships.
+Credentials say what is needed, never where it lives: the server reads `tavily` from `TAVILY_API_KEY`. The complete file is [stepfiles/marketing/market-research](stepfiles/marketing/market-research/), and editors that support `yaml-language-server` validate against [server/schema/stepfile.schema.json](server/schema/stepfile.schema.json), which the npm package also ships.
 
 ## Catalog
 

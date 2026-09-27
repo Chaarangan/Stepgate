@@ -2,7 +2,7 @@
 
 A stepfile is one YAML or JSON file that describes an agent's procedure: its inputs, the remote APIs and MCP servers it may call, and an ordered list of steps with the checks each step must pass. It names no model, provider or framework, so the same file runs on any MCP client.
 
-The JSON Schema is [server/schema/stepfile.schema.json](../server/schema/stepfile.schema.json), and [stepfiles/market-research](../stepfiles/market-research/) is a complete example from the [catalog](../stepfiles/). Name files `<id>.stepfile.yaml`. For what Stepgate does when it runs one, see [how-it-works.md](how-it-works.md).
+The JSON Schema is [server/schema/stepfile.schema.json](../server/schema/stepfile.schema.json), and [stepfiles/marketing/market-research](../stepfiles/marketing/market-research/) is a complete example from the [catalog](../stepfiles/). Name files `<id>.stepfile.yaml`. For what Stepgate does when it runs one, see [how-it-works.md](how-it-works.md).
 
 The format version is `"1"`. It is a draft, so fields may still change before a stable release.
 
@@ -14,8 +14,9 @@ The format version is `"1"`. It is a draft, so fields may still change before a 
 | `id` | yes | Lowercase identifier; it becomes the MCP tool name |
 | `title`, `description` | no | Human-facing text; `description` becomes the tool description |
 | `inputs` | yes | JSON Schema (2020-12) with `type: object`; it becomes the tool's input schema |
+| `settings` | no | Values whoever runs Stepgate supplies, such as a customer's site name ([Settings](#settings)) |
 | `credentials` | no | Secrets the tools need, by name ([Credentials](#credentials)) |
-| `tools` | no | Remote APIs and MCP servers the steps may call ([Tools](#tools)) |
+| `tools` | no | Remote APIs and MCP servers the steps may call, keyed by lowercase hyphenated names such as `jira-cloud` ([Tools](#tools)) |
 | `steps` | yes | The steps, run in order ([Steps](#steps)) |
 | `$defs` | no | Shared JSON Schemas, referenced as `#/$defs/<name>` |
 
@@ -57,20 +58,46 @@ tools:
 
 **`verifier`** gives a `url` that `http` gates post to. It exposes nothing to the model.
 
-Exposed names match `^[a-zA-Z0-9_-]{1,64}$`, which the major model APIs accept as tool names. A tool binds at most one credential. An MCP tool takes a `bearer` or `oauth2` credential, sent as an `Authorization: Bearer` header. An OpenAPI tool places its credential where the operation's security scheme says.
+Exposed names match `^[a-zA-Z0-9_-]{1,64}$`, which the major model APIs accept as tool names. A tool binds at most one credential. An MCP tool takes a `bearer` or `oauth2` credential, sent as an `Authorization: Bearer` header. An OpenAPI tool places its credential where the operation's security scheme says, and always as HTTP Basic for a `basic` credential.
+
+An OpenAPI parameter whose schema allows exactly one value (`const`, or an `enum` with one entry) is sent with that value on every call and is not shown to the model. Use it for fixed headers and query values an API requires, such as `format: json`.
+
+## Settings
+
+Some services live at a different host for every customer: `acme.atlassian.net`, `acme.service-now.com`, `acme.zendesk.com`. A stepfile declares such a value as a setting and uses it as `{name}` in the host of a tool URL and in credential `hosts`:
+
+```yaml
+settings:
+  jira-site:
+    description: Your Atlassian site name, the "acme" in acme.atlassian.net.
+tools:
+  jira:
+    openapi:
+      server: https://{jira-site}.atlassian.net/rest/api/3
+      document: { ... }
+    credential: jira
+    exposes: [searchIssues]
+credentials:
+  jira:
+    kind: basic
+    hosts: ["{jira-site}.atlassian.net"]
+    description: Your Atlassian email and an API token, as you@example.com:token.
+```
+
+Whoever runs Stepgate supplies the value as an environment variable named after the setting, `JIRA_SITE=acme` here. It is filled in before the run starts, so the hosts Stepgate may contact are fixed and known before the model is asked anything. The value must match the setting's `pattern`, which defaults to a single DNS label (letters, digits and hyphens), so it cannot point a request at another host. Placeholders are allowed only in the host and port, never in a path, and every placeholder must be a declared setting that some tool or credential uses.
 
 ## Credentials
 
 ```yaml
 credentials:
   notion:
-    kind: oauth2               # api_key | bearer | oauth2
+    kind: oauth2               # api_key | bearer | oauth2 | basic
     scopes: [read_content]     # required for oauth2, not allowed otherwise
     hosts: [api.notion.com]
     description: Reads the target database. Never writes.
 ```
 
-A stepfile declares what it needs and never where a secret lives: there is no value field and no environment-variable name. Whoever runs Stepgate supplies the value, as `<NAME>_API_KEY` in its environment. `description` is required; it is what a person reads before handing the stepfile a credential.
+A stepfile declares what it needs and never where a secret lives: there is no value field and no environment-variable name. Whoever runs Stepgate supplies the value, as `<NAME>_API_KEY` in its environment. A `basic` credential's value is `user:secret`, for example an Atlassian or Zendesk email and API token, and is sent as HTTP Basic. `description` is required; it is what a person reads before handing the stepfile a credential.
 
 A credential is attached only to requests whose host is in its `hosts`, and never reaches the model, a placeholder or the ledger.
 
@@ -96,7 +123,9 @@ Steps run in file order. There is no branching, looping or parallel block; `when
 
 A gate is a mechanical check on the submitted output. Every gate blocks; there are no advisory gates and no gates judged by a model.
 
-Gates see `{ inputs, steps, output }`: the run's inputs, each earlier step's accepted output under `steps.<id>`, and the submission being checked as `output`. The output is validated against `produces` first; a mismatch fails like a gate.
+Gates see `{ inputs, steps, output, calls }`: the run's inputs, each earlier step's accepted output under `steps.<id>`, the submission being checked as `output`, and `calls`, every tool call this step has made. The output is validated against `produces` first; a mismatch fails like a gate.
+
+Each entry in `calls` is `{ tool, arguments, result, is_error }`, where `tool` is the exposed name and `result` is the tool's full response, parsed as JSON when it is JSON and kept as text otherwise. Calls refused or rejected for bad arguments never reached the tool and are not listed. `calls` is what lets a gate catch a fabricated value: it can check that what the model submitted is what an API actually returned.
 
 **`schema`** checks `output` against a JSON Schema (2020-12). The validator's errors are the diagnosis.
 
@@ -116,19 +145,35 @@ Gates see `{ inputs, steps, output }`: the run's inputs, each earlier step's acc
       - 6
 ```
 
-Besides the standard JSONLogic operators, five more are available:
+A predicate can check the output against the evidence. This one passes only if every book the model lists was returned by one of its `searchBooks` calls:
+
+```yaml
+- id: books-exist
+  message: Every book must come from an Open Library search result.
+  predicate:
+    subset:
+      - { map: [{ var: output.books }, { var: key }] }
+      - flatten:
+          map:
+            - filter: [{ var: calls }, { "==": [{ var: tool }, searchBooks] }]
+            - map: [{ var: result.docs }, { var: key }]
+```
+
+Besides the standard JSONLogic operators, seven more are available:
 
 | Operator | Arguments | Result |
 |---|---|---|
 | `length` | array or string | Number of elements, or of Unicode code points |
 | `unique` | array | Distinct elements by JSON equality, in first-seen order |
 | `subset` | array `a`, array `b` | `true` if every element of `a` is in `b` |
+| `lower` | string | The string in lowercase, for case-insensitive comparisons |
+| `flatten` | array | The array with nested arrays flattened one level |
 | `host` | string | Lowercased host of an absolute URL, with port if present; `null` if not a URL |
 | `match_all` | string, pattern | Capture group 1 of every match, or the whole match if the pattern has no group |
 
 `subset` exists because JSONLogic's `all`, `map` and `filter` cannot see data outside the current array element, so a rule like "every cited id is a kept source" is otherwise impossible. Use the ECMA-262 regex subset that JSON Schema recommends in `match_all` and `pattern`, so a pattern behaves the same in your editor and in Stepgate.
 
-**`http`** posts `{ stepfile, step, gate, inputs, steps, output }` as JSON to a `verifier` tool. A 2xx response of `{ "pass": true }` passes; `{ "pass": false, "message": "..." }` fails with that message. Any other response is treated as an outage rather than a verdict and stops the run. This is how a check that needs code runs: you operate the verifier.
+**`http`** posts `{ stepfile, step, gate, inputs, steps, output, calls }` as JSON to a `verifier` tool. A 2xx response of `{ "pass": true }` passes; `{ "pass": false, "message": "..." }` fails with that message. Any other response is treated as an outage rather than a verdict and stops the run. This is how a check that needs code runs: you operate the verifier.
 
 ```yaml
 tools:

@@ -6,7 +6,7 @@
 
 For a new or changed stepfile:
 
-- [ ] Only files in `stepfiles/<id>/` change
+- [ ] Only files in `stepfiles/<domain>/<id>/` change
 - [ ] No `TODO(` markers are left, and `npm run check` passes in `server/`
 - [ ] I ran it once against a real model and the real APIs
 
