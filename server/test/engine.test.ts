@@ -112,7 +112,7 @@ describe("load", () => {
     expect(() => load(JSON.stringify(document))).toThrow(StepfileInvalid);
     const messages = issuesOf(() => load(JSON.stringify(document)));
     expect(messages).toEqual(expect.arrayContaining([
-      "/steps/0 a mechanical step takes no tools or retries",
+      expect.stringMatching(/^\/steps\/0 a mechanical step takes no tools or retries/),
       "/steps/0/do/calls/0 responses.two does not name an earlier call of this step",
       "/steps/0/do/calls/1 tavily_crawl is not exposed by any tool",
       "/steps/0/do/calls/2 call id one is not unique in the step",
