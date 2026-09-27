@@ -32,8 +32,11 @@ export type Gate =
   | { id: string; http: { tool: string } }
   | { id: string; approve: { message: string } };
 
-/** One call a mechanical step makes, with arguments as a template over inputs, earlier outputs and earlier responses. */
-export type MechanicalCall = { id: string; operation: string; arguments?: JsonObject };
+/**
+ * One call a mechanical step makes, with arguments as a template over inputs, earlier outputs and earlier responses.
+ * With `each`, it is made once per element of that array, with `item` bound, and its response is the list of results.
+ */
+export type MechanicalCall = { id: string; operation: string; arguments?: JsonObject; each?: JsonObject };
 
 /** What Stepgate does for a mechanical step: its calls in order, then an output template over their responses. */
 export type MechanicalWork = { calls?: MechanicalCall[]; output: Json };

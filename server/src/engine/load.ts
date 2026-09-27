@@ -57,7 +57,7 @@ function mechanicalProblems(path: string, work: MechanicalWork, step: Step, expo
     if (earlier.has(call.id)) {
       issues.push({ path: where, message: `call id ${call.id} is not unique in the step` });
     }
-    for (const name of responseReferences(call.arguments ?? null)) {
+    for (const name of responseReferences([call.arguments ?? null, call.each ?? null])) {
       if (!earlier.has(name)) {
         issues.push({ path: where, message: `responses.${name} does not name an earlier call of this step` });
       }
@@ -69,7 +69,7 @@ function mechanicalProblems(path: string, work: MechanicalWork, step: Step, expo
       issues.push({ path: `${path}/do/output`, message: `responses.${name} does not name a call of this step` });
     }
   }
-  if (operatorArguments([work.output, ...(work.calls ?? []).map((call) => call.arguments ?? null)], "results").length > 0) {
+  if (operatorArguments([work.output, ...(work.calls ?? []).flatMap((call) => [call.arguments ?? null, call.each ?? null])], "results").length > 0) {
     issues.push({ path: `${path}/do`, message: "results reads an agent step's calls; a mechanical step reads responses.<call id>" });
   }
   return issues;
@@ -274,7 +274,7 @@ function checkCrossFieldRules(document: StepfileDocument): ValidationIssue[] {
       ...(step.gates ?? []).flatMap((gate) => ("predicate" in gate ? [...varPaths(gate.predicate), ...(gate.explain === undefined ? [] : varPaths(gate.explain))] : [])),
       ...lets.flatMap(([, rule]) => varPaths(rule)),
       ...derives.flatMap(([, rule]) => varPaths(rule)),
-      ...(step.do === undefined ? [] : varPaths([step.do.output, ...(step.do.calls ?? []).map((call) => call.arguments ?? null)])),
+      ...(step.do === undefined ? [] : varPaths([step.do.output, ...(step.do.calls ?? []).flatMap((call) => [call.arguments ?? null, call.each ?? null])])),
       ...(step.when === undefined ? [] : varPaths(step.when)),
     ];
     for (const reference of references) {

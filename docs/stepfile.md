@@ -165,6 +165,16 @@ A call's `operation` is any exposed name, and its `arguments` and the step's `ou
 - `{ literal: <value> }` is the value as written, for an object that would otherwise read as an expression, such as a request body `{ filter: ... }`;
 - any other object or array has each member evaluated as a template, and anything else is itself.
 
+A call with `each`, an expression giving an array, is made once per element in order, with the element as `item` in its `arguments`, and `responses.<call id>` is then the list of results. An empty array makes no request. This repeats one call over data, such as looking up every DOI an earlier step listed; it is not a loop over steps, which the format does not have.
+
+```yaml
+calls:
+  - id: works
+    operation: getWork
+    each: { var: steps.parse.dois }
+    arguments: { doi: { var: item } }
+```
+
 A mechanical step takes no `tools`, `retries`, `derive` or `let`, and `results` has no calls to read there. Nobody is there to retry, so a call whose arguments break the operation's schema stops the run with `CallArgumentsInvalid`, a call that returns an error with `ToolCallFailed`, and an output that fails `produces` or a gate with `GateFailed`. Its calls count against the call limit like the client's.
 
 ### Deriving fields

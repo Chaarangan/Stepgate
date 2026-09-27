@@ -262,21 +262,29 @@ export async function startRun(written: Stepfile, inputs: JsonObject, runContext
   const perform = async (step: Step, work: MechanicalWork): Promise<void> => {
     const responses: JsonObject = {};
     const calls: EvidenceCall[] = [];
-    for (const [made, planned] of (work.calls ?? []).entries()) {
-      if (made >= runContext.limits.callsPerStep) {
-        throw new CallLimitReached(step.id, runContext.limits.callsPerStep);
-      }
+    for (const planned of work.calls ?? []) {
       const tool = session.tools.get(planned.operation) as StepOperation;
-      const args = evaluateTemplate(planned.arguments ?? {}, { inputs, steps: outputs, responses });
-      if (typeof args !== "object" || args === null || Array.isArray(args) || !tool.validateArgs(args)) {
-        throw new CallArgumentsInvalid(step.id, planned.id, planned.operation, describeErrors(tool.validateArgs.errors) || "arguments must be an object");
+      const elements = planned.each === undefined ? null : evaluateExpression(planned.each, { inputs, steps: outputs, responses });
+      if (planned.each !== undefined && !Array.isArray(elements)) {
+        throw new CallArgumentsInvalid(step.id, planned.id, planned.operation, `each must give an array, and gave ${JSON.stringify(elements)}`);
       }
-      const { shown, evidence } = await callTool(tool, planned.operation, args, step.id, { by: "stepgate", call: planned.id }, append, Number.MAX_SAFE_INTEGER);
-      if (shown.isError || evidence === null) {
-        throw new ToolCallFailed(`call ${planned.id} (${planned.operation})`, shown.status, shown.content);
+      const results: Json[] = [];
+      for (const item of Array.isArray(elements) ? elements : [null]) {
+        if (calls.length >= runContext.limits.callsPerStep) {
+          throw new CallLimitReached(step.id, runContext.limits.callsPerStep);
+        }
+        const args = evaluateTemplate(planned.arguments ?? {}, { inputs, steps: outputs, responses, item });
+        if (typeof args !== "object" || args === null || Array.isArray(args) || !tool.validateArgs(args)) {
+          throw new CallArgumentsInvalid(step.id, planned.id, planned.operation, describeErrors(tool.validateArgs.errors) || "arguments must be an object");
+        }
+        const { shown, evidence } = await callTool(tool, planned.operation, args, step.id, { by: "stepgate", call: planned.id }, append, Number.MAX_SAFE_INTEGER);
+        if (shown.isError || evidence === null) {
+          throw new ToolCallFailed(`call ${planned.id} (${planned.operation})`, shown.status, shown.content);
+        }
+        results.push(evidence.result);
+        calls.push(evidence);
       }
-      responses[planned.id] = evidence.result;
-      calls.push(evidence);
+      responses[planned.id] = planned.each === undefined ? results[0] ?? null : results;
     }
     const output = evaluateTemplate(work.output, { inputs, steps: outputs, responses });
     await append("computed", { step: step.id, output: { sha256: canonicalHash(output), length: JSON.stringify(output).length } });

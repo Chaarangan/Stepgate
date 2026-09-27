@@ -1,0 +1,36 @@
+name: every call each makes counts against the call limit
+api:
+  routes:
+    - method: GET
+      path: /items?shelf=A
+      answers: [{ status: 200, json: { items: [] } }]
+stepfile:
+  stepgate: "1"
+  id: shelves
+  inputs: { type: object, required: [shelves], properties: { shelves: { type: array } } }
+  tools:
+    catalogue:
+      openapi:
+        server: "${api.origin}"
+        document:
+          openapi: 3.1.0
+          info: { title: Catalogue, version: "1" }
+          paths:
+            /items:
+              get:
+                operationId: listItems
+                parameters: [{ name: shelf, in: query, required: true, schema: { type: string } }]
+      exposes: [listItems]
+  steps:
+    - id: fetch
+      do:
+        calls:
+          - { id: shelf, operation: listItems, each: { var: inputs.shelves }, arguments: { shelf: { var: item } } }
+        output: { fetched: true }
+      produces: { type: object }
+inputs: { shelves: [A, A, A, A, A, A, A, A, A] }
+actions: []
+expect:
+  replies:
+    - { state: failed, error: CallLimitReached }
+  ledger: [run_started, step_started, tool_call, tool_call, tool_call, tool_call, tool_call, tool_call, tool_call, tool_call, run_failed]
