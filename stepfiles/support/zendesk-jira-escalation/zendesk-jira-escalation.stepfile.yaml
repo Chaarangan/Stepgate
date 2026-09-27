@@ -1,0 +1,592 @@
+# yaml-language-server: $schema=../../../server/schema/stepfile.schema.json
+stepgate: "1"
+id: zendesk-jira-escalation
+title: Escalate Zendesk tickets to Jira as draft issues with internal notes
+description: >
+  Finds open Zendesk tickets matching an escalation rule (a priority and a tag), searches a Jira
+  project for unresolved issues already tracking each problem, then links each ticket to one of them
+  or creates a Jira issue labelled stepgate-draft, and adds an internal note naming the Jira key to
+  every ticket. It never posts a public reply.
+
+inputs:
+  type: object
+  required: [escalation_tag, priority, max_tickets, jira_project, jira_issue_type]
+  additionalProperties: false
+  properties:
+    escalation_tag: { type: string, pattern: "^[a-z0-9][a-z0-9_:/.-]{0,79}$", description: "Zendesk tag that marks a ticket for escalation, for example escalate_eng" }
+    priority: { enum: [urgent, high, normal, low], description: "Zendesk priority the tickets must have" }
+    max_tickets: { type: integer, minimum: 1, maximum: 10, description: "Most tickets to handle in one run, oldest first" }
+    jira_project: { type: string, pattern: "^[A-Z][A-Z0-9_]{1,9}$", description: "Jira project key to search and create in, for example SUP" }
+    jira_issue_type: { type: string, pattern: "^[A-Za-z0-9][A-Za-z0-9 _-]{0,58}[A-Za-z0-9]$", description: "Issue type name for created issues, for example Bug or Task" }
+
+settings:
+  zendesk-subdomain:
+    description: Your Zendesk subdomain, the "acme" in acme.zendesk.com.
+  jira-site:
+    description: Your Atlassian site name, the "acme" in acme.atlassian.net.
+
+credentials:
+  zendesk:
+    kind: basic
+    hosts: ["{zendesk-subdomain}.zendesk.com"]
+    description: >
+      A Zendesk agent's email and API token in Zendesk's token form, you@example.com/token:API_TOKEN
+      (the email, the literal text /token, a colon, then the token). Searches tickets and adds internal
+      notes to the tickets it escalates; it never posts a public comment.
+  jira:
+    kind: basic
+    hosts: ["{jira-site}.atlassian.net"]
+    description: >
+      An Atlassian account email and an API token created without scopes, as you@example.com:API_TOKEN.
+      The account needs Browse projects and Create issues in the target project. Searches issues and
+      creates issues labelled stepgate-draft.
+
+tools:
+  zendesk:
+    openapi:
+      server: https://{zendesk-subdomain}.zendesk.com/api/v2
+      document:
+        openapi: 3.1.0
+        info: { title: Zendesk Support API (trimmed), version: "2.0" }
+        paths:
+          /search:
+            get:
+              operationId: searchZendeskTickets
+              summary: >
+                Search Zendesk with the Support search syntax. Returns count (all matches) and results,
+                oldest first; a ticket result has result_type "ticket", id, subject, status, priority
+                and tags.
+              parameters:
+                - name: query
+                  in: query
+                  required: true
+                  schema: { type: string, minLength: 1, maxLength: 300 }
+                - name: sort_by
+                  in: query
+                  required: true
+                  schema: { type: string, enum: [created_at] }
+                - name: sort_order
+                  in: query
+                  required: true
+                  schema: { type: string, enum: [asc] }
+              responses:
+                "200": { description: "count, next_page, previous_page and a results array" }
+          /tickets/{ticket_id}:
+            put:
+              operationId: addZendeskInternalNote
+              summary: >
+                Add an internal note to one ticket: a comment with public false, which only agents see.
+                Returns the updated ticket and the audit of the change.
+              parameters:
+                - name: ticket_id
+                  in: path
+                  required: true
+                  schema: { type: integer, minimum: 1 }
+              requestBody:
+                required: true
+                content:
+                  application/json:
+                    schema:
+                      type: object
+                      required: [ticket]
+                      additionalProperties: false
+                      properties:
+                        ticket:
+                          type: object
+                          required: [comment]
+                          additionalProperties: false
+                          properties:
+                            comment:
+                              type: object
+                              required: [body, public]
+                              additionalProperties: false
+                              properties:
+                                body: { type: string, minLength: 1, maxLength: 500 }
+                                public: { const: false }
+              responses:
+                "200": { description: "ticket and audit" }
+    credential: zendesk
+    exposes: [searchZendeskTickets, addZendeskInternalNote]
+
+  jira-cloud:
+    openapi:
+      server: https://{jira-site}.atlassian.net/rest/api/3
+      document:
+        openapi: 3.1.0
+        info: { title: Jira Cloud platform REST API v3 (trimmed), version: "3" }
+        paths:
+          /search/jql:
+            post:
+              operationId: searchJiraIssues
+              summary: >
+                Search Jira issues with JQL. Returns issues, each with id, key and fields.summary and
+                fields.status.name, plus isLast and nextPageToken.
+              requestBody:
+                required: true
+                content:
+                  application/json:
+                    schema:
+                      type: object
+                      required: [jql, fields, maxResults]
+                      additionalProperties: false
+                      properties:
+                        jql: { type: string, minLength: 1, maxLength: 500 }
+                        fields: { const: [summary, status] }
+                        maxResults: { type: integer, minimum: 1, maximum: 10 }
+              responses:
+                "200": { description: "isLast, nextPageToken and an issues array" }
+          /issue:
+            post:
+              operationId: createJiraIssue
+              summary: >
+                Create one Jira issue. The description is Atlassian Document Format: one paragraph
+                holding one text node. Returns id, key and self of the new issue.
+              requestBody:
+                required: true
+                content:
+                  application/json:
+                    schema:
+                      type: object
+                      required: [fields]
+                      additionalProperties: false
+                      properties:
+                        fields:
+                          type: object
+                          required: [project, issuetype, summary, labels, description]
+                          additionalProperties: false
+                          properties:
+                            project:
+                              type: object
+                              required: [key]
+                              additionalProperties: false
+                              properties:
+                                key: { type: string, pattern: "^[A-Z][A-Z0-9_]{1,9}$" }
+                            issuetype:
+                              type: object
+                              required: [name]
+                              additionalProperties: false
+                              properties:
+                                name: { type: string, minLength: 1, maxLength: 60 }
+                            summary: { type: string, minLength: 1, maxLength: 255 }
+                            labels: { const: [stepgate-draft] }
+                            description:
+                              type: object
+                              required: [type, version, content]
+                              additionalProperties: false
+                              properties:
+                                type: { const: doc }
+                                version: { const: 1 }
+                                content:
+                                  type: array
+                                  minItems: 1
+                                  maxItems: 1
+                                  items:
+                                    type: object
+                                    required: [type, content]
+                                    additionalProperties: false
+                                    properties:
+                                      type: { const: paragraph }
+                                      content:
+                                        type: array
+                                        minItems: 1
+                                        maxItems: 1
+                                        items:
+                                          type: object
+                                          required: [type, text]
+                                          additionalProperties: false
+                                          properties:
+                                            type: { const: text }
+                                            text: { type: string, minLength: 1, maxLength: 2000, pattern: "^[^\\n]*$" }
+              responses:
+                "201": { description: "id, key and self of the created issue" }
+    credential: jira
+    exposes: [searchJiraIssues, createJiraIssue]
+
+steps:
+  - id: tickets
+    tools: [searchZendeskTickets]
+    instructions: |
+      Find the Zendesk tickets to escalate. Call searchZendeskTickets exactly once, with query set to
+      exactly this text and nothing else:
+
+      type:ticket status<pending priority:{{inputs.priority}} tags:{{inputs.escalation_tag}}
+
+      Results come back oldest first. Going through them in the order returned, take the first
+      {{inputs.max_tickets}} results whose result_type is "ticket", whose status is "new" or "open",
+      whose priority is "{{inputs.priority}}" and whose tags include "{{inputs.escalation_tag}}", and
+      skip every other result. Keep them in the order returned.
+
+      Submit tickets, one entry per ticket taken, with id, subject, status, priority and tags copied
+      exactly from its result, and total_count set to the count field of the response. Do not call the
+      tool a second time, even if a gate rejects your submission.
+    produces:
+      type: object
+      required: [tickets, total_count]
+      additionalProperties: false
+      properties:
+        tickets:
+          type: array
+          maxItems: 10
+          items:
+            type: object
+            required: [id, subject, status, priority, tags]
+            additionalProperties: false
+            properties:
+              id: { type: integer }
+              subject: { type: string }
+              status: { enum: [new, open] }
+              priority: { type: string }
+              tags: { type: array, items: { type: string } }
+        total_count: { type: integer, minimum: 0 }
+    gates:
+      - id: one-search-exact-query
+        message: >
+          Make exactly one successful searchZendeskTickets call, whose query is exactly
+          "type:ticket status<pending priority:<priority> tags:<escalation_tag>" from the inputs.
+        predicate:
+          and:
+            - "==": [{ length: { var: calls } }, 1]
+            - "!": { var: calls.0.is_error }
+            - "===":
+                - var: calls.0.arguments.query
+                - cat: ["type:ticket status<pending priority:", { var: inputs.priority }, " tags:", { var: inputs.escalation_tag }]
+      # The reduce walks the results carrying [priority, tag, tickets still to take, "|id|id..."], so
+      # one comparison proves the submitted tickets are exactly the first max_tickets matches, in order.
+      - id: first-matching-tickets
+        message: >
+          tickets must be exactly the first max_tickets results that are tickets with status new or
+          open, the input priority and the input tag, in the order the search returned them.
+        predicate:
+          "===":
+            - cat:
+                reduce:
+                  - var: calls.0.result.results
+                  - if:
+                      - and:
+                          - ">": [{ var: accumulator.2 }, 0]
+                          - "==": [{ var: current.result_type }, ticket]
+                          - in: [{ var: current.status }, [new, open]]
+                          - "==": [{ var: current.priority }, { var: accumulator.0 }]
+                          - in: [{ var: accumulator.1 }, { or: [{ var: current.tags }, []] }]
+                      - - var: accumulator.0
+                        - var: accumulator.1
+                        - "-": [{ var: accumulator.2 }, 1]
+                        - cat: [{ var: accumulator.3 }, "|", { var: current.id }]
+                      - var: accumulator
+                  - [{ var: inputs.priority }, { var: inputs.escalation_tag }, { var: inputs.max_tickets }, ""]
+            - cat:
+                - var: inputs.priority
+                - ","
+                - var: inputs.escalation_tag
+                - ","
+                - "-": [{ var: inputs.max_tickets }, { length: { var: output.tickets } }]
+                - ","
+                - reduce: [{ var: output.tickets }, { cat: [{ var: accumulator }, "|", { var: current.id }] }, ""]
+      - id: tickets-copied
+        message: Every ticket's id, subject, status, priority and tags must be copied exactly from its search result.
+        predicate:
+          subset:
+            - map:
+                - var: output.tickets
+                - cat: [{ var: id }, "|ticket|", { var: subject }, "|", { var: status }, "|", { var: priority }, "|", { var: tags }]
+            - map:
+                - var: calls.0.result.results
+                - cat: [{ var: id }, "|", { var: result_type }, "|", { var: subject }, "|", { var: status }, "|", { var: priority }, "|", { var: tags }]
+      - id: total-from-search
+        message: total_count must be the count field of the search response.
+        predicate:
+          "===": [{ var: output.total_count }, { var: calls.0.result.count }]
+    retries: 2
+
+  - id: plan
+    tools: [searchJiraIssues]
+    instructions: |
+      These Zendesk tickets are being escalated to Jira project {{inputs.jira_project}}:
+
+      {{steps.tickets.tickets}}
+
+      For each ticket, look for an unresolved Jira issue that already tracks the same problem, using
+      searchJiraIssues with fields ["summary", "status"] and maxResults 10. Every jql must be exactly
+
+      project = "{{inputs.jira_project}}" AND statusCategory != Done AND text ~ "WORDS"
+
+      where WORDS is two to four distinctive words from the ticket subject, with no double quotes or
+      backslashes. You may search more than once per ticket with different words.
+
+      Then decide per ticket. Choose link, with jira_key set to that issue's key, only when a returned
+      issue's summary plainly describes the same problem as the ticket subject. Otherwise choose create
+      with jira_key null. Set jql to the jql of the search whose results you decided on, and reason to
+      one sentence.
+
+      Then list exactly the writes to make:
+      - creates: one entry per create decision, with ticket_id, project_key "{{inputs.jira_project}}",
+        issue_type "{{inputs.jira_issue_type}}", summary "[Zendesk #ID] SUBJECT" cut to its first 255
+        characters, and description, one line of plain text with no line breaks that starts
+        "Escalated from Zendesk ticket #ID: " followed by the subject and the ticket's priority, and ends
+        "Created by Stepgate as a draft for review.";
+      - notes: one entry per ticket, with ticket_id and body. For a link the body is exactly
+        "Stepgate escalation: linked to existing Jira issue KEY." with the issue key in place of KEY. For
+        a create it is exactly "Stepgate escalation: created draft Jira issue {KEY}." with the literal
+        text {KEY}, which the next step replaces with the created key.
+
+      If there are no tickets, submit empty lists.
+    produces:
+      type: object
+      required: [decisions, creates, notes]
+      additionalProperties: false
+      properties:
+        decisions:
+          type: array
+          maxItems: 10
+          items:
+            type: object
+            required: [ticket_id, action, jira_key, jql, reason]
+            additionalProperties: false
+            properties:
+              ticket_id: { type: integer }
+              action: { enum: [link, create] }
+              jira_key: { type: [string, "null"], pattern: "^[A-Z][A-Z0-9_]+-[0-9]+$" }
+              jql: { type: string }
+              reason: { type: string, minLength: 10, maxLength: 400 }
+        creates:
+          type: array
+          maxItems: 10
+          items:
+            type: object
+            required: [ticket_id, project_key, issue_type, summary, description]
+            additionalProperties: false
+            properties:
+              ticket_id: { type: integer }
+              project_key: { type: string }
+              issue_type: { type: string }
+              summary: { type: string, minLength: 1, maxLength: 255 }
+              description: { type: string, minLength: 1, maxLength: 2000, pattern: "^[^\\n]*$" }
+        notes:
+          type: array
+          maxItems: 10
+          items:
+            type: object
+            required: [ticket_id, body]
+            additionalProperties: false
+            properties:
+              ticket_id: { type: integer }
+              body: { type: string, minLength: 1, maxLength: 500 }
+    gates:
+      - id: covers-tickets
+        message: Submit exactly one decision per ticket from the previous step, each ticket once.
+        predicate:
+          and:
+            - subset: [{ map: [{ var: output.decisions }, { var: ticket_id }] }, { map: [{ var: steps.tickets.tickets }, { var: id }] }]
+            - subset: [{ map: [{ var: steps.tickets.tickets }, { var: id }] }, { map: [{ var: output.decisions }, { var: ticket_id }] }]
+            - "==": [{ length: { var: output.decisions } }, { length: { var: steps.tickets.tickets } }]
+            - "==": [{ length: { unique: { map: [{ var: output.decisions }, { var: ticket_id }] } } }, { length: { var: output.decisions } }]
+      - id: jql-bounded
+        message: >
+          Every searchJiraIssues jql must be exactly
+          project = "<jira_project>" AND statusCategory != Done AND text ~ "WORDS", with no quotes or
+          backslashes inside WORDS and nothing after the closing quote.
+        predicate:
+          and:
+            - "==":
+                - length: &jqlProjects
+                    flatten:
+                      map:
+                        - var: calls
+                        - match_all: [{ var: arguments.body.jql }, '^project = "([A-Z][A-Z0-9_]*)" AND statusCategory != Done AND text ~ "[^"\\]+"$']
+                - length: { var: calls }
+            - subset: [*jqlProjects, [{ var: inputs.jira_project }]]
+      - id: decision-jql-searched
+        message: Each decision's jql must be the jql of a successful searchJiraIssues call.
+        predicate:
+          subset:
+            - map: [{ var: output.decisions }, { var: jql }]
+            - map: [{ filter: [{ var: calls }, { "!": { var: is_error } }] }, { var: arguments.body.jql }]
+      # For each call the reduce yields [jql, "jql|KEY-1", "jql|KEY-2", ...], tying each key to the search that returned it.
+      - id: link-from-results
+        message: A link's jira_key must be an issue returned by the very search named in that decision's jql.
+        predicate:
+          subset:
+            - map:
+                - filter: [{ var: output.decisions }, { "==": [{ var: action }, link] }]
+                - cat: [{ var: jql }, "|", { var: jira_key }]
+            - flatten:
+                map:
+                  - filter: [{ var: calls }, { "!": { var: is_error } }]
+                  - reduce:
+                      - var: result.issues
+                      - merge: [{ var: accumulator }, [{ cat: [{ var: "accumulator.0" }, "|", { var: current.key }] }]]
+                      - [{ var: arguments.body.jql }]
+      - id: key-iff-link
+        message: jira_key must be set for a link decision and null for a create decision.
+        predicate:
+          none:
+            - var: output.decisions
+            - or:
+                - and: [{ "==": [{ var: action }, link] }, { "==": [{ var: jira_key }, null] }]
+                - and: [{ "==": [{ var: action }, create] }, { "!=": [{ var: jira_key }, null] }]
+      - id: creates-planned
+        message: >
+          creates must hold one entry per create decision, with the input project key and issue type,
+          summary "[Zendesk #ID] SUBJECT" cut to 255 characters, and a one-line description starting
+          "Escalated from Zendesk ticket #ID: " and ending "Created by Stepgate as a draft for review."
+        predicate:
+          and:
+            - subset: [{ map: [{ var: output.creates }, { var: ticket_id }] }, { map: [{ filter: [{ var: output.decisions }, { "==": [{ var: action }, create] }] }, { var: ticket_id }] }]
+            - subset: [{ map: [{ filter: [{ var: output.decisions }, { "==": [{ var: action }, create] }] }, { var: ticket_id }] }, { map: [{ var: output.creates }, { var: ticket_id }] }]
+            - "==": [{ length: { var: output.creates } }, { length: { filter: [{ var: output.decisions }, { "==": [{ var: action }, create] }] } }]
+            - subset: [{ unique: { map: [{ var: output.creates }, { var: project_key }] } }, [{ var: inputs.jira_project }]]
+            - subset: [{ unique: { map: [{ var: output.creates }, { var: issue_type }] } }, [{ var: inputs.jira_issue_type }]]
+            - subset:
+                - map: [{ var: output.creates }, { cat: [{ var: ticket_id }, "|", { var: summary }] }]
+                - map:
+                    - var: steps.tickets.tickets
+                    - cat: [{ var: id }, "|", { substr: [{ cat: ["[Zendesk #", { var: id }, "] ", { var: subject }] }, 0, 255] }]
+            - none:
+                - var: output.creates
+                - "!=":
+                    - cat: { match_all: [{ var: description }, "^Escalated from Zendesk ticket #([0-9]+): .*Created by Stepgate as a draft for review\\.$"] }
+                    - cat: [{ var: ticket_id }]
+      - id: notes-planned
+        message: >
+          notes must hold one entry per ticket: "Stepgate escalation: linked to existing Jira issue KEY."
+          for a link, and "Stepgate escalation: created draft Jira issue {KEY}." for a create.
+        predicate:
+          and:
+            - "==": [{ length: { var: output.notes } }, { length: { var: output.decisions } }]
+            - subset: [{ map: [{ var: output.notes }, { cat: [{ var: ticket_id }, "|", { var: body }] }] }, &expectedNotes { merge: [{ map: [{ filter: [{ var: output.decisions }, { "==": [{ var: action }, link] }] }, { cat: [{ var: ticket_id }, "|Stepgate escalation: linked to existing Jira issue ", { var: jira_key }, "."] }] }, { map: [{ filter: [{ var: output.decisions }, { "==": [{ var: action }, create] }] }, { cat: [{ var: ticket_id }, "|Stepgate escalation: created draft Jira issue {KEY}."] }] }] }]
+            - subset: [*expectedNotes, { map: [{ var: output.notes }, { cat: [{ var: ticket_id }, "|", { var: body }] }] }]
+    retries: 2
+
+  - id: execute
+    tools: [createJiraIssue, addZendeskInternalNote]
+    instructions: |
+      Make exactly these writes, each once, and nothing else.
+
+      1. For each entry in creates, call createJiraIssue with body
+         {"fields": {"project": {"key": project_key}, "issuetype": {"name": issue_type}, "summary": summary,
+         "labels": ["stepgate-draft"], "description": {"type": "doc", "version": 1, "content": [{"type":
+         "paragraph", "content": [{"type": "text", "text": description}]}]}}}
+         using the entry's values unchanged:
+
+      {{steps.plan.creates}}
+
+      2. Then for each entry in notes, call addZendeskInternalNote with ticket_id and body
+         {"ticket": {"comment": {"body": BODY, "public": false}}}, where BODY is the note's body with
+         {KEY} replaced by the key createJiraIssue returned for that ticket:
+
+      {{steps.plan.notes}}
+
+      Never call a tool twice for the same ticket, and never make a write that is not listed, even if a
+      gate rejects your submission. If there is nothing listed, call no tool.
+
+      Submit results, one entry per ticket, with ticket_id, action (link or create) and jira_key: the
+      linked key from the plan for a link, or the key createJiraIssue returned for a create. The plan's
+      decisions are:
+
+      {{steps.plan.decisions}}
+    produces:
+      type: object
+      required: [results]
+      additionalProperties: false
+      properties:
+        results:
+          type: array
+          maxItems: 10
+          items:
+            type: object
+            required: [ticket_id, action, jira_key]
+            additionalProperties: false
+            properties:
+              ticket_id: { type: integer }
+              action: { enum: [link, create] }
+              jira_key: { type: string, pattern: "^[A-Z][A-Z0-9_]+-[0-9]+$" }
+    gates:
+      - id: writes-succeeded
+        message: Every write must succeed; a failed createJiraIssue or addZendeskInternalNote call stops the run.
+        predicate:
+          none: [{ var: calls }, { var: is_error }]
+      - id: creates-as-planned
+        message: >
+          createJiraIssue must be called once per planned create, with exactly the planned project key,
+          issue type, summary, label stepgate-draft and description, and never otherwise.
+        predicate:
+          and:
+            - "==": [{ length: &createCalls { filter: [{ var: calls }, { "==": [{ var: tool }, createJiraIssue] }] } }, { length: { var: steps.plan.creates } }]
+            - subset: [&createdBodies { map: [*createCalls, { cat: [{ var: arguments.body.fields.project.key }, "|", { var: arguments.body.fields.issuetype.name }, "|", { var: arguments.body.fields.summary }, "|", { var: arguments.body.fields.labels }, "|", { var: arguments.body.fields.description.content.0.content.0.text }] }] }, &plannedBodies { map: [{ var: steps.plan.creates }, { cat: [{ var: project_key }, "|", { var: issue_type }, "|", { var: summary }, "|stepgate-draft|", { var: description }] }] }]
+            - subset: [*plannedBodies, *createdBodies]
+      # A created issue's ticket id is read back from its summary, "[Zendesk #ID] ...", so the note is tied to the key Jira returned for that ticket.
+      - id: notes-as-planned
+        message: >
+          addZendeskInternalNote must be called once per planned note, with public false and the planned
+          body, where {KEY} is the key createJiraIssue returned for that ticket, and never otherwise.
+        predicate:
+          and:
+            - "==": [{ length: &noteCalls { filter: [{ var: calls }, { "==": [{ var: tool }, addZendeskInternalNote] }] } }, { length: { var: steps.plan.notes } }]
+            - subset: [&notesSent { map: [*noteCalls, { cat: [{ var: arguments.ticket_id }, "|", { var: arguments.body.ticket.comment.body }, "|", { var: arguments.body.ticket.comment.public }] }] }, &notesExpected { merge: [{ map: [{ filter: [{ var: steps.plan.decisions }, { "==": [{ var: action }, link] }] }, { cat: [{ var: ticket_id }, "|Stepgate escalation: linked to existing Jira issue ", { var: jira_key }, ".|false"] }] }, { map: [{ filter: [*createCalls, { "!": { var: is_error } }] }, { cat: [{ match_all: [{ var: arguments.body.fields.summary }, "^\\[Zendesk #([0-9]+)\\] "] }, "|Stepgate escalation: created draft Jira issue ", { var: result.key }, ".|false"] }] }] }]
+            - subset: [*notesExpected, *notesSent]
+            - none: [*noteCalls, { "!=": [{ var: result.ticket.id }, { var: arguments.ticket_id }] }]
+      - id: keys-from-results
+        message: >
+          results must list every ticket once, with the plan's key for a link and the key createJiraIssue
+          returned for a create.
+        predicate:
+          and:
+            - "==": [{ length: { var: output.results } }, { length: { var: steps.plan.decisions } }]
+            - subset: [&reported { map: [{ var: output.results }, { cat: [{ var: ticket_id }, "|", { var: action }, "|", { var: jira_key }] }] }, &actual { merge: [{ map: [{ filter: [{ var: steps.plan.decisions }, { "==": [{ var: action }, link] }] }, { cat: [{ var: ticket_id }, "|link|", { var: jira_key }] }] }, { map: [{ filter: [*createCalls, { "!": { var: is_error } }] }, { cat: [{ match_all: [{ var: arguments.body.fields.summary }, "^\\[Zendesk #([0-9]+)\\] "] }, "|create|", { var: result.key }] }] }] }]
+            - subset: [*actual, *reported]
+    retries: 2
+
+  - id: report
+    instructions: |
+      Write the escalation report.
+
+      The search matched {{steps.tickets.total_count}} tickets in all; this run handled these:
+      {{steps.tickets.tickets}}
+
+      What was done for each:
+      {{steps.execute.results}}
+
+      Submit rows, one per handled ticket, with ticket_id, subject, action and jira_key copied from the
+      data above. Then write summary: a short Markdown report for a support lead with a table (Zendesk
+      ticket as #ID, subject, action, Jira key), a line saying created issues carry the label
+      stepgate-draft and are unassigned drafts for review, and a line saying how many matching tickets
+      were left for a later run. If no ticket was handled, say so. Write every ticket as #ID and mention
+      no ticket number or {{inputs.jira_project}} issue key that is not in the data above.
+    produces:
+      type: object
+      required: [rows, summary]
+      additionalProperties: false
+      properties:
+        rows:
+          type: array
+          maxItems: 10
+          items:
+            type: object
+            required: [ticket_id, subject, action, jira_key]
+            additionalProperties: false
+            properties:
+              ticket_id: { type: integer }
+              subject: { type: string }
+              action: { enum: [link, create] }
+              jira_key: { type: string }
+        summary: { type: string, minLength: 1, maxLength: 6000 }
+    gates:
+      - id: rows-match-results
+        message: rows must match the execute step's results and the tickets' subjects exactly, one row per ticket.
+        predicate:
+          and:
+            - "==": [{ length: { var: output.rows } }, { length: { var: steps.execute.results } }]
+            - subset: [{ map: [{ var: output.rows }, { cat: [{ var: ticket_id }, "|", { var: action }, "|", { var: jira_key }] }] }, { map: [{ var: steps.execute.results }, { cat: [{ var: ticket_id }, "|", { var: action }, "|", { var: jira_key }] }] }]
+            - subset: [{ map: [{ var: steps.execute.results }, { cat: [{ var: ticket_id }, "|", { var: action }, "|", { var: jira_key }] }] }, { map: [{ var: output.rows }, { cat: [{ var: ticket_id }, "|", { var: action }, "|", { var: jira_key }] }] }]
+            - subset: [{ map: [{ var: output.rows }, { cat: [{ var: ticket_id }, "|", { var: subject }] }] }, { map: [{ var: steps.tickets.tickets }, { cat: [{ var: id }, "|", { var: subject }] }] }]
+      - id: summary-mentions-all
+        message: >
+          The summary must mention every handled ticket as #ID and every Jira key, and no other ticket
+          number or issue key in the project.
+        predicate:
+          and:
+            - subset: [{ map: [{ var: output.rows }, { cat: ["#", { var: ticket_id }] }] }, { match_all: [{ var: output.summary }, "#[0-9]+"] }]
+            - subset: [{ match_all: [{ var: output.summary }, "#[0-9]+"] }, { map: [{ var: output.rows }, { cat: ["#", { var: ticket_id }] }] }]
+            - subset: [{ map: [{ var: output.rows }, { var: jira_key }] }, &summaryKeys { match_all: [{ var: output.summary }, { cat: ["\\b", { var: inputs.jira_project }, "-[0-9]+\\b"] }] }]
+            - subset: [*summaryKeys, { map: [{ var: output.rows }, { var: jira_key }] }]
+    retries: 2

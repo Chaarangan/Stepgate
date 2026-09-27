@@ -1,0 +1,843 @@
+# yaml-language-server: $schema=../../../server/schema/stepfile.schema.json
+stepgate: "1"
+id: servicenow-incident-review
+title: Incident review from ServiceNow and GitHub
+description: >
+  Reads a ServiceNow incident, lists the GitHub commits and merged pull requests on one branch in the
+  hours before it opened, builds a timeline and a list of suspect changes that cite real commit SHAs
+  and pull request numbers, and adds the summary to the incident as an internal work note.
+
+settings:
+  servicenow-instance:
+    description: Your ServiceNow instance name, the "acme" in acme.service-now.com.
+
+inputs:
+  type: object
+  required: [incident_number, owner, repo, branch, lookback_hours]
+  additionalProperties: false
+  properties:
+    incident_number:
+      type: string
+      pattern: "^[A-Z]{2,10}[0-9]{4,12}$"
+      description: The incident number as ServiceNow shows it, for example INC0010001
+    owner: { type: string, pattern: "^[A-Za-z0-9-]{1,39}$", description: GitHub user or organisation }
+    repo: { type: string, pattern: "^[A-Za-z0-9._-]{1,100}$", description: Repository name without .git }
+    branch: { type: string, pattern: "^[^\\s]{1,255}$", description: The deployed branch, for example main }
+    lookback_hours:
+      type: integer
+      minimum: 1
+      maximum: 72
+      description: How many hours before the incident opened to search for changes
+
+credentials:
+  servicenow:
+    kind: basic
+    hosts: ["{servicenow-instance}.service-now.com"]
+    description: >
+      A ServiceNow user name and password, as user:password, for a user that can read incidents and
+      write their work notes (usually the itil role). Reads one incident and adds one work note.
+  github:
+    kind: bearer
+    hosts: [api.github.com]
+    description: >
+      A GitHub fine-grained personal access token with read-only Contents and Pull requests access to
+      the repository (or a classic token; public repositories need no scope). Never writes.
+
+tools:
+  servicenow:
+    openapi:
+      server: https://{servicenow-instance}.service-now.com/api/now/table
+      document:
+        openapi: 3.1.0
+        info: { title: ServiceNow Table API, incident table (trimmed), version: "1" }
+        components:
+          securitySchemes:
+            basicAuth: { type: http, scheme: basic }
+        security: [{ basicAuth: [] }]
+        paths:
+          /incident:
+            get:
+              operationId: findIncident
+              summary: >
+                Find one incident with an encoded query such as number=INC0010001. result is an array of
+                at most one record with sys_id, number, short_description, state, priority, opened_at and
+                resolved_at. Date-times are UTC as "YYYY-MM-DD HH:MM:SS"; resolved_at is "" while open.
+              parameters:
+                - name: sysparm_query
+                  in: query
+                  required: true
+                  schema: { type: string, description: "Encoded query, exactly number=<incident number>" }
+                - name: sysparm_fields
+                  in: query
+                  schema: { enum: ["sys_id,number,short_description,state,priority,opened_at,resolved_at"] }
+                - name: sysparm_limit
+                  in: query
+                  schema: { enum: ["1"] }
+                - name: sysparm_display_value
+                  in: query
+                  schema: { enum: ["false"] }
+                - name: sysparm_exclude_reference_link
+                  in: query
+                  schema: { enum: ["true"] }
+              responses:
+                "200": { description: "{ result: [record] }" }
+          /incident/{sys_id}:
+            get:
+              operationId: getIncidentNotes
+              summary: >
+                Read an incident's assignment group name and work notes as display text. result.work_notes
+                holds every work note, newest first, each headed by its time and author; it is "" when
+                there are none.
+              parameters:
+                - name: sys_id
+                  in: path
+                  required: true
+                  schema: { type: string, pattern: "^[0-9a-f]{32}$" }
+                - name: sysparm_fields
+                  in: query
+                  schema: { enum: ["sys_id,number,assignment_group,work_notes"] }
+                - name: sysparm_display_value
+                  in: query
+                  schema: { enum: ["true"] }
+                - name: sysparm_exclude_reference_link
+                  in: query
+                  schema: { enum: ["true"] }
+              responses:
+                "200": { description: "{ result: record }" }
+            patch:
+              operationId: addWorkNote
+              summary: >
+                Add one internal work note to the incident. Work notes are visible to fulfillers only,
+                never to the caller. Returns result with sys_id, number and sys_updated_on.
+              parameters:
+                - name: sys_id
+                  in: path
+                  required: true
+                  schema: { type: string, pattern: "^[0-9a-f]{32}$" }
+                - name: sysparm_fields
+                  in: query
+                  schema: { enum: ["sys_id,number,sys_updated_on"] }
+                - name: sysparm_display_value
+                  in: query
+                  schema: { enum: ["false"] }
+              requestBody:
+                required: true
+                content:
+                  application/json:
+                    schema:
+                      type: object
+                      required: [work_notes]
+                      additionalProperties: false
+                      properties:
+                        work_notes: { type: string, minLength: 1, maxLength: 4000 }
+              responses:
+                "200": { description: "{ result: record }" }
+    credential: servicenow
+    exposes: [findIncident, getIncidentNotes, addWorkNote]
+
+  github:
+    openapi:
+      server: https://api.github.com
+      document:
+        openapi: 3.1.0
+        info: { title: GitHub REST API (trimmed), version: "2026-03-10" }
+        components:
+          securitySchemes:
+            bearerAuth: { type: http, scheme: bearer }
+          parameters:
+            accept:
+              name: Accept
+              in: header
+              schema: { enum: [application/vnd.github+json] }
+            apiVersion:
+              name: X-GitHub-Api-Version
+              in: header
+              schema: { enum: ["2026-03-10"] }
+            owner:
+              name: owner
+              in: path
+              required: true
+              schema: { type: string }
+            repo:
+              name: repo
+              in: path
+              required: true
+              schema: { type: string }
+            page:
+              name: page
+              in: query
+              required: true
+              schema: { type: integer, minimum: 1, description: "Page number, starting at 1" }
+        security: [{ bearerAuth: [] }]
+        paths:
+          /repos/{owner}/{repo}/commits:
+            get:
+              operationId: listCommits
+              summary: >
+                List the commits on a branch committed between since and until, newest first, two per
+                page. Each item has sha, commit.message and commit.committer.date (UTC,
+                YYYY-MM-DDTHH:MM:SSZ). A page with fewer than two items is the last one.
+              parameters:
+                - $ref: "#/components/parameters/accept"
+                - $ref: "#/components/parameters/apiVersion"
+                - $ref: "#/components/parameters/owner"
+                - $ref: "#/components/parameters/repo"
+                - name: sha
+                  in: query
+                  required: true
+                  schema: { type: string, description: Branch name }
+                - name: since
+                  in: query
+                  required: true
+                  schema: { type: string, pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$" }
+                - name: until
+                  in: query
+                  required: true
+                  schema: { type: string, pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$" }
+                - name: per_page
+                  in: query
+                  schema: { enum: [2] }
+                - $ref: "#/components/parameters/page"
+              responses:
+                "200": { description: An array of commits }
+          /search/issues:
+            get:
+              operationId: searchPullRequests
+              summary: >
+                Search pull requests. total_count is the number of matches and items holds one page; in
+                each item number, title and pull_request.merged_at come before the long body text.
+              parameters:
+                - $ref: "#/components/parameters/accept"
+                - $ref: "#/components/parameters/apiVersion"
+                - name: q
+                  in: query
+                  required: true
+                  schema: { type: string }
+                - name: per_page
+                  in: query
+                  required: true
+                  schema: { type: integer, minimum: 1, maximum: 10 }
+                - $ref: "#/components/parameters/page"
+              responses:
+                "200": { description: "total_count, incomplete_results and items" }
+    credential: github
+    exposes: [listCommits, searchPullRequests]
+
+steps:
+  - id: incident
+    tools: [findIncident, getIncidentNotes]
+    instructions: |
+      Look up ServiceNow incident {{inputs.incident_number}}.
+
+      1. Call findIncident with sysparm_query exactly "number={{inputs.incident_number}}".
+      2. Call getIncidentNotes with the sys_id it returned.
+
+      Submit:
+      - sys_id, short_description, state and priority copied from findIncident;
+      - opened_at and resolved_at converted from "YYYY-MM-DD HH:MM:SS" to "YYYY-MM-DDTHH:MM:SSZ" (the
+        values are already UTC, so only replace the space with T and append Z); resolved_at is null when
+        ServiceNow returned "";
+      - assignment_group: the name getIncidentNotes returned ("" if unassigned);
+      - work_notes_present: whether getIncidentNotes returned any work notes, and work_notes_summary: at
+        most five sentences on what they say, or "" when there are none;
+      - window_end: equal to opened_at;
+      - window_start: exactly {{inputs.lookback_hours}} hours before window_end, in the same format.
+    produces:
+      type: object
+      required: [sys_id, short_description, state, priority, opened_at, resolved_at, assignment_group,
+        work_notes_present, work_notes_summary, window_start, window_end]
+      additionalProperties: false
+      properties:
+        sys_id: { type: string, pattern: "^[0-9a-f]{32}$" }
+        short_description: { type: string }
+        state: { type: string }
+        priority: { type: string }
+        opened_at: { $ref: "#/$defs/utc" }
+        resolved_at: { anyOf: [{ $ref: "#/$defs/utc" }, { type: "null" }] }
+        assignment_group: { type: string }
+        work_notes_present: { type: boolean }
+        work_notes_summary: { type: string, maxLength: 1500 }
+        window_start: { $ref: "#/$defs/utc" }
+        window_end: { $ref: "#/$defs/utc" }
+    gates:
+      # One string per findIncident call joins the query with the record, times converted to UTC ISO form.
+      # cat renders null as "", so an open incident's null resolved_at matches ServiceNow's "".
+      - id: incident-from-servicenow
+        message: >
+          sys_id, short_description, state, priority, opened_at and resolved_at must be copied from a
+          findIncident call made with sysparm_query "number=<the incident number>" that returned that
+          incident, with the times converted as instructed.
+        predicate:
+          in:
+            - cat:
+                - number=
+                - { var: inputs.incident_number }
+                - "|"
+                - { var: output.sys_id }
+                - "|"
+                - { var: inputs.incident_number }
+                - "|"
+                - { var: output.short_description }
+                - "|"
+                - { var: output.state }
+                - "|"
+                - { var: output.priority }
+                - "|"
+                - { var: output.opened_at }
+                - "|"
+                - { var: output.resolved_at }
+            - map:
+                - filter: [{ var: calls }, { and: [{ "==": [{ var: tool }, findIncident] }, { "!": { var: is_error } }] }]
+                - cat:
+                    - { var: arguments.sysparm_query }
+                    - "|"
+                    - { var: result.result.0.sys_id }
+                    - "|"
+                    - { var: result.result.0.number }
+                    - "|"
+                    - { var: result.result.0.short_description }
+                    - "|"
+                    - { var: result.result.0.state }
+                    - "|"
+                    - { var: result.result.0.priority }
+                    - "|"
+                    - cat:
+                        - { substr: [{ var: result.result.0.opened_at }, 0, 10] }
+                        - T
+                        - { substr: [{ var: result.result.0.opened_at }, 11, 8] }
+                        - Z
+                    - "|"
+                    - if:
+                        - { var: result.result.0.resolved_at }
+                        - cat:
+                            - { substr: [{ var: result.result.0.resolved_at }, 0, 10] }
+                            - T
+                            - { substr: [{ var: result.result.0.resolved_at }, 11, 8] }
+                            - Z
+                        - ""
+      # With display values on, a reference field may come back as a plain name or as { display_value }.
+      - id: group-and-notes-from-servicenow
+        message: >
+          assignment_group and work_notes_present must match a getIncidentNotes call for this sys_id:
+          the group's display name, and true only when work_notes was not empty.
+        predicate:
+          in:
+            - cat: [{ var: output.sys_id }, "|", { var: output.assignment_group }, "|", { var: output.work_notes_present }]
+            - map:
+                - filter: [{ var: calls }, { and: [{ "==": [{ var: tool }, getIncidentNotes] }, { "!": { var: is_error } }] }]
+                - cat:
+                    - { var: result.result.sys_id }
+                    - "|"
+                    - if:
+                        - "!=": [{ var: result.result.assignment_group.display_value }, null]
+                        - { var: result.result.assignment_group.display_value }
+                        - { var: result.result.assignment_group }
+                    - "|"
+                    - "!=": [{ var: result.result.work_notes }, ""]
+      - id: window-ends-at-opened
+        message: window_end must equal opened_at.
+        predicate:
+          "==": [{ var: output.window_end }, { var: output.opened_at }]
+      # Converts both times to seconds with a days-from-civil formula (valid for years 1970 to 2099), so
+      # the window is checked exactly even across a month or year boundary.
+      - id: window-length
+        message: window_start must be exactly lookback_hours hours before window_end.
+        predicate:
+          "==":
+            - reduce:
+                - map:
+                    - [{ var: output.window_start }, { var: output.window_end }]
+                    - "+":
+                        - "*":
+                            - "+":
+                                - "*": [365, &march-year { "-": [{ "+": [{ substr: [&iso { var: "" }, 0, 4] }] }, { if: [{ "<=": [&month { "+": [{ substr: [*iso, 5, 2] }] }, 2] }, 1, 0] }] }]
+                                - "/": [{ "-": [*march-year, { "%": [*march-year, 4] }] }, 4]
+                                - "*": [-1, { "/": [{ "-": [*march-year, { "%": [*march-year, 100] }] }, 100] }]
+                                - "/": [{ "-": [*march-year, { "%": [*march-year, 400] }] }, 400]
+                                - "/": [{ "-": [&month-days { "+": [{ "*": [153, { "%": [{ "+": [*month, 9] }, 12] }] }, 2] }, { "%": [*month-days, 5] }] }, 5]
+                                - "+": [{ substr: [*iso, 8, 2] }]
+                            - 86400
+                        - "*": [{ "+": [{ substr: [*iso, 11, 2] }] }, 3600]
+                        - "*": [{ "+": [{ substr: [*iso, 14, 2] }] }, 60]
+                        - "+": [{ substr: [*iso, 17, 2] }]
+                - "-": [{ var: current }, { var: accumulator }]
+                - 0
+            - "*": [{ var: inputs.lookback_hours }, 3600]
+    retries: 2
+
+  - id: changes
+    tools: [listCommits, searchPullRequests]
+    instructions: |
+      Collect the changes to GitHub repository {{inputs.owner}}/{{inputs.repo}}, branch {{inputs.branch}},
+      between {{steps.incident.window_start}} and {{steps.incident.window_end}}.
+
+      Commits: call listCommits with owner "{{inputs.owner}}", repo "{{inputs.repo}}", sha
+      "{{inputs.branch}}", since "{{steps.incident.window_start}}", until "{{steps.incident.window_end}}",
+      and page 1, 2, 3 and so on until a page returns fewer than two commits. Use no other arguments.
+
+      Pull requests: call searchPullRequests with q exactly
+      "repo:{{inputs.owner}}/{{inputs.repo}} is:pr is:merged base:{{inputs.branch}} merged:{{steps.incident.window_start}}..{{steps.incident.window_end}}"
+      and per_page 3, paging until you have read every item up to total_count. If a result is cut short
+      before you can read an item's number, title and pull_request.merged_at, fetch that item alone with
+      per_page 1 and page equal to its position in the full list.
+
+      Submit every commit once with sha (all 40 characters), committed_at (commit.committer.date) and
+      title (the first line of commit.message, exactly), and every pull request once with number,
+      title and merged_at (pull_request.merged_at), all copied exactly.
+    produces:
+      type: object
+      required: [commits, pulls]
+      additionalProperties: false
+      properties:
+        commits:
+          type: array
+          items:
+            type: object
+            required: [sha, committed_at, title]
+            additionalProperties: false
+            properties:
+              sha: { type: string, pattern: "^[0-9a-f]{40}$" }
+              committed_at: { $ref: "#/$defs/utc" }
+              title: { type: string }
+        pulls:
+          type: array
+          items:
+            type: object
+            required: [number, title, merged_at]
+            additionalProperties: false
+            properties:
+              number: { type: integer, minimum: 1 }
+              title: { type: string }
+              merged_at: { $ref: "#/$defs/utc" }
+    gates:
+      - id: commit-calls-match-window
+        message: >
+          Every listCommits call must use the given owner, repo and branch as sha, with since and until
+          equal to the incident window.
+        predicate:
+          subset:
+            - map:
+                - filter: [{ var: calls }, { "==": [{ var: tool }, listCommits] }]
+                - cat: [{ lower: { var: arguments.owner } }, "/", { lower: { var: arguments.repo } }, "@", { var: arguments.sha }, "|", { var: arguments.since }, "|", { var: arguments.until }]
+            - - cat: [{ lower: { var: inputs.owner } }, "/", { lower: { var: inputs.repo } }, "@", { var: inputs.branch }, "|", { var: steps.incident.window_start }, "|", { var: steps.incident.window_end }]
+      # Pages hold two commits, so reading pages 1..k with page k short yields exactly 2(k-1) + |page k|
+      # distinct commits; a skipped page leaves the count short.
+      - id: every-commit-page-read
+        message: >
+          Page through listCommits from page 1 without gaps until a page returns fewer than two commits.
+        predicate:
+          in:
+            - length:
+                unique:
+                  flatten:
+                    map:
+                      - filter: [{ var: calls }, { and: [{ "==": [{ var: tool }, listCommits] }, { "!": { var: is_error } }] }]
+                      - map: [{ var: result }, { var: sha }]
+            - map:
+                - filter:
+                    - var: calls
+                    - and:
+                        - "==": [{ var: tool }, listCommits]
+                        - "!": { var: is_error }
+                        - "<": [{ length: { var: result } }, 2]
+                - "+": [{ "*": [{ "-": [{ var: arguments.page }, 1] }, 2] }, { length: { var: result } }]
+      - id: commits-from-github
+        message: >
+          Every commit must be one listCommits returned, with sha, committed_at (commit.committer.date)
+          and title (the first line of commit.message) copied exactly.
+        predicate:
+          subset:
+            - map: [{ var: output.commits }, { cat: [{ var: sha }, "|", { var: committed_at }, "|", { var: title }] }]
+            - flatten:
+                map:
+                  - filter: [{ var: calls }, { and: [{ "==": [{ var: tool }, listCommits] }, { "!": { var: is_error } }] }]
+                  - map:
+                      - var: result
+                      - cat: [{ var: sha }, "|", { var: commit.committer.date }, "|", { match_all: [{ var: commit.message }, "^[^\\r\\n]*"] }]
+      - id: commits-complete
+        message: List every commit listCommits returned, each once.
+        predicate:
+          and:
+            - "==": [{ length: { unique: { map: [{ var: output.commits }, { var: sha }] } } }, { length: { var: output.commits } }]
+            - "==":
+                - length: { var: output.commits }
+                - length:
+                    unique:
+                      flatten:
+                        map:
+                          - filter: [{ var: calls }, { and: [{ "==": [{ var: tool }, listCommits] }, { "!": { var: is_error } }] }]
+                          - map: [{ var: result }, { var: sha }]
+      # The reduces start from the window's own ends, so they return the earliest and latest time listed.
+      - id: changes-inside-window
+        message: Every commit and pull request must fall inside the incident window.
+        predicate:
+          and:
+            - ">=":
+                - reduce:
+                    - merge: [{ map: [{ var: output.commits }, { var: committed_at }] }, { map: [{ var: output.pulls }, { var: merged_at }] }]
+                    - if: [{ "<": [{ var: current }, { var: accumulator }] }, { var: current }, { var: accumulator }]
+                    - var: steps.incident.window_end
+                - var: steps.incident.window_start
+            - "<=":
+                - reduce:
+                    - merge: [{ map: [{ var: output.commits }, { var: committed_at }] }, { map: [{ var: output.pulls }, { var: merged_at }] }]
+                    - if: [{ ">": [{ var: current }, { var: accumulator }] }, { var: current }, { var: accumulator }]
+                    - var: steps.incident.window_start
+                - var: steps.incident.window_end
+      - id: pull-search-matches-window
+        message: >
+          Every searchPullRequests call must use q exactly as instructed, and every item it returned must
+          belong to this repository.
+        predicate:
+          and:
+            - subset:
+                - map: [{ filter: [{ var: calls }, { "==": [{ var: tool }, searchPullRequests] }] }, { var: arguments.q }]
+                - - cat: ["repo:", { var: inputs.owner }, "/", { var: inputs.repo }, " is:pr is:merged base:", { var: inputs.branch }, " merged:", { var: steps.incident.window_start }, "..", { var: steps.incident.window_end }]
+            - subset:
+                - flatten:
+                    map:
+                      - filter: [{ var: calls }, { and: [{ "==": [{ var: tool }, searchPullRequests] }, { "!": { var: is_error } }] }]
+                      - map: [{ var: result.items }, { lower: { var: repository_url } }]
+                - - lower: { cat: ["https://api.github.com/repos/", { var: inputs.owner }, "/", { var: inputs.repo }] }
+      - id: pulls-from-github
+        message: >
+          Every pull request must be one searchPullRequests returned, with number, title and merged_at
+          (pull_request.merged_at) copied exactly.
+        predicate:
+          subset:
+            - map: [{ var: output.pulls }, { cat: [{ var: number }, "|", { var: title }, "|", { var: merged_at }] }]
+            - flatten:
+                map:
+                  - filter: [{ var: calls }, { and: [{ "==": [{ var: tool }, searchPullRequests] }, { "!": { var: is_error } }] }]
+                  - map: [{ var: result.items }, { cat: [{ var: number }, "|", { var: title }, "|", { var: pull_request.merged_at }] }]
+      - id: pulls-complete
+        message: >
+          List every pull request the search matched, each once: the count must equal total_count, and
+          the search must not report incomplete_results.
+        predicate:
+          and:
+            - "==": [{ length: { unique: { map: [{ var: output.pulls }, { var: number }] } } }, { length: { var: output.pulls } }]
+            - in:
+                - length: { var: output.pulls }
+                - map:
+                    - filter: [{ var: calls }, { and: [{ "==": [{ var: tool }, searchPullRequests] }, { "!": { var: is_error } }] }]
+                    - var: result.total_count
+            - subset:
+                - map:
+                    - filter: [{ var: calls }, { and: [{ "==": [{ var: tool }, searchPullRequests] }, { "!": { var: is_error } }] }]
+                    - cat: [{ var: result.total_count }, "|", { var: result.incomplete_results }]
+                - - cat: [{ length: { var: output.pulls } }, "|false"]
+    retries: 2
+
+  - id: analyse
+    instructions: |
+      Incident {{inputs.incident_number}}: "{{steps.incident.short_description}}", assignment group
+      "{{steps.incident.assignment_group}}", opened {{steps.incident.opened_at}}, resolved
+      {{steps.incident.resolved_at}} (null means still open). What the work notes say:
+      {{steps.incident.work_notes_summary}}
+
+      Changes to {{inputs.owner}}/{{inputs.repo}} ({{inputs.branch}}) from {{steps.incident.window_start}}
+      to {{steps.incident.window_end}}:
+
+      Commits:
+      {{steps.changes.commits}}
+
+      Merged pull requests:
+      {{steps.changes.pulls}}
+
+      Build a timeline sorted by time, oldest first, with one entry for each of these and nothing else:
+      - kind "incident-opened", ref "{{inputs.incident_number}}", at the opened time;
+      - kind "incident-resolved", ref "{{inputs.incident_number}}", at the resolved time, only if resolved;
+      - kind "commit", ref the full 40-character sha, at committed_at, for every commit;
+      - kind "pull", ref "#" followed by the number, at merged_at, for every pull request.
+      Give each entry a one-line summary.
+
+      Then pick the suspect changes: the commits or pull requests most likely to have caused the
+      incident, judged from their titles and timing against the short description and work notes. Give
+      each one kind ("commit" or "pull"), ref and at exactly as in the timeline, and a one-sentence
+      reason. Choose none if nothing plausibly relates.
+
+      Finally write summary: a short Markdown review that names the incident, the window, the suspect
+      changes by ref, and why. Cite commits by full sha and pull requests as #number, and cite only
+      changes listed above.
+    produces:
+      type: object
+      required: [timeline, suspects, summary]
+      additionalProperties: false
+      properties:
+        timeline:
+          type: array
+          items:
+            type: object
+            required: [at, kind, ref, summary]
+            additionalProperties: false
+            properties:
+              at: { $ref: "#/$defs/utc" }
+              kind: { enum: [incident-opened, incident-resolved, commit, pull] }
+              ref: { type: string }
+              summary: { type: string, maxLength: 300 }
+        suspects:
+          type: array
+          maxItems: 10
+          items:
+            type: object
+            required: [kind, ref, at, reason]
+            additionalProperties: false
+            properties:
+              kind: { enum: [commit, pull] }
+              ref: { type: string }
+              at: { $ref: "#/$defs/utc" }
+              reason: { type: string, maxLength: 500 }
+        summary: { type: string, minLength: 1, maxLength: 6000 }
+    gates:
+      - id: timeline-is-the-evidence
+        message: >
+          The timeline must hold exactly one entry per commit, pull request and incident open/resolve
+          event, with kind, ref and at as instructed, and nothing else.
+        predicate:
+          and:
+            - "==": [{ length: { unique: { map: [{ var: output.timeline }, { cat: [{ var: kind }, "|", { var: ref }] }] } } }, { length: { var: output.timeline } }]
+            - subset:
+                - &timeline-keys
+                  map: [{ var: output.timeline }, { cat: [{ var: kind }, "|", { var: ref }, "|", { var: at }] }]
+                - &evidence-keys
+                  merge:
+                    - map: [{ var: steps.changes.commits }, { cat: ["commit|", { var: sha }, "|", { var: committed_at }] }]
+                    - map: [{ var: steps.changes.pulls }, { cat: ["pull|#", { var: number }, "|", { var: merged_at }] }]
+                    - - cat: ["incident-opened|", { var: inputs.incident_number }, "|", { var: steps.incident.opened_at }]
+                    - if:
+                        - "!=": [{ var: steps.incident.resolved_at }, null]
+                        - - cat: ["incident-resolved|", { var: inputs.incident_number }, "|", { var: steps.incident.resolved_at }]
+                        - []
+            - subset: [*evidence-keys, *timeline-keys]
+      # The reduce carries the previous time and turns into "~" at the first entry out of order.
+      - id: timeline-sorted
+        message: Sort the timeline by at, oldest first.
+        predicate:
+          "!=":
+            - reduce:
+                - var: output.timeline
+                - if:
+                    - and: [{ "!=": [{ var: accumulator }, "~"] }, { "<=": [{ var: accumulator }, { var: current.at }] }]
+                    - var: current.at
+                    - "~"
+                - ""
+            - "~"
+      - id: suspects-are-listed-changes
+        message: >
+          Every suspect must be a listed commit (ref = full sha) or pull request (ref = #number) with its
+          own time, listed once, inside the incident window.
+        predicate:
+          and:
+            - "==": [{ length: { unique: { map: [{ var: output.suspects }, { var: ref }] } } }, { length: { var: output.suspects } }]
+            - subset:
+                - map: [{ var: output.suspects }, { cat: [{ var: kind }, "|", { var: ref }, "|", { var: at }] }]
+                - merge:
+                    - map: [{ var: steps.changes.commits }, { cat: ["commit|", { var: sha }, "|", { var: committed_at }] }]
+                    - map: [{ var: steps.changes.pulls }, { cat: ["pull|#", { var: number }, "|", { var: merged_at }] }]
+            - ">=":
+                - reduce: [{ var: output.suspects }, { if: [{ "<": [{ var: current.at }, { var: accumulator }] }, { var: current.at }, { var: accumulator }] }, { var: steps.incident.window_end }]
+                - var: steps.incident.window_start
+            - "<=":
+                - reduce: [{ var: output.suspects }, { if: [{ ">": [{ var: current.at }, { var: accumulator }] }, { var: current.at }, { var: accumulator }] }, { var: steps.incident.window_start }]
+                - var: steps.incident.window_end
+      - id: summary-cites-evidence
+        message: >
+          The summary must name the incident and every suspect by ref, and every 40-character sha or
+          #number it cites must be a listed commit or pull request.
+        predicate:
+          and:
+            - in: [{ var: inputs.incident_number }, { var: output.summary }]
+            - "!=":
+                - reduce:
+                    - var: output.suspects
+                    - if: [{ in: [{ var: current.ref }, { var: accumulator }] }, { var: accumulator }, ""]
+                    - var: output.summary
+                - ""
+            - subset:
+                - match_all: [{ var: output.summary }, "\\b[0-9a-f]{40}\\b"]
+                - map: [{ var: steps.changes.commits }, { var: sha }]
+            - subset:
+                - match_all: [{ var: output.summary }, "#([0-9]+)"]
+                - map: [{ var: steps.changes.pulls }, { cat: [{ var: number }] }]
+    retries: 2
+
+  - id: plan
+    instructions: |
+      Plan the only change this review makes: one internal work note on incident
+      {{inputs.incident_number}} (sys_id {{steps.incident.sys_id}}).
+
+      Review summary:
+      {{steps.analyse.summary}}
+
+      Suspect changes:
+      {{steps.analyse.suspects}}
+
+      Submit writes as a list with exactly one entry: sys_id "{{steps.incident.sys_id}}" and work_notes,
+      plain text of at most 4000 characters that starts with the line
+      "Incident review for {{inputs.incident_number}}", states the window
+      {{steps.incident.window_start}} to {{steps.incident.window_end}} and the repository
+      {{inputs.owner}}/{{inputs.repo}} ({{inputs.branch}}), and lists every suspect change by its ref
+      (full sha or #number) with its time and reason. Cite no commit or pull request that is not a
+      suspect or in the summary above.
+    produces:
+      type: object
+      required: [writes]
+      additionalProperties: false
+      properties:
+        writes:
+          type: array
+          minItems: 1
+          maxItems: 1
+          items:
+            type: object
+            required: [sys_id, work_notes]
+            additionalProperties: false
+            properties:
+              sys_id: { type: string, pattern: "^[0-9a-f]{32}$" }
+              work_notes: { type: string, minLength: 1, maxLength: 4000 }
+    gates:
+      - id: targets-this-incident
+        message: The single write must target this incident's sys_id.
+        predicate:
+          subset:
+            - map: [{ var: output.writes }, { var: sys_id }]
+            - [{ var: steps.incident.sys_id }]
+      - id: note-cites-evidence
+        message: >
+          The work note must start with "Incident review for <incident number>", state the window, name
+          every suspect by ref, and cite only listed commits (full sha) and pull requests (#number).
+        predicate:
+          and:
+            - "==":
+                - substr: [{ var: output.writes.0.work_notes }, 0, { length: { cat: ["Incident review for ", { var: inputs.incident_number }] } }]
+                - cat: ["Incident review for ", { var: inputs.incident_number }]
+            - in: [{ var: steps.incident.window_start }, { var: output.writes.0.work_notes }]
+            - in: [{ var: steps.incident.window_end }, { var: output.writes.0.work_notes }]
+            - "!=":
+                - reduce:
+                    - var: steps.analyse.suspects
+                    - if: [{ in: [{ var: current.ref }, { var: accumulator }] }, { var: accumulator }, ""]
+                    - var: output.writes.0.work_notes
+                - ""
+            - subset:
+                - match_all: [{ var: output.writes.0.work_notes }, "\\b[0-9a-f]{40}\\b"]
+                - map: [{ var: steps.changes.commits }, { var: sha }]
+            - subset:
+                - match_all: [{ var: output.writes.0.work_notes }, "#([0-9]+)"]
+                - map: [{ var: steps.changes.pulls }, { cat: [{ var: number }] }]
+    retries: 2
+
+  - id: execute
+    tools: [addWorkNote]
+    instructions: |
+      Make exactly these writes and nothing else:
+
+      {{steps.plan.writes}}
+
+      For each entry call addWorkNote once, with sys_id and body.work_notes copied exactly. Do not
+      repeat a call that succeeded. Submit updated: one entry per successful call with sys_id, number and
+      sys_updated_on copied from its result.
+    produces:
+      type: object
+      required: [updated]
+      additionalProperties: false
+      properties:
+        updated:
+          type: array
+          items:
+            type: object
+            required: [sys_id, number, sys_updated_on]
+            additionalProperties: false
+            properties:
+              sys_id: { type: string }
+              number: { type: string }
+              sys_updated_on: { type: string }
+    gates:
+      - id: exactly-the-planned-writes
+        message: >
+          Call addWorkNote once per planned write with its sys_id and work_notes unchanged; no call may
+          carry anything else, and each planned write must succeed exactly once.
+        predicate:
+          and:
+            - subset:
+                - map: [{ filter: [{ var: calls }, { "==": [{ var: tool }, addWorkNote] }] }, { cat: [{ var: arguments.sys_id }, "|", { var: arguments.body.work_notes }] }]
+                - &planned-writes
+                  map: [{ var: steps.plan.writes }, { cat: [{ var: sys_id }, "|", { var: work_notes }] }]
+            - subset:
+                - *planned-writes
+                - &succeeded-writes
+                  map:
+                    - filter: [{ var: calls }, { and: [{ "==": [{ var: tool }, addWorkNote] }, { "!": { var: is_error } }] }]
+                    - cat: [{ var: arguments.sys_id }, "|", { var: arguments.body.work_notes }]
+            - "==": [{ length: *succeeded-writes }, { length: { var: steps.plan.writes } }]
+      - id: servicenow-confirmed
+        message: Every successful addWorkNote result must be the record that was addressed.
+        predicate:
+          none:
+            - filter: [{ var: calls }, { and: [{ "==": [{ var: tool }, addWorkNote] }, { "!": { var: is_error } }] }]
+            - or:
+                - "!=": [{ var: result.result.sys_id }, { var: arguments.sys_id }]
+                - "!": { var: result.result.sys_updated_on }
+      - id: reported-from-results
+        message: Report one entry per successful write, with sys_id, number and sys_updated_on copied from its result.
+        predicate:
+          and:
+            - "==": [{ length: { var: output.updated } }, { length: { var: steps.plan.writes } }]
+            - subset:
+                - map: [{ var: output.updated }, { cat: [{ var: sys_id }, "|", { var: number }, "|", { var: sys_updated_on }] }]
+                - map:
+                    - filter: [{ var: calls }, { and: [{ "==": [{ var: tool }, addWorkNote] }, { "!": { var: is_error } }] }]
+                    - cat: [{ var: result.result.sys_id }, "|", { var: result.result.number }, "|", { var: result.result.sys_updated_on }]
+            - subset:
+                - map: [{ var: output.updated }, { var: number }]
+                - [{ var: inputs.incident_number }]
+    retries: 2
+
+  - id: report
+    instructions: |
+      Write the final report for incident {{inputs.incident_number}} as Markdown.
+
+      Review summary:
+      {{steps.analyse.summary}}
+
+      Timeline:
+      {{steps.analyse.timeline}}
+
+      Work note written:
+      {{steps.execute.updated}}
+
+      Include a timeline section, the suspect changes with their refs, and a closing line saying the work
+      note was added at the sys_updated_on time above (UTC). Cite commits by full sha and pull requests as
+      #number, and only those in the timeline.
+    produces:
+      type: object
+      required: [summary]
+      additionalProperties: false
+      properties:
+        summary: { type: string, minLength: 1, maxLength: 12000 }
+    gates:
+      - id: report-cites-evidence
+        message: >
+          The report must name the incident, every suspect by ref and the work note's sys_updated_on, and
+          cite only commits and pull requests from the timeline.
+        predicate:
+          and:
+            - in: [{ var: inputs.incident_number }, { var: output.summary }]
+            - in: [{ var: steps.execute.updated.0.sys_updated_on }, { var: output.summary }]
+            - "!=":
+                - reduce:
+                    - var: steps.analyse.suspects
+                    - if: [{ in: [{ var: current.ref }, { var: accumulator }] }, { var: accumulator }, ""]
+                    - var: output.summary
+                - ""
+            - subset:
+                - match_all: [{ var: output.summary }, "\\b[0-9a-f]{40}\\b"]
+                - map: [{ var: steps.changes.commits }, { var: sha }]
+            - subset:
+                - match_all: [{ var: output.summary }, "#([0-9]+)"]
+                - map: [{ var: steps.changes.pulls }, { cat: [{ var: number }] }]
+    retries: 2
+
+$defs:
+  utc: { type: string, pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$" }

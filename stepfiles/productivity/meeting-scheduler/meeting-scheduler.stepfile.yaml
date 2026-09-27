@@ -1,0 +1,332 @@
+# yaml-language-server: $schema=../../../server/schema/stepfile.schema.json
+stepgate: "1"
+id: meeting-scheduler
+title: Find meeting slots free for every attendee and write the invite email
+description: >
+  Queries Google Calendar free/busy for every attendee over a date range,
+  proposes up to three slots inside working hours that Google confirms are free
+  for everyone, and returns a ready-to-send invite email. Creates no calendar
+  event and sends nothing.
+
+inputs:
+  type: object
+  required: [attendees, title, duration_minutes, start_date, end_date, work_start, work_end, utc_offset]
+  properties:
+    attendees:
+      type: array
+      minItems: 1
+      maxItems: 20
+      uniqueItems: true
+      items: { type: string, pattern: "^[a-z0-9._%+-]+@[a-z0-9-]+(\\.[a-z0-9-]+)+$" }
+      description: Attendee email addresses in lowercase; each is queried as a Google calendar id
+    title: { type: string, minLength: 3, maxLength: 120, description: "What the meeting is about, used in the subject line" }
+    duration_minutes: { type: integer, minimum: 15, maximum: 480, multipleOf: 5, description: "Meeting length in minutes" }
+    start_date: { type: string, pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}$", description: "First date a meeting may fall on, YYYY-MM-DD, in the working-hours time zone" }
+    end_date: { type: string, pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}$", description: "Last date a meeting may fall on, YYYY-MM-DD, inclusive" }
+    work_start: { type: string, pattern: "^([01][0-9]|2[0-3]):[0-5][0-9]$", description: "Start of working hours, HH:MM local time" }
+    work_end: { type: string, pattern: "^([01][0-9]|2[0-3]):[0-5][0-9]$", description: "End of working hours, HH:MM local time; a meeting must end by then" }
+    utc_offset: { type: string, pattern: "^[+-](0[0-9]|1[0-4]):[0-5][0-9]$", description: "UTC offset of the working hours over the whole date range, for example +01:00 or -05:00" }
+
+credentials:
+  google-calendar:
+    kind: oauth2
+    scopes: ["https://www.googleapis.com/auth/calendar.events.freebusy"]
+    hosts: [www.googleapis.com]
+    description: >
+      A Google OAuth 2.0 access token with the calendar.events.freebusy scope,
+      which lets the holder see free/busy availability on calendars they can
+      access and nothing else. Access tokens expire after about an hour.
+
+tools:
+  google-calendar:
+    openapi:
+      server: https://www.googleapis.com/calendar/v3
+      document:
+        openapi: 3.1.0
+        info: { title: Google Calendar API v3 (trimmed to freeBusy.query), version: "1" }
+        components:
+          securitySchemes:
+            google:
+              type: oauth2
+              flows:
+                authorizationCode:
+                  authorizationUrl: https://accounts.google.com/o/oauth2/auth
+                  tokenUrl: https://oauth2.googleapis.com/token
+                  scopes: { "https://www.googleapis.com/auth/calendar.events.freebusy": See the availability on Google calendars you have access to }
+        security: [{ google: ["https://www.googleapis.com/auth/calendar.events.freebusy"] }]
+        paths:
+          /freeBusy:
+            post:
+              operationId: queryFreeBusy
+              summary: >
+                Free/busy for a set of calendars between timeMin and timeMax
+                (RFC 3339). Returns calendars, an object keyed by calendar id; each
+                value has busy (a list of start and end times, start inclusive,
+                end exclusive) and, when the calendar could not be read, errors
+                (for example reason notFound).
+              requestBody:
+                required: true
+                content:
+                  application/json:
+                    schema:
+                      type: object
+                      required: [timeMin, timeMax, timeZone, items]
+                      additionalProperties: false
+                      properties:
+                        timeMin: { type: string, pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}[+-][0-9]{2}:[0-9]{2}$" }
+                        timeMax: { type: string, pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}[+-][0-9]{2}:[0-9]{2}$" }
+                        timeZone: { const: UTC }
+                        items:
+                          type: array
+                          minItems: 1
+                          maxItems: 50
+                          items:
+                            type: object
+                            required: [id]
+                            additionalProperties: false
+                            properties: { id: { type: string, minLength: 3 } }
+    credential: google-calendar
+    exposes: [queryFreeBusy]
+
+steps:
+  - id: availability
+    tools: [queryFreeBusy]
+    instructions: |
+      Fetch free/busy for every attendee with one queryFreeBusy call whose
+      body is exactly:
+        timeMin: {{inputs.start_date}}T00:00:00{{inputs.utc_offset}}
+        timeMax: {{inputs.end_date}}T23:59:59{{inputs.utc_offset}}
+        timeZone: UTC
+        items: one { "id": <email> } per attendee, in this order:
+      {{inputs.attendees}}
+
+      Submit calendars: the calendars object from the response, copied
+      exactly, with every key and every busy interval. Do not summarise,
+      reorder or convert it.
+    produces:
+      type: object
+      required: [calendars]
+      properties:
+        calendars:
+          type: object
+          minProperties: 1
+          additionalProperties:
+            type: object
+            properties:
+              busy:
+                type: array
+                items:
+                  type: object
+                  required: [start, end]
+                  properties: { start: { type: string }, end: { type: string } }
+              errors: { type: array }
+    gates:
+      - id: inputs-consistent
+        message: >
+          start_date must not be after end_date, and the working hours must be
+          at least duration_minutes long.
+        predicate:
+          and:
+            - "<=": [{ var: inputs.start_date }, { var: inputs.end_date }]
+            - ">=":
+                - "-":
+                    - { "+": [{ "*": [{ substr: [{ var: inputs.work_end }, 0, 2] }, 60] }, { substr: [{ var: inputs.work_end }, 3, 2] }] }
+                    - { "+": [{ "*": [{ substr: [{ var: inputs.work_start }, 0, 2] }, 60] }, { substr: [{ var: inputs.work_start }, 3, 2] }] }
+                - { var: inputs.duration_minutes }
+      # One tuple ties the window, the attendee list and the copied calendars to the same call.
+      - id: calendars-from-full-query
+        message: >
+          Make a successful queryFreeBusy call with timeMin
+          <start_date>T00:00:00<utc_offset>, timeMax
+          <end_date>T23:59:59<utc_offset>, timeZone UTC and one item per
+          attendee in input order, and submit its calendars object exactly.
+        predicate:
+          subset:
+            - - - { cat: [{ var: inputs.start_date }, "T00:00:00", { var: inputs.utc_offset }] }
+                - { cat: [{ var: inputs.end_date }, "T23:59:59", { var: inputs.utc_offset }] }
+                - UTC
+                - { var: inputs.attendees }
+                - { var: output.calendars }
+            - map:
+                - filter: [{ var: calls }, { "!": { var: is_error } }]
+                - - { var: arguments.body.timeMin }
+                  - { var: arguments.body.timeMax }
+                  - { var: arguments.body.timeZone }
+                  - { map: [{ var: arguments.body.items }, { var: id }] }
+                  - { var: result.calendars }
+      - id: every-calendar-readable
+        schema:
+          properties:
+            calendars:
+              additionalProperties:
+                properties:
+                  errors: { maxItems: 0 }
+    retries: 2
+
+  - id: slots
+    tools: [queryFreeBusy]
+    instructions: |
+      Busy intervals per attendee, in UTC, for {{inputs.start_date}} to
+      {{inputs.end_date}}:
+      {{steps.availability.calendars}}
+
+      Working hours are {{inputs.work_start}} to {{inputs.work_end}} local
+      time, where local time is UTC{{inputs.utc_offset}}. Find up to three
+      slots of exactly {{inputs.duration_minutes}} minutes that
+      - fall on one local date from {{inputs.start_date}} to {{inputs.end_date}},
+      - start at or after {{inputs.work_start}} and end at or before {{inputs.work_end}} local time,
+      - overlap no busy interval of any attendee (convert each UTC interval
+        to local time first; an interval that ends exactly when a slot starts
+        does not overlap it).
+      Prefer slots on different dates, starting on the hour or half hour.
+
+      Confirm every slot before submitting it: call queryFreeBusy with
+      timeMin the slot start, timeMax the slot end, timeZone UTC, and one
+      item per attendee in this order: {{inputs.attendees}}
+      A slot is free only if every calendar in that response has an empty
+      busy list and no errors. Drop any slot that is not, and try another.
+
+      Submit slots, each with start and end written as local time with the
+      offset, YYYY-MM-DDTHH:MM:00{{inputs.utc_offset}} (for example
+      2026-10-06T10:00:00{{inputs.utc_offset}}), and check: the calendars
+      object from that slot's confirming response, copied exactly.
+    produces:
+      type: object
+      required: [slots]
+      properties:
+        slots:
+          type: array
+          minItems: 1
+          maxItems: 3
+          items:
+            type: object
+            required: [start, end, check]
+            additionalProperties: false
+            properties:
+              start: { type: string, pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:00[+-][0-9]{2}:[0-9]{2}$" }
+              end: { type: string, pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:00[+-][0-9]{2}:[0-9]{2}$" }
+              check: { type: object, minProperties: 1 }
+    gates:
+      - id: every-query-covers-all-attendees
+        message: Every queryFreeBusy call must use timeZone UTC and exactly the attendee list, in input order.
+        predicate:
+          subset:
+            - map: [{ var: calls }, [{ var: arguments.body.timeZone }, { map: [{ var: arguments.body.items }, { var: id }] }]]
+            - [[UTC, { var: inputs.attendees }]]
+      - id: slot-confirmed-by-google
+        message: >
+          Each slot's check must be the calendars object of a successful
+          queryFreeBusy call whose timeMin and timeMax are exactly that slot's
+          start and end.
+        predicate:
+          subset:
+            - map: [{ var: output.slots }, [{ var: start }, { var: end }, { var: check }]]
+            - map:
+                - filter: [{ var: calls }, { "!": { var: is_error } }]
+                - [{ var: arguments.body.timeMin }, { var: arguments.body.timeMax }, { var: result.calendars }]
+      - id: slot-free-for-everyone
+        schema:
+          properties:
+            slots:
+              items:
+                properties:
+                  check:
+                    additionalProperties:
+                      properties:
+                        busy: { maxItems: 0 }
+                        errors: { maxItems: 0 }
+      - id: slots-use-input-offset
+        message: Every slot start and end must carry the input utc_offset.
+        predicate:
+          subset:
+            - map: [{ var: output.slots }, [{ substr: [{ var: start }, 19] }, { substr: [{ var: end }, 19] }]]
+            - [[{ var: inputs.utc_offset }, { var: inputs.utc_offset }]]
+      # The reduce carries [ok, start_date, end_date, work_start, work_end, duration] so each slot sees the inputs.
+      - id: slots-inside-range-and-hours
+        message: >
+          Every slot must start and end on the same local date between
+          start_date and end_date, start at or after work_start, end at or
+          before work_end, and last exactly duration_minutes.
+        predicate:
+          "!":
+            in:
+              - false
+              - reduce:
+                  - { var: output.slots }
+                  - - and:
+                        - { var: accumulator.0 }
+                        - and:
+                            - "==": [{ substr: [{ var: current.start }, 0, 10] }, { substr: [{ var: current.end }, 0, 10] }]
+                            - ">=": [{ substr: [{ var: current.start }, 0, 10] }, { var: accumulator.1 }]
+                            - "<=": [{ substr: [{ var: current.start }, 0, 10] }, { var: accumulator.2 }]
+                            - ">=": [{ substr: [{ var: current.start }, 11, 5] }, { var: accumulator.3 }]
+                            - "<=": [{ substr: [{ var: current.end }, 11, 5] }, { var: accumulator.4 }]
+                            - "==":
+                                - "-":
+                                    - { "+": [{ "*": [{ substr: [{ var: current.end }, 11, 2] }, 60] }, { substr: [{ var: current.end }, 14, 2] }] }
+                                    - { "+": [{ "*": [{ substr: [{ var: current.start }, 11, 2] }, 60] }, { substr: [{ var: current.start }, 14, 2] }] }
+                                - { var: accumulator.5 }
+                    - { var: accumulator.1 }
+                    - { var: accumulator.2 }
+                    - { var: accumulator.3 }
+                    - { var: accumulator.4 }
+                    - { var: accumulator.5 }
+                  - [true, { var: inputs.start_date }, { var: inputs.end_date }, { var: inputs.work_start }, { var: inputs.work_end }, { var: inputs.duration_minutes }]
+      - id: slots-distinct
+        message: No two slots may start at the same time.
+        predicate:
+          "==": [{ length: { unique: { map: [{ var: output.slots }, { var: start }] } } }, { length: { var: output.slots } }]
+    retries: 2
+
+  - id: invite
+    instructions: |
+      Write the invite email for "{{inputs.title}}". Do not send it anywhere;
+      submit it.
+
+      Confirmed slots: {{steps.slots.slots}}
+
+      - to: the attendees, in this order: {{inputs.attendees}}
+      - subject: include "{{inputs.title}}".
+      - body: plain text. A short greeting, the purpose, then the line
+        "Proposed times ({{inputs.duration_minutes}} minutes, local time
+        UTC{{inputs.utc_offset}}):" and one line per slot, in the order above,
+        written exactly as "- YYYY-MM-DD HH:MM to HH:MM (UTC±hh:mm)" from the
+        slot's start date, start time, end time and offset, for example
+        "- 2026-10-06 10:00 to 10:30 (UTC+01:00)". Ask each person to reply
+        with the options that work. Write no weekday names and no other date
+        or time in that format.
+    produces:
+      type: object
+      required: [to, subject, body]
+      properties:
+        to: { type: array, minItems: 1, items: { type: string } }
+        subject: { type: string, minLength: 3, maxLength: 200 }
+        body: { type: string, minLength: 20, maxLength: 5000 }
+    gates:
+      - id: recipients-are-attendees
+        message: to must list exactly the input attendees, each once.
+        predicate:
+          and:
+            - "==": [{ length: { var: output.to } }, { length: { var: inputs.attendees } }]
+            - subset: [{ map: [{ var: output.to }, { lower: { var: "" } }] }, { var: inputs.attendees }]
+            - subset: [{ var: inputs.attendees }, { map: [{ var: output.to }, { lower: { var: "" } }] }]
+      - id: subject-names-meeting
+        message: The subject must contain the meeting title.
+        predicate:
+          in: [{ var: inputs.title }, { var: output.subject }]
+      - id: slots-quoted-exactly
+        message: >
+          The body must list every confirmed slot as
+          "YYYY-MM-DD HH:MM to HH:MM (UTC±hh:mm)" and no other time in that
+          form, and state the duration as "<duration_minutes> minutes".
+        predicate:
+          and:
+            - in: [{ cat: [{ var: inputs.duration_minutes }, " minutes"] }, { var: output.body }]
+            - subset:
+                - &quoted { match_all: [{ var: output.body }, "(\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2} to \\d{2}:\\d{2} \\(UTC[+-]\\d{2}:\\d{2}\\))"] }
+                - &expected
+                  map:
+                    - { var: steps.slots.slots }
+                    - cat: [{ substr: [{ var: start }, 0, 10] }, " ", { substr: [{ var: start }, 11, 5] }, " to ", { substr: [{ var: end }, 11, 5] }, " (UTC", { substr: [{ var: start }, 19] }, ")"]
+            - subset: [*expected, *quoted]
+    retries: 2
