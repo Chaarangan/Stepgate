@@ -9,7 +9,7 @@ import {
   RunNotActive,
   type GateDiagnosis,
 } from "./errors.ts";
-import { compileStepGates, type StepGates } from "./gates.ts";
+import { compileStepGates, submittedSchema, type StepGates } from "./gates.ts";
 import type { HttpContext } from "./http.ts";
 import { canonicalHash, textHash } from "./identity.ts";
 import { compileToolSchema, createToolSchemaValidators, createValidator, describeErrors, inlineLocalRefs } from "./json-schema.ts";
@@ -243,7 +243,7 @@ export async function startRun(written: Stepfile, inputs: JsonObject, runContext
     total: steps.length,
     instructions: open.instructions,
     operations: [...open.allowed.values()].map((tool) => tool.definition),
-    produces: inlineLocalRefs(open.step.produces, defs, []) as JsonObject,
+    produces: inlineLocalRefs(submittedSchema(open.step), defs, []) as JsonObject,
     attempts_left: (open.step.retries ?? 0) + 2 - open.attempt,
   });
 
@@ -293,14 +293,18 @@ export async function startRun(written: Stepfile, inputs: JsonObject, runContext
       const open = current as Current;
       const { step, attempt } = open;
       await append("submit", { step: step.id, attempt, output: { sha256: canonicalHash(output ?? null), length: JSON.stringify(output ?? null).length } });
-      const verdicts = await (session.gates.get(step.id) as StepGates).check({ inputs, steps: outputs, output: output ?? null, calls: open.calls });
+      const checked = await (session.gates.get(step.id) as StepGates).check({ inputs, steps: outputs, output: output ?? null, calls: open.calls });
+      if (checked.derived && checked.output !== null) {
+        await append("derived", { step: step.id, attempt, output: { sha256: canonicalHash(checked.output), length: JSON.stringify(checked.output).length } });
+      }
+      const verdicts = checked.verdicts;
       for (const { gate, passed, diagnosis } of verdicts) {
         await append("gate", { step: step.id, attempt, gate, verdict: passed ? "pass" : "fail", diagnosis: diagnosis === null ? null : textHash(diagnosis) });
       }
       const failures = verdicts.flatMap(({ gate, passed, diagnosis }) => (passed ? [] : [{ gate, diagnosis: diagnosis ?? "" }]));
       if (failures.length === 0) {
         await append("step_passed", { step: step.id, attempt });
-        outputs[step.id] = output as JsonObject;
+        outputs[step.id] = checked.output as JsonObject;
         return advance(open.index + 1);
       }
       if (attempt > (step.retries ?? 0)) {

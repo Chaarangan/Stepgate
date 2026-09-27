@@ -39,6 +39,8 @@ export type Step = {
   produces: JsonSchema;
   gates: Gate[];
   retries?: number;
+  /** Top-level output fields Stepgate computes after the client submits; the client is not asked for them. */
+  derive?: Record<string, JsonObject>;
   /** Named expressions evaluated in order once per submission, read by gates as `let.<name>`. */
   let?: Record<string, JsonObject>;
   when?: JsonObject;

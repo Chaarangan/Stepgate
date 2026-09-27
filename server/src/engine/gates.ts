@@ -4,7 +4,7 @@ import { guardedFetch, readText, type HttpContext } from "./http.ts";
 import { compileWithDefs, describeErrors } from "./json-schema.ts";
 import { credentialOf, toolUrl } from "./load.ts";
 import { evaluateExpression, evaluatePredicate, expandResults, type PredicateContext } from "./predicate.ts";
-import type { Approvals, Gate, Json, JsonObject, Step, StepfileDocument } from "./types.ts";
+import type { Approvals, Gate, Json, JsonObject, JsonSchema, Step, StepfileDocument } from "./types.ts";
 
 const MAX_EXPLANATION = 2_000;
 
@@ -14,8 +14,32 @@ export type GateContext = PredicateContext & { output: Json; calls: NonNullable<
 /** One gate's verdict on one submission. `produces` is the step's output schema, checked before any gate. */
 export type GateVerdict = { gate: string; passed: boolean; diagnosis: string | null };
 
-/** A step's gates, compiled once per run. `check` returns a verdict per gate in file order, or only `produces` when the output breaks it. */
-export type StepGates = { check: (context: GateContext) => Promise<GateVerdict[]> };
+/** A step's verdicts on one submission, and the output they judged: the submission with any derived fields added, or null when it never got that far. */
+export type StepCheck = { verdicts: GateVerdict[]; output: JsonObject | null; derived: boolean };
+
+/**
+ * A step's gates, compiled once per run. `check` returns a verdict per gate in file order, or only `derive` when the
+ * submission holds a derived field, or only `produces` when the output breaks it.
+ */
+export type StepGates = { check: (context: GateContext) => Promise<StepCheck> };
+
+/** The output schema the client is shown: `produces` without the fields Stepgate derives. */
+export function submittedSchema(step: Step): JsonSchema {
+  const derived = Object.keys(step.derive ?? {});
+  if (derived.length === 0) {
+    return step.produces;
+  }
+  const { properties, required, ...rest } = step.produces as JsonObject & { properties?: JsonObject; required?: string[] };
+  return {
+    ...rest,
+    ...(required === undefined ? {} : { required: required.filter((name) => !derived.includes(name)) }),
+    ...(properties === undefined ? {} : { properties: Object.fromEntries(Object.entries(properties).filter(([name]) => !derived.includes(name))) }),
+  };
+}
+
+function isObject(value: Json): value is JsonObject {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
 
 function verdict(gate: string, diagnosis: string | null): GateVerdict {
   return { gate, passed: diagnosis === null, diagnosis };
@@ -138,21 +162,33 @@ export type GateServices = { http: HttpContext; approvals: Approvals };
 
 /** Compiles the step's output schema and gates against the document's settings-resolved tools. */
 export function compileStepGates(document: StepfileDocument, services: GateServices, step: Step, ajv: Ajv2020): StepGates {
-  const validateOutput = compileWithDefs(ajv, step.produces, document.$defs ?? {});
+  const defs = document.$defs ?? {};
+  const validateOutput = compileWithDefs(ajv, step.produces, defs);
+  const validateSubmission = step.derive === undefined ? validateOutput : compileWithDefs(ajv, submittedSchema(step), defs);
   const gates = step.gates.map((gate) => compileGate(document, services, step, gate, ajv));
   const lets = Object.entries(step.let ?? {}).map(([name, rule]) => [name, expandResults(rule) as JsonObject] as const);
+  const derives = Object.entries(step.derive ?? {}).map(([name, rule]) => [name, expandResults(rule) as JsonObject] as const);
   return {
     check: async (submitted) => {
-      if (!validateOutput(submitted.output)) {
-        return [verdict("produces", describeErrors(validateOutput.errors))];
+      const refused = isObject(submitted.output) ? derives.map(([name]) => name).filter((name) => Object.hasOwn(submitted.output as JsonObject, name)) : [];
+      if (refused.length > 0) {
+        const fields = refused.length === 1 ? `${refused[0]} is` : `${refused.join(", ")} are`;
+        return { verdicts: [verdict("derive", `${fields} computed by Stepgate; submit the output without ${refused.length === 1 ? "it" : "them"}`)], output: null, derived: false };
+      }
+      if (!validateSubmission(submitted.output)) {
+        return { verdicts: [verdict("produces", describeErrors(validateSubmission.errors))], output: null, derived: false };
       }
       const values = lets.reduce<JsonObject>((earlier, [name, rule]) => ({ ...earlier, [name]: evaluateExpression(rule, { ...submitted, let: earlier }) }), {});
-      const context = { ...submitted, let: values };
+      const output: JsonObject = { ...(submitted.output as JsonObject), ...Object.fromEntries(derives.map(([name, rule]) => [name, evaluateExpression(rule, { ...submitted, let: values })])) };
+      if (derives.length > 0 && !validateOutput(output)) {
+        return { verdicts: [verdict("produces", `a derived field breaks produces: ${describeErrors(validateOutput.errors)}`)], output: null, derived: true };
+      }
+      const context = { ...submitted, output, let: values };
       const verdicts: GateVerdict[] = [];
       for (const gate of gates) {
         verdicts.push(await gate(context));
       }
-      return verdicts;
+      return { verdicts, output, derived: derives.length > 0 };
     },
   };
 }

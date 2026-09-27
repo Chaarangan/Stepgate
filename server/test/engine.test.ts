@@ -60,6 +60,19 @@ describe("load", () => {
     expect(() => load(JSON.stringify(document))).toThrow("/steps/0/gates/reads-let let.missing is not declared in this step's let");
   });
 
+  it("refuses a derived field that produces does not declare, and a derive reading an undeclared let or later step", () => {
+    const document = parseYaml(readFileSync(MARKET_RESEARCH, "utf8")) as { steps: Array<{ derive?: JsonObject }> };
+    const first = document.steps[0] as { derive?: JsonObject };
+    first.derive = { tally: { length: { var: "output.sources" } } };
+    expect(() => load(JSON.stringify(document))).toThrow("/steps/0/derive/tally tally is not a property of this step's produces");
+
+    first.derive = { sources: { var: "let.nothing" } };
+    expect(() => load(JSON.stringify(document))).toThrow("/steps/0/derive/sources let.nothing is not declared in this step's let");
+
+    first.derive = { sources: { var: "steps.report.summary" } };
+    expect(() => load(JSON.stringify(document))).toThrow("steps.report.summary does not name an earlier step");
+  });
+
   it("refuses a when condition that reads let, which is evaluated only on submission", () => {
     const document = parseYaml(readFileSync(MARKET_RESEARCH, "utf8")) as { steps: Array<Record<string, unknown>> };
     (document.steps[1] as Record<string, unknown>).when = { "==": [{ var: "let.x" }, 1] };

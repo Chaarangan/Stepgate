@@ -128,7 +128,7 @@ export async function testGates(stepfile: Stepfile, cases: GateCase[]): Promise<
       }
       const offline = step.gates.filter((gate) => !("http" in gate) && !("approve" in gate));
       const skipped = step.gates.filter((gate) => "http" in gate || "approve" in gate).map((gate) => gate.id);
-      const verdicts = await compileStepGates(stepfile.document, { http: OFFLINE, approvals: NO_PEOPLE }, { ...step, gates: offline }, ajv)
+      const { verdicts, output } = await compileStepGates(stepfile.document, { http: OFFLINE, approvals: NO_PEOPLE }, { ...step, gates: offline }, ajv)
         .check({ inputs: item.inputs, steps: accepted, output: caseStep.output, calls: caseStep.calls });
       const failed = verdicts.filter((verdict) => !verdict.passed);
       const expected = caseStep.expect === "pass" ? [] : [...caseStep.expect.fail].sort();
@@ -143,7 +143,7 @@ export async function testGates(stepfile: Stepfile, cases: GateCase[]): Promise<
         problem: ok ? null : `expected ${expected.length === 0 ? "every gate to pass" : `${expected.join(", ")} to fail`}, but ${actual.length === 0 ? "every gate passed" : `${actual.join(", ")} failed`}`,
       });
       if (caseStep.expect === "pass") {
-        accepted[step.id] = caseStep.output as JsonObject;
+        accepted[step.id] = output as JsonObject;
       }
     }
   }

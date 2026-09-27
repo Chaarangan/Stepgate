@@ -142,6 +142,7 @@ function checkCrossFieldRules(document: StepfileDocument): ValidationIssue[] {
     ...document.steps.flatMap((step, index) => [
       ...schemaPatterns(step.produces).map((pattern): [string, string] => [`/steps/${index}/produces`, pattern]),
       ...matchAllPatterns(Object.values(step.let ?? {})).map((pattern): [string, string] => [`/steps/${index}/let`, pattern]),
+      ...matchAllPatterns(Object.values(step.derive ?? {})).map((pattern): [string, string] => [`/steps/${index}/derive`, pattern]),
       ...step.gates.flatMap((gate) => ("schema" in gate ? schemaPatterns(gate.schema) : "predicate" in gate ? matchAllPatterns([gate.predicate, gate.explain ?? null]) : []).map((pattern): [string, string] => [`/steps/${index}/gates/${gate.id}`, pattern])),
     ]),
   ];
@@ -171,14 +172,6 @@ function checkCrossFieldRules(document: StepfileDocument): ValidationIssue[] {
         issues.push({ path: `${path}/gates`, message: `gate id ${gate.id} is not unique in the step` });
       }
       gateIds.add(gate.id);
-      if ("predicate" in gate) {
-        for (const argument of operatorArguments([gate.predicate, gate.explain ?? null], "results")) {
-          const problem = resultsProblem(argument);
-          if (problem !== null) {
-            issues.push({ path: `${path}/gates/${gate.id}`, message: problem });
-          }
-        }
-      }
       if ("http" in gate && tools[gate.http.tool]?.verifier === undefined) {
         issues.push({ path: `${path}/gates/${gate.id}`, message: `${gate.http.tool} is not a verifier tool` });
       }
@@ -193,12 +186,31 @@ function checkCrossFieldRules(document: StepfileDocument): ValidationIssue[] {
         }
       }
     });
-    for (const gate of step.gates) {
-      const rules = "predicate" in gate ? [gate.predicate, gate.explain ?? null] : [];
-      for (const reference of rules.flatMap(letReferences)) {
-        if (!Object.hasOwn(step.let ?? {}, reference)) {
-          issues.push({ path: `${path}/gates/${gate.id}`, message: `let.${reference} is not declared in this step's let` });
+    // Expressions evaluated on submission, where let is declared and calls exist, by where they sit in the file.
+    const derives = Object.entries(step.derive ?? {});
+    const readingLet: Array<[string, Json]> = [
+      ...step.gates.flatMap((gate): Array<[string, Json]> => ("predicate" in gate ? [[`${path}/gates/${gate.id}`, [gate.predicate, gate.explain ?? null]]] : [])),
+      ...derives.map(([name, rule]): [string, Json] => [`${path}/derive/${name}`, rule]),
+    ];
+    for (const [where, rule] of [...readingLet, ...lets.map(([name, rule]): [string, Json] => [`${path}/let/${name}`, rule])]) {
+      for (const argument of operatorArguments(rule, "results")) {
+        const problem = resultsProblem(argument);
+        if (problem !== null) {
+          issues.push({ path: where, message: problem });
         }
+      }
+    }
+    for (const [where, rule] of readingLet) {
+      for (const reference of letReferences(rule)) {
+        if (!Object.hasOwn(step.let ?? {}, reference)) {
+          issues.push({ path: where, message: `let.${reference} is not declared in this step's let` });
+        }
+      }
+    }
+    const declared = (step.produces as { properties?: Record<string, Json> }).properties ?? {};
+    for (const [name] of derives) {
+      if (!Object.hasOwn(declared, name)) {
+        issues.push({ path: `${path}/derive/${name}`, message: `${name} is not a property of this step's produces` });
       }
     }
 
@@ -206,6 +218,7 @@ function checkCrossFieldRules(document: StepfileDocument): ValidationIssue[] {
       ...placeholderPaths(step.instructions),
       ...step.gates.flatMap((gate) => ("predicate" in gate ? [...varPaths(gate.predicate), ...(gate.explain === undefined ? [] : varPaths(gate.explain))] : [])),
       ...lets.flatMap(([, rule]) => varPaths(rule)),
+      ...derives.flatMap(([, rule]) => varPaths(rule)),
       ...(step.when === undefined ? [] : varPaths(step.when)),
     ];
     for (const reference of references) {

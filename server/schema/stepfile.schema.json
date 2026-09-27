@@ -352,6 +352,12 @@
           "maximum": 5,
           "default": 0
         },
+        "derive": {
+          "type": "object",
+          "description": "Output fields Stepgate computes after the client submits, each a JSONLogic expression; the client is not asked for them.",
+          "minProperties": 1,
+          "additionalProperties": { "$ref": "#/$defs/predicate" }
+        },
         "let": {
           "type": "object",
           "description": "Named JSONLogic expressions, evaluated in order once per submission; gates, explain and later entries read them as let.<name>.",

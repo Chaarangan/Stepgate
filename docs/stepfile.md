@@ -28,8 +28,9 @@ Unknown fields are rejected. Beyond the schema, Stepgate checks these rules when
 4. Every `credential` a tool names is declared, and the tool's host is in that credential's `hosts`.
 5. Every `http` gate names a `verifier` tool.
 6. Every placeholder and every `var` path under `steps.` names an earlier step.
-7. Every `var` path under `let.` names an entry of the step's `let`, one before it when read from `let` itself, and `when` reads no `let`.
-8. Every `results` takes a literal operation name and optional path, and appears only in gates, never in `when` or `select`.
+7. Every `derive` key is a property of the step's `produces`.
+8. Every `var` path under `let.` names an entry of the step's `let`, one before it when read from `let` itself, and `when` reads no `let`.
+9. Every `results` takes a literal operation name and optional path, and appears only in gates, never in `when` or `select`.
 
 ## Tools
 
@@ -126,6 +127,7 @@ A credential is attached only to requests whose host is in its `hosts`, and neve
 | `produces` | yes | JSON Schema the step's output must satisfy |
 | `gates` | yes | At least one gate |
 | `retries` | no | Extra attempts after a gate fails, 0 to 5; default 0 |
+| `derive` | no | Output fields Stepgate computes after the client submits ([Deriving fields](#deriving-fields)) |
 | `let` | no | Named JSONLogic expressions that gates read as `let.<name>` ([Naming expressions](#naming-expressions)) |
 | `when` | no | A predicate over `inputs` and `steps`; the step is skipped unless it is `true` |
 
@@ -134,6 +136,23 @@ Steps run in file order. There is no branching, looping or parallel block; `when
 **Placeholders.** `{{inputs.<path>}}` and `{{steps.<id>.<path>}}` are replaced in `instructions` before the step starts. A string is inserted as-is and anything else as indented JSON. Placeholders work only in `instructions` and have no conditionals, loops or filters. A path that cannot be resolved is an error, caught at load time where possible.
 
 **Submitting.** The client finishes a step by sending an output matching `produces` to Stepgate's `stepgate_submit` tool. Each submission is one attempt.
+
+### Deriving fields
+
+Counting, picking the latest item, arithmetic and copying are work a model does slowly and gets wrong, and checking that it did them right takes a gate. A step's `derive` has Stepgate compute such fields instead. Each key is a top-level property of `produces`, and each value a JSONLogic expression over what gates see, with `output` being the client's submission:
+
+```yaml
+produces:
+  type: object
+  required: [ids, count]
+  properties:
+    ids: { type: array, items: { type: string } }
+    count: { type: integer }
+derive:
+  count: { length: { results: [listItems, items] } }
+```
+
+The client is shown `produces` without the derived properties and their `required` entries, and a submission that includes one fails a gate named `derive`. Otherwise Stepgate checks the submission against that reduced schema, evaluates `let`, adds the derived fields and checks the result against the whole `produces`. Gates, later steps and the run's outputs see the output with the derived fields, and `let` sees the submission without them.
 
 ## Gates
 
