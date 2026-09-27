@@ -4,7 +4,7 @@ cases:
     inputs: { deal_id: "21678228008", board_id: "1234567890" }
     steps:
       - step: deal
-        calls:
+        calls: &deal-calls
           - tool: getDeal
             arguments: { dealId: "21678228008" }
             result:
@@ -27,7 +27,7 @@ cases:
           stage_is_closed: "true"
         expect: pass
       - step: records
-        calls:
+        calls: &records-calls
           - tool: listDealAssociations
             arguments: { dealId: "21678228008", toObjectType: line_items }
             result: { results: [{ toObjectId: 9001, associationTypes: [{ category: HUBSPOT_DEFINED, typeId: 19, label: null }] }, { toObjectId: 9002, associationTypes: [{ category: HUBSPOT_DEFINED, typeId: 19, label: null }] }] }
@@ -72,14 +72,14 @@ cases:
             The drafts land in a "Stepgate draft" group for a person to review, assign and move.
         expect: pass
       - step: group
-        calls:
+        calls: &group-calls
           - tool: mondayGraphql
             arguments: { body: { query: "mutation CreateDraftGroup($board: ID!, $name: String!) { create_group(board_id: $board, group_name: $name) { id title } }", variables: { board: "1234567890", name: "Stepgate draft: Acme Corp renewal 2026 (HubSpot deal 21678228008)" } } }
             result: { data: { create_group: { id: group_mkq8x2ab, title: "Stepgate draft: Acme Corp renewal 2026 (HubSpot deal 21678228008)" } }, account_id: 1234 }
         output: { group_id: group_mkq8x2ab }
         expect: pass
       - step: items
-        calls:
+        calls: &items-calls
           - tool: mondayGraphql
             arguments: { body: { query: "mutation CreateDraftItem($board: ID!, $group: String!, $name: String!) { create_item(board_id: $board, group_id: $group, item_name: $name) { id name } }", variables: { board: "1234567890", group: group_mkq8x2ab, name: "[Draft] Platform licence (HubSpot line item 9001)" } } }
             result: { data: { create_item: { id: "1884001001", name: "[Draft] Platform licence (HubSpot line item 9001)" } }, account_id: 1234 }
@@ -98,7 +98,7 @@ cases:
               item_id: "1884001002"
         expect: pass
       - step: updates
-        calls:
+        calls: &updates-calls
           - tool: mondayGraphql
             arguments: { body: { query: "mutation CreateItemUpdate($item: ID!, $body: String!) { create_update(item_id: $item, body: $body) { id } }", variables: { item: "1884001001", body: *body-9001 } } }
             result: { data: { create_update: { id: "402001" } }, account_id: 1234 }
@@ -137,8 +137,8 @@ cases:
   - name: a summary that drops a line item and misquotes the stage is rejected
     inputs: { deal_id: "21678228008", board_id: "1234567890" }
     steps:
-      - { step: deal, output: *closed-won-deal, expect: pass }
-      - { step: records, output: *records, expect: pass }
+      - { step: deal, calls: *deal-calls, output: *closed-won-deal, expect: pass }
+      - { step: records, calls: *records-calls, output: *records, expect: pass }
       - step: plan
         output:
           summary: |
@@ -154,8 +154,8 @@ cases:
   - name: a monday.com errors array stops the run at the write that failed
     inputs: { deal_id: "21678228008", board_id: "1234567890" }
     steps:
-      - { step: deal, output: *closed-won-deal, expect: pass }
-      - { step: records, output: *records, expect: pass }
+      - { step: deal, calls: *deal-calls, output: *closed-won-deal, expect: pass }
+      - { step: records, calls: *records-calls, output: *records, expect: pass }
       - { step: plan, output: { summary: *summary }, expect: pass }
       - step: group
         calls:
@@ -168,7 +168,7 @@ cases:
   - name: a deal with no contacts or companies skips those batch reads
     inputs: { deal_id: "21678228008", board_id: "1234567890" }
     steps:
-      - { step: deal, output: *closed-won-deal, expect: pass }
+      - { step: deal, calls: *deal-calls, output: *closed-won-deal, expect: pass }
       - step: records
         calls:
           - tool: listDealAssociations

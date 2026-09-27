@@ -4,7 +4,7 @@ cases:
     inputs: &inputs { escalation_tag: escalate_eng, priority: urgent, max_tickets: 2, jira_project: SUP, jira_issue_type: Bug }
     steps:
       - step: tickets
-        calls:
+        calls: &tickets-calls
           - tool: searchZendeskTickets
             arguments: { query: "type:ticket status<pending priority:urgent tags:escalate_eng" }
             result:
@@ -40,7 +40,7 @@ cases:
             - { ticket_id: 103, action: create, jira_key: null, jql: 'project = "SUP" AND statusCategory != Done AND text ~ "password reset email"', reason: No unresolved issue mentions password reset emails. }
         expect: pass
       - step: create
-        calls:
+        calls: &create-calls
           - tool: createJiraIssue
             arguments:
               body:
@@ -54,7 +54,7 @@ cases:
         output: { created: [{ ticket_id: 103, jira_key: SUP-57 }] }
         expect: pass
       - step: note
-        calls:
+        calls: &note-calls
           - tool: addZendeskInternalNote
             arguments: { ticket_id: 101, body: { ticket: { comment: { body: "Stepgate escalation: linked to existing Jira issue SUP-42.", public: false } } } }
             result: { ticket: { id: 101, status: open, priority: urgent }, audit: { id: 9001, ticket_id: 101, events: [{ id: 9002, type: Comment, public: false }] } }
@@ -81,7 +81,7 @@ cases:
   - name: a missing ticket and a key no search returned are rejected
     inputs: *inputs
     steps:
-      - { step: tickets, output: *tickets, expect: pass }
+      - { step: tickets, calls: *tickets-calls, output: *tickets, expect: pass }
       - step: plan
         calls: *jira-searches
         output:
@@ -92,7 +92,7 @@ cases:
   - name: a search outside the project and a create with a key are rejected
     inputs: *inputs
     steps:
-      - { step: tickets, output: *tickets, expect: pass }
+      - { step: tickets, calls: *tickets-calls, output: *tickets, expect: pass }
       - step: plan
         calls:
           - tool: searchJiraIssues
@@ -107,10 +107,10 @@ cases:
   - name: a summary citing a key the run did not produce is rejected
     inputs: *inputs
     steps:
-      - { step: tickets, output: *tickets, expect: pass }
+      - { step: tickets, calls: *tickets-calls, output: *tickets, expect: pass }
       - { step: plan, calls: *jira-searches, output: *decisions, expect: pass }
-      - { step: create, output: { created: [{ ticket_id: 103, jira_key: SUP-57 }] }, expect: pass }
-      - { step: note, output: *outcomes, expect: pass }
+      - { step: create, calls: *create-calls, output: { created: [{ ticket_id: 103, jira_key: SUP-57 }] }, expect: pass }
+      - { step: note, calls: *note-calls, output: *outcomes, expect: pass }
       - step: report
         output:
           summary: "#101 was linked to SUP-42 and #103 to SUP-99."
