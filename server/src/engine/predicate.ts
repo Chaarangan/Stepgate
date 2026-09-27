@@ -145,7 +145,6 @@ export function evaluateTemplate(template: Json, data: Json | PredicateContext):
   return Object.fromEntries(Object.entries(template).map(([key, value]) => [key, evaluateTemplate(value, data)]));
 }
 
-export type { EvidenceCall } from "./types.ts";
 
 export type PredicateContext = {
   inputs: JsonObject;

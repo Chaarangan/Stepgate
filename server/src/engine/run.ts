@@ -13,7 +13,7 @@ import {
   ToolCallFailed,
   type GateDiagnosis,
 } from "./errors.ts";
-import { compileStepGates, submittedSchema, type StepGates } from "./gates.ts";
+import { compileStepGates, submittedSchema, type GateVerdict, type StepGates } from "./gates.ts";
 import { guardedFetch, type HttpContext } from "./http.ts";
 import { discoverMcpAuthorization, tokenEndpointProblem, type McpAuthorization } from "./mcp-auth.ts";
 import { canonicalHash, textHash } from "./identity.ts";
@@ -21,11 +21,11 @@ import { compileToolSchema, createToolSchemaValidators, createValidator, describ
 import { createLedger, type AppendRecord } from "./ledger.ts";
 import { credentialOf, declaredToolHost } from "./load.ts";
 import { renderInstructions } from "./placeholders.ts";
-import { evaluateExpression, evaluatePredicate, evaluateTemplate, type EvidenceCall } from "./predicate.ts";
+import { evaluateExpression, evaluatePredicate, evaluateTemplate } from "./predicate.ts";
 import { resolveSettings } from "./settings.ts";
 import { kindOf } from "./tools/kinds.ts";
 import type { ToolResult } from "./tools/tool.ts";
-import type { Json, JsonObject, JsonSchema, MechanicalWork, RecordedStep, RunContext, RunResult, Stepfile, Step, ToolDefinition } from "./types.ts";
+import type { EvidenceCall, Json, JsonObject, JsonSchema, MechanicalWork, RecordedStep, RunContext, RunResult, Stepfile, Step, ToolDefinition } from "./types.ts";
 
 type StepOperation = {
   definition: ToolDefinition;
@@ -146,6 +146,14 @@ async function preflight(stepfile: Stepfile, inputs: JsonObject, runContext: Run
 }
 
 
+// A mechanical step's call results are shown to no client, so they are never cut.
+const SHOWN_TO_NOBODY = Number.MAX_SAFE_INTEGER;
+
+/** How the ledger records an output: its hash and length, never its content. */
+function sizeOf(value: Json): JsonObject {
+  return { sha256: canonicalHash(value), length: JSON.stringify(value).length };
+}
+
 function truncate(content: string, limit: number): string {
   return content.length <= limit
     ? content
@@ -230,6 +238,8 @@ type Current = {
   attempt: number;
   callsMade: number;
   calls: EvidenceCall[];
+  /** Mechanical steps passed on the way to this one, which its view lists. */
+  completed: string[];
 };
 
 /** Preflights and opens step 1; the client then drives each step with `call` and `submit`. */
@@ -287,7 +297,14 @@ export async function startRun(written: Stepfile, inputs: JsonObject, runContext
   const outputs: Record<string, JsonObject> = {};
   let current: Current | null = null;
 
-  let completed: string[] = [];
+  /** Writes a record per verdict and returns the failures, which a rejection and GateFailed both carry. */
+  const recordVerdicts = async (step: string, attempt: number, verdicts: GateVerdict[]): Promise<GateDiagnosis[]> => {
+    for (const { gate, passed, diagnosis } of verdicts) {
+      await append("gate", { step, attempt, gate, verdict: passed ? "pass" : "fail", diagnosis: diagnosis === null ? null : textHash(diagnosis) });
+    }
+    return verdicts.flatMap(({ gate, passed, diagnosis }) => (passed ? [] : [{ gate, diagnosis: diagnosis ?? "" }]));
+  };
+
   const view = (open: Current): StepView => ({
     step: open.step.id,
     number: open.index + 1,
@@ -296,7 +313,7 @@ export async function startRun(written: Stepfile, inputs: JsonObject, runContext
     operations: [...open.allowed.values()].map((tool) => tool.definition),
     produces: inlineLocalRefs(submittedSchema(open.step), defs, []) as JsonObject,
     attempts_left: (open.step.retries ?? 0) + 2 - open.attempt,
-    completed,
+    completed: open.completed,
   });
 
   /** Makes a mechanical step's calls in order and computes its output, then applies its gates; any failure ends the run. */
@@ -318,7 +335,7 @@ export async function startRun(written: Stepfile, inputs: JsonObject, runContext
         if (typeof args !== "object" || args === null || Array.isArray(args) || !tool.validateArgs(args)) {
           throw new CallArgumentsInvalid(step.id, planned.id, planned.operation, describeErrors(tool.validateArgs.errors) || "arguments must be an object");
         }
-        const { shown, evidence } = await callTool(tool, planned.operation, args, step.id, { by: "stepgate", call: planned.id }, append, Number.MAX_SAFE_INTEGER);
+        const { shown, evidence } = await callTool(tool, planned.operation, args, step.id, { by: "stepgate", call: planned.id }, append, SHOWN_TO_NOBODY);
         if (shown.isError || evidence === null) {
           throw new ToolCallFailed(`call ${planned.id} (${planned.operation})`, shown.status, shown.content);
         }
@@ -328,12 +345,9 @@ export async function startRun(written: Stepfile, inputs: JsonObject, runContext
       responses[planned.id] = planned.each === undefined ? results[0] ?? null : results;
     }
     const output = evaluateTemplate(work.output, { inputs, steps: outputs, responses });
-    await append("computed", { step: step.id, output: { sha256: canonicalHash(output), length: JSON.stringify(output).length } });
+    await append("computed", { step: step.id, output: sizeOf(output) });
     const checked = await (session.gates.get(step.id) as StepGates).check({ inputs, steps: outputs, output, calls });
-    for (const { gate, passed, diagnosis } of checked.verdicts) {
-      await append("gate", { step: step.id, attempt: 1, gate, verdict: passed ? "pass" : "fail", diagnosis: diagnosis === null ? null : textHash(diagnosis) });
-    }
-    const failures = checked.verdicts.flatMap(({ gate, passed, diagnosis }) => (passed ? [] : [{ gate, diagnosis: diagnosis ?? "" }]));
+    const failures = await recordVerdicts(step.id, 1, checked.verdicts);
     record(step.id, calls, output, failures);
     if (failures.length > 0) {
       throw new GateFailed(step.id, failures);
@@ -343,7 +357,7 @@ export async function startRun(written: Stepfile, inputs: JsonObject, runContext
   };
 
   const advance = async (from: number): Promise<Progress> => {
-    completed = [];
+    const completed: string[] = [];
     for (let index = from; index < steps.length; index += 1) {
       const step = steps[index] as Step;
       if (step.when !== undefined && !evaluatePredicate(step.when, { inputs, steps: outputs })) {
@@ -353,16 +367,19 @@ export async function startRun(written: Stepfile, inputs: JsonObject, runContext
       if (step.do !== undefined) {
         await append("step_started", { step: step.id });
         await perform(step, step.do);
-        completed = [...completed, step.id];
+        completed.push(step.id);
         continue;
       }
       const allowed = new Map((step.tools ?? []).flatMap((name) => {
         const tool = session.tools.get(name);
         return tool === undefined ? [] : [[name, tool] as const];
       }));
-      const instructions = renderInstructions(step.id, step.instructions ?? "", { inputs, steps: outputs });
+      if (step.instructions === undefined) {
+        throw new TypeError(`step ${step.id} has neither do nor instructions; load should have rejected it`);
+      }
+      const instructions = renderInstructions(step.id, step.instructions, { inputs, steps: outputs });
       await append("step_started", { step: step.id });
-      current = { step, index, allowed, instructions, attempt: 1, callsMade: 0, calls: [] };
+      current = { step, index, allowed, instructions, attempt: 1, callsMade: 0, calls: [], completed };
       return { state: "step", step: view(current) };
     }
     current = null;
@@ -394,16 +411,12 @@ export async function startRun(written: Stepfile, inputs: JsonObject, runContext
     submit: (output) => serial(async () => {
       const open = current as Current;
       const { step, attempt } = open;
-      await append("submit", { step: step.id, attempt, output: { sha256: canonicalHash(output ?? null), length: JSON.stringify(output ?? null).length } });
+      await append("submit", { step: step.id, attempt, output: sizeOf(output ?? null) });
       const checked = await (session.gates.get(step.id) as StepGates).check({ inputs, steps: outputs, output: output ?? null, calls: open.calls });
       if (checked.derived && checked.output !== null) {
-        await append("derived", { step: step.id, attempt, output: { sha256: canonicalHash(checked.output), length: JSON.stringify(checked.output).length } });
+        await append("derived", { step: step.id, attempt, output: sizeOf(checked.output) });
       }
-      const verdicts = checked.verdicts;
-      for (const { gate, passed, diagnosis } of verdicts) {
-        await append("gate", { step: step.id, attempt, gate, verdict: passed ? "pass" : "fail", diagnosis: diagnosis === null ? null : textHash(diagnosis) });
-      }
-      const failures = verdicts.flatMap(({ gate, passed, diagnosis }) => (passed ? [] : [{ gate, diagnosis: diagnosis ?? "" }]));
+      const failures = await recordVerdicts(step.id, attempt, checked.verdicts);
       record(step.id, open.calls, output ?? null, failures);
       if (failures.length === 0) {
         await append("step_passed", { step: step.id, attempt });

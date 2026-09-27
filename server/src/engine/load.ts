@@ -57,14 +57,14 @@ function mechanicalProblems(path: string, work: MechanicalWork, step: Step, expo
     if (earlier.has(call.id)) {
       issues.push({ path: where, message: `call id ${call.id} is not unique in the step` });
     }
-    for (const name of responseReferences([call.arguments ?? null, call.each ?? null])) {
+    for (const name of namesUnder([call.arguments ?? null, call.each ?? null], "responses")) {
       if (!earlier.has(name)) {
         issues.push({ path: where, message: `responses.${name} does not name an earlier call of this step` });
       }
     }
     earlier.add(call.id);
   }
-  for (const name of responseReferences(work.output)) {
+  for (const name of namesUnder(work.output, "responses")) {
     if (!earlier.has(name)) {
       issues.push({ path: `${path}/do/output`, message: `responses.${name} does not name a call of this step` });
     }
@@ -75,19 +75,11 @@ function mechanicalProblems(path: string, work: MechanicalWork, step: Step, expo
   return issues;
 }
 
-/** The call ids a template reads through `var: responses.<id>`. */
-function responseReferences(template: Json): string[] {
-  return varPaths(template).flatMap((reference) => {
-    const [root, name] = reference.split(".");
-    return root === "responses" && name !== undefined ? [name] : [];
-  });
-}
-
-/** The `let` names a rule reads through `var: let.<name>`. */
-function letReferences(rule: Json): string[] {
+/** The names a rule reads under `root`, as `let` for `var: let.<name>` and `responses` for `var: responses.<id>`. */
+function namesUnder(rule: Json, root: string): string[] {
   return varPaths(rule).flatMap((reference) => {
-    const [root, name] = reference.split(".");
-    return root === "let" && name !== undefined ? [name] : [];
+    const [first, name] = reference.split(".");
+    return first === root && name !== undefined ? [name] : [];
   });
 }
 
@@ -238,7 +230,7 @@ function checkCrossFieldRules(document: StepfileDocument): ValidationIssue[] {
     const lets = Object.entries(step.let ?? {});
     lets.forEach(([name, rule], position) => {
       const earlier = new Set(lets.slice(0, position).map(([other]) => other));
-      for (const reference of letReferences(rule)) {
+      for (const reference of namesUnder(rule, "let")) {
         if (!earlier.has(reference)) {
           issues.push({ path: `${path}/let/${name}`, message: `let.${reference} is not an earlier entry of this step's let` });
         }
@@ -275,7 +267,7 @@ function checkCrossFieldRules(document: StepfileDocument): ValidationIssue[] {
       issues.push({ path: where, message });
     }
     for (const [where, rule] of readingLet) {
-      for (const reference of letReferences(rule)) {
+      for (const reference of namesUnder(rule, "let")) {
         if (!Object.hasOwn(step.let ?? {}, reference)) {
           issues.push({ path: where, message: `let.${reference} is not declared in this step's let` });
         }

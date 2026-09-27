@@ -20,6 +20,10 @@ _Avoid_: model step, client step
 A step Stepgate does itself: it has `do`, a list of calls and an output template, and the client is never shown it.
 _Avoid_: server step, automatic step, script
 
+**Derived field**:
+A field of an agent step's output that Stepgate computes after the client submits, declared in `derive`; the client is never asked for it.
+_Avoid_: computed field, generated field
+
 **Gate**:
 A mechanical check on a step's submitted output, or a person's approval of it, that decides whether the step passed. Never judged by a model.
 _Avoid_: guardrail, validator, check, assertion

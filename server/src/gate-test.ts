@@ -3,12 +3,10 @@ import { CasesInvalid } from "./engine/errors.ts";
 import { compileStepGates, type GateVerdict } from "./engine/gates.ts";
 import type { HttpContext } from "./engine/http.ts";
 import { createValidator, describeErrors } from "./engine/json-schema.ts";
-import type { EvidenceCall } from "./engine/predicate.ts";
-import type { Approvals, Json, JsonObject, RecordedStep, Stepfile } from "./engine/types.ts";
+import type { Approvals, EvidenceCall, Json, JsonObject, RecordedStep, Stepfile } from "./engine/types.ts";
 
 /** One step of a case: the calls it made, what it submitted, and whether every gate should pass or which should fail. */
-export type CaseStep = RecordedStep;
-export type GateCase = { name: string; inputs: JsonObject; steps: CaseStep[] };
+export type GateCase = { name: string; inputs: JsonObject; steps: RecordedStep[] };
 
 /** A case step's outcome: whether the verdicts matched the expectation, and what ran. */
 export type CaseReport = { case: string; step: string; ok: boolean; failed: GateVerdict[]; skipped: string[]; problem: string | null };
@@ -74,7 +72,7 @@ export function parseCases(stepfile: Stepfile, text: string): GateCase[] {
   if (!validate(parsed)) {
     throw new CasesInvalid([describeErrors(validate.errors)]);
   }
-  const raw = (parsed as { cases: Array<{ name: string; inputs: JsonObject; steps: Array<Omit<CaseStep, "calls"> & { calls?: Array<Partial<EvidenceCall> & { tool: string; result: Json }> }> }> }).cases;
+  const raw = (parsed as { cases: Array<{ name: string; inputs: JsonObject; steps: Array<Omit<RecordedStep, "calls"> & { calls?: Array<Partial<EvidenceCall> & { tool: string; result: Json }> }> }> }).cases;
   const known = new Map(stepfile.document.steps.map((step) => [step.id, new Set((step.gates ?? []).map((gate) => gate.id))]));
   const problems = raw.flatMap((item) => item.steps.flatMap((step) => {
     const gates = known.get(step.step);
