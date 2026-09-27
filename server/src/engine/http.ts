@@ -149,7 +149,7 @@ async function send(context: HttpContext, operation: string, url: URL, init: Req
     }
     const request = new URL(target);
     if (credential !== null && credential.declaration.hosts.includes(target.host)) {
-      credential.place(await context.credentials(credential.name, credential.declaration), headers, request);
+      credential.place(await context.credentials.value(credential.name, credential.declaration), headers, request);
     }
     const response = await fetch(request, { ...init, method, body: body ?? null, headers, redirect: "manual", signal: deadline(init, method, headers, context.limits.requestTimeoutMs) });
     const location = response.headers.get("location");
@@ -187,8 +187,14 @@ export async function guardedFetch(
   for (let attempt = 1; attempt <= ATTEMPTS; attempt += 1) {
     let waitMs = FIRST_BACKOFF_MS * 2 ** (attempt - 1);
     try {
-      const response = await send(context, operation, url, init, credential);
+      let response = await send(context, operation, url, init, credential);
       await raiseIfInvalidGrant(response, credential, operation);
+      // A 401 was not processed, so after the source replaces an expired or revoked token the request is sent once more.
+      if (response.status === 401 && credential !== null && await context.credentials.rejected(credential.name, credential.declaration)) {
+        await response.body?.cancel();
+        response = await send(context, operation, url, init, credential);
+        await raiseIfInvalidGrant(response, credential, operation);
+      }
       if (!isRetryable(response, idempotent)) {
         return response;
       }

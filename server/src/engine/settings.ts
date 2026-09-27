@@ -12,11 +12,6 @@ export function settingNames(text: string): string[] {
   return [...text.matchAll(PLACEHOLDER)].map((match) => match[1] ?? "");
 }
 
-/** The environment variable a setting is read from: `jira-site` is JIRA_SITE. */
-export function settingVariable(name: string): string {
-  return name.toUpperCase().replaceAll("-", "_");
-}
-
 function fill(text: string, values: Map<string, string>): string {
   return text.replace(PLACEHOLDER, (_whole, name: string) => values.get(name) ?? `{${name}}`);
 }

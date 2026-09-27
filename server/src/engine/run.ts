@@ -43,7 +43,7 @@ function isObject(value: unknown): value is JsonObject {
 async function checkCredentials(stepfile: Stepfile, runContext: RunContext): Promise<void> {
   for (const [name, declaration] of Object.entries(stepfile.document.credentials ?? {})) {
     try {
-      const value = await runContext.credentials(name, declaration);
+      const value = await runContext.credentials.value(name, declaration);
       if (declaration.kind === "basic" && !value.includes(":")) {
         throw new PreflightFailed(`credential ${name}`, "a basic credential must be user:secret, for example you@example.com:api-token");
       }

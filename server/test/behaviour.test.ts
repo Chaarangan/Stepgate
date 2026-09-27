@@ -1,7 +1,8 @@
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { afterEach, describe, expect, it } from "vitest";
 import type { JsonObject } from "../src/engine/types.ts";
-import { VERSION } from "../src/version.ts";
+import { environmentCredentials } from "../src/operator.ts";
+import { userAgent, VERSION } from "../src/version.ts";
 import { API_KEY, BASIC_CREDENTIAL, MCP_TOKEN } from "./fixtures.ts";
 import { GOOD_STOCK, GOOD_SUMMARY, resultText, startHarness, stateOf, stepViews, submit, use, type Harness, type Setup } from "./harness.ts";
 
@@ -288,6 +289,66 @@ describe("credential kinds and parameters", () => {
     });
 
     expect((await call({ item: "K-1" })).isError).toBeFalsy();
+  });
+});
+
+describe("oauth2 refresh", () => {
+  const withOAuthTool = (stepfile: JsonObject, addresses: { catalogue: string }) => {
+    const catalogue = (stepfile.tools as JsonObject).catalogue as JsonObject;
+    (stepfile.tools as JsonObject)["catalogue-oauth"] = { openapi: catalogue.openapi as JsonObject, credential: "catalogue-oauth", exposes: ["getOAuthItem", "getStrictOAuthItem"] };
+    (stepfile.credentials as JsonObject)["catalogue-oauth"] = {
+      kind: "oauth2",
+      scopes: ["read:items"],
+      token_url: `${addresses.catalogue}/token`,
+      hosts: [new URL(addresses.catalogue).host],
+      description: "Reads the catalogue with OAuth.",
+    };
+    (steps(stepfile)[0] as JsonObject).tools = ["getOAuthItem", "getStrictOAuthItem"];
+  };
+  const operatorEnvironment = (refreshToken: string) => environmentCredentials({
+    CATALOGUE_API_KEY: API_KEY,
+    SUPPLIERS_API_KEY: MCP_TOKEN,
+    CATALOGUE_OAUTH_REFRESH_TOKEN: refreshToken,
+    CATALOGUE_OAUTH_CLIENT_ID: "stepgate-tests",
+  }, { userAgent: userAgent(null), limits: { requestTimeoutMs: 5_000, responseBytes: 1_000_000 } });
+  const tokenRequests = (api: Harness["api"]) => api.received.filter((request) => request.path === "/token").map((request) => new URLSearchParams(request.body));
+
+  it("exchanges the refresh token at token_url with the scopes, and reuses the access token until it expires", async () => {
+    const { call, api } = await start({
+      edit: withOAuthTool,
+      credentialSource: operatorEnvironment("refresh-1"),
+      actions: [use("getOAuthItem", { id: "K-1" }), use("getOAuthItem", { id: "K-2" }), GOOD_STOCK, GOOD_SUMMARY],
+    });
+
+    const result = await call({ item: "K-1" });
+
+    expect(result.isError).toBeFalsy();
+    const exchanges = tokenRequests(api);
+    expect(exchanges).toHaveLength(1);
+    expect(Object.fromEntries(exchanges[0] ?? [])).toEqual({ grant_type: "refresh_token", refresh_token: "refresh-1", client_id: "stepgate-tests", scope: "read:items" });
+    const authorizations = api.received.filter((request) => request.path.startsWith("/oauth-items/")).map((request) => request.headers.authorization);
+    expect(authorizations).toEqual(["Bearer fresh-1", "Bearer fresh-1"]);
+  });
+
+  it("refreshes with the rotated refresh token and resends once when an API rejects the access token", async () => {
+    const { call, api, seen } = await start({
+      edit: withOAuthTool,
+      credentialSource: operatorEnvironment("refresh-1"),
+      actions: [use("getStrictOAuthItem", { id: "K-1" }), GOOD_STOCK, GOOD_SUMMARY],
+    });
+
+    await call({ item: "K-1" });
+
+    expect(textOf(seen[1])).toContain('"stock":4');
+    expect(tokenRequests(api).map((form) => form.get("refresh_token"))).toEqual(["refresh-1", "rotated-1"]);
+  });
+
+  it("fails preflight with the provider's answer when the refresh token was revoked", async () => {
+    const { call } = await start({ edit: withOAuthTool, credentialSource: operatorEnvironment("revoked"), actions: [] });
+
+    const text = resultText(await call({ item: "K-1" }));
+
+    expect(text).toContain("PreflightFailed: preflight failed for credential catalogue-oauth: credential catalogue-oauth has an invalid grant");
   });
 });
 

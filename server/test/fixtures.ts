@@ -46,6 +46,7 @@ const OPENAPI_BYTES = readFileSync(new URL("fixtures/catalogue.openapi.json", im
 export async function startApi(flakyFailures: number): Promise<Fixture> {
   const received: ReceivedRequest[] = [];
   let flakyCalls = 0;
+  let tokensIssued = 0;
   const limitedCalls: Record<string, number> = {};
   const server = createServer(async (request, response) => {
     const body = await readBody(request);
@@ -63,6 +64,23 @@ export async function startApi(flakyFailures: number): Promise<Fixture> {
     if (path === "/verify") {
       const { output } = JSON.parse(body) as { output: { count: number } };
       send(response, 200, output.count >= 3 ? { pass: true } : { pass: false, message: `count ${output.count} is below 3` });
+      return;
+    }
+    if (path === "/token" && request.method === "POST") {
+      const form = new URLSearchParams(body);
+      if (form.get("refresh_token") === "revoked") {
+        send(response, 400, { error: "invalid_grant", error_description: "Token has been revoked." });
+        return;
+      }
+      tokensIssued += 1;
+      send(response, 200, { access_token: `fresh-${tokensIssued}`, expires_in: 3600, refresh_token: `rotated-${tokensIssued}`, token_type: "Bearer" });
+      return;
+    }
+    const oauth = /^\/oauth(-strict)?-items\/([^/?]+)$/.exec(path);
+    if (oauth !== null) {
+      const token = /^Bearer fresh-(\d+)$/.exec(request.headers.authorization ?? "")?.[1];
+      const ok = token !== undefined && (oauth[1] === undefined || Number(token) > 1);
+      send(response, ok ? 200 : 401, ok ? { id: decodeURIComponent(oauth[2] ?? ""), name: "Blue kettle", stock: 4 } : { error: "invalid_token" });
       return;
     }
     const basic = /^\/basic-items\/([^/?]+)$/.exec(path);
@@ -173,12 +191,16 @@ export async function startMcp(): Promise<Fixture> {
   return { ...(await listen(server)), received };
 }
 
+/** Fixed values, as an operator's static keys are; a rejected one is never replaced. */
 export function secretsFrom(values: Record<string, string>): RunContext["credentials"] {
-  return async (name: string, _declaration: CredentialDeclaration) => {
-    const value = values[name];
-    if (value === undefined) {
-      throw new CredentialUnavailable(name, "not set in the test environment");
-    }
-    return value;
+  return {
+    value: async (name: string, _declaration: CredentialDeclaration) => {
+      const value = values[name];
+      if (value === undefined) {
+        throw new CredentialUnavailable(name, "not set in the test environment");
+      }
+      return value;
+    },
+    rejected: async () => false,
   };
 }

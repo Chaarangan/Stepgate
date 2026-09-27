@@ -270,6 +270,52 @@
           }
         ]
       }
+    },
+    "/oauth-items/{id}": {
+      "get": {
+        "operationId": "getOAuthItem",
+        "summary": "Fetch one item with an OAuth access token.",
+        "security": [
+          {
+            "oauth": [
+              "read:items"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/oauth-strict-items/{id}": {
+      "get": {
+        "operationId": "getStrictOAuthItem",
+        "summary": "Fetch one item; the first access token issued is refused as expired.",
+        "security": [
+          {
+            "oauth": [
+              "read:items"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
     }
   },
   "components": {
@@ -282,6 +328,18 @@
       "basic": {
         "type": "http",
         "scheme": "basic"
+      },
+      "oauth": {
+        "type": "oauth2",
+        "flows": {
+          "authorizationCode": {
+            "authorizationUrl": "https://example.com/authorize",
+            "tokenUrl": "https://example.com/token",
+            "scopes": {
+              "read:items": "Read items."
+            }
+          }
+        }
       }
     }
   }

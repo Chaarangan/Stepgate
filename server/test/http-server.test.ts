@@ -17,8 +17,11 @@ afterEach(async () => {
 
 async function start(): Promise<number> {
   served = await serveHttp([], {
-    credentials: async (name) => {
-      throw new CredentialUnavailable(name, "none in this test");
+    credentials: {
+      value: async (name) => {
+        throw new CredentialUnavailable(name, "none in this test");
+      },
+      rejected: async () => false,
     },
     settings: async (name) => {
       throw new SettingUnavailable(name, "none in this test");

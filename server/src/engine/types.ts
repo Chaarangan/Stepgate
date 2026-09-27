@@ -9,6 +9,8 @@ export type SettingDeclaration = { description: string; pattern?: string };
 export type CredentialDeclaration = {
   kind: CredentialKind;
   scopes?: string[];
+  /** For oauth2: where Stepgate exchanges the operator's refresh token for an access token. */
+  token_url?: string;
   hosts: string[];
   description: string;
 };
@@ -67,9 +69,17 @@ export type ToolDefinition = {
 
 export type LedgerRecord = { seq: number; type: string; at: string; prev: string | null } & JsonObject;
 
+/** Where credential values come from. Stepgate asks again on every attempt, so a source may rotate them. */
+export type CredentialSource = {
+  /** The value to send now; raises CredentialUnavailable when the operator supplied none. */
+  value: (name: string, declaration: CredentialDeclaration) => Promise<string>;
+  /** Told that an API answered 401 to the value; true when a fresh one was obtained and the request is worth sending once more. */
+  rejected: (name: string, declaration: CredentialDeclaration) => Promise<boolean>;
+};
+
 /** What a run needs from Stepgate: credentials, settings, a ledger sink and limits. */
 export type RunContext = {
-  credentials: (name: string, declaration: CredentialDeclaration) => Promise<string>;
+  credentials: CredentialSource;
   /** The operator's value for a setting, such as a site name; raises SettingUnavailable when unset. */
   settings: (name: string, declaration: SettingDeclaration) => Promise<string>;
   ledger: (record: LedgerRecord) => void | Promise<void>;

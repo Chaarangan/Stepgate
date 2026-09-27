@@ -102,8 +102,11 @@ function inspectionContext(url: URL, outbound: Outbound): HttpContext {
     ...outbound,
     allowedHosts: new Set([url.host]),
     append: async () => undefined,
-    credentials: async (name) => {
-      throw new CredentialUnavailable(name, "inspection sends no credentials");
+    credentials: {
+      value: async (name) => {
+        throw new CredentialUnavailable(name, "inspection sends no credentials");
+      },
+      rejected: async () => false,
     },
   };
 }

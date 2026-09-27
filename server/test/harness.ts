@@ -8,7 +8,7 @@ import type { DraftPolicy } from "../src/authoring.ts";
 import { SettingUnavailable } from "../src/engine/errors.ts";
 import { isLoopbackHttpUrl, isPublicHttpsUrl } from "../src/engine/http.ts";
 import { load } from "../src/engine/load.ts";
-import type { RunContext, JsonObject, LedgerRecord } from "../src/engine/types.ts";
+import type { CredentialSource, RunContext, JsonObject, LedgerRecord } from "../src/engine/types.ts";
 import { createStepgateServer } from "../src/server.ts";
 import { userAgent } from "../src/version.ts";
 import { API_KEY, MCP_TOKEN, secretsFrom, startApi, startMcp, type Fixture } from "./fixtures.ts";
@@ -38,6 +38,8 @@ export type Setup = {
   /** What the client does after starting the run, in order, until the run finishes or fails. */
   actions: Action[];
   credentials?: Record<string, string>;
+  /** Replaces `credentials` with a real source, such as the operator's environment adapter. */
+  credentialSource?: CredentialSource;
   settings?: (addresses: { cataloguePort: string }) => Record<string, string>;
   limits?: Partial<RunContext["limits"]>;
   flakyFailures?: number;
@@ -71,7 +73,7 @@ export async function startHarness(setup: Setup): Promise<Harness> {
 
   const records: LedgerRecord[] = [];
   const server = createStepgateServer([load(JSON.stringify(stepfile))], {
-    credentials: secretsFrom(setup.credentials ?? { catalogue: API_KEY, suppliers: MCP_TOKEN }),
+    credentials: setup.credentialSource ?? secretsFrom(setup.credentials ?? { catalogue: API_KEY, suppliers: MCP_TOKEN }),
     settings: async (name) => {
       const value = settings[name];
       if (value === undefined) {

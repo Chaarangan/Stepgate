@@ -55,9 +55,9 @@ if (name === undefined || inputsJson === undefined) {
   throw new Error("usage: npm run demo -- <catalog name> '<inputs as JSON>' [ledger directory]");
 }
 
-// Pass through only what stepgate needs: credentials (<NAME>_API_KEY) and the operator contact.
+// Pass through only what stepgate needs: credentials (<NAME>_API_KEY, or the oauth2 refresh variables) and the operator contact.
 const passThrough = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] =>
-  entry[1] !== undefined && entry[0].endsWith("_API_KEY") && entry[0] !== "MODEL_API_KEY"));
+  entry[1] !== undefined && /_(API_KEY|REFRESH_TOKEN|CLIENT_ID|CLIENT_SECRET)$/.test(entry[0]) && entry[0] !== "MODEL_API_KEY"));
 const contact = process.env.STEPGATE_CONTACT;
 const extraArgs = (process.env.STEPGATE_EXTRA_ARGS ?? "").split(" ").filter((arg) => arg !== "");
 

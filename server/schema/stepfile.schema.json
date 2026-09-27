@@ -134,6 +134,10 @@
         "description": {
           "type": "string",
           "minLength": 1
+        },
+        "token_url": {
+          "$ref": "#/$defs/url",
+          "description": "For oauth2: the token endpoint Stepgate posts the operator's refresh token to. It may not use {setting} placeholders."
         }
       },
       "if": {
@@ -150,8 +154,17 @@
       },
       "else": {
         "not": {
-          "required": [
-            "scopes"
+          "anyOf": [
+            {
+              "required": [
+                "scopes"
+              ]
+            },
+            {
+              "required": [
+                "token_url"
+              ]
+            }
           ]
         }
       }

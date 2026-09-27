@@ -32,7 +32,7 @@ npx -y stepgate /Users/me/flows/invoice-check.stepfile.yaml market-research
 - **Each file becomes one tool named after its `id`,** so every file you serve needs its own `id`.
 - **Mistakes show when the server starts.** Every file is validated at startup, and a broken one stops the server with the reason, such as `StepfileInvalid: stepfile invalid: /stepgate must be equal to constant`. The client shows this as a server that failed to start; Claude Code's `/mcp` and Claude Desktop's logs carry the message.
 - **Restart after editing.** Files are read once, at startup. In Claude Code, reconnect the server from `/mcp`.
-- **Credentials and settings work as for catalog entries:** credential `my-api` is read from `MY_API_API_KEY` and setting `erp-host` from `ERP_HOST`.
+- **Credentials and settings work as for catalog entries:** credential `my-api` is read from `MY_API_API_KEY` and setting `erp-host` from `ERP_HOST`. An `oauth2` credential with a `token_url` can take `MY_API_REFRESH_TOKEN` and `MY_API_CLIENT_ID` instead, and Stepgate refreshes the access token itself ([stepfile.md](stepfile.md#credentials)).
 - **Your own files may call `http://localhost`,** which helps while testing against a local API. Catalog entries must use public `https` URLs.
 
 To have your editor check the file as you type, start it with this line; editors using `yaml-language-server`, such as VS Code with the YAML extension, then validate every field:

@@ -5,19 +5,18 @@
 //
 // An argument ending in .yaml, .yml or .json is a file; anything else names a stepfile in the
 // bundled catalog. Without --http it speaks stdio, which is how desktop MCP clients launch servers. Credential
-// <name> is read from the environment variable <NAME>_API_KEY. Budgets default as shown in --help.
+// <name> is read from <NAME>_API_KEY, or refreshed from <NAME>_REFRESH_TOKEN for oauth2 (src/operator.ts). Budgets default as shown in --help.
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { readFileSync } from "node:fs";
 import { parseArgs } from "node:util";
-import { CredentialUnavailable, SettingUnavailable } from "./engine/errors.ts";
 import { isPublicHttpsUrl } from "./engine/http.ts";
-import { settingVariable } from "./engine/settings.ts";
 import { oneLine } from "./engine/tools/tool.ts";
 import { directorySink, firstBreak, streamSink } from "./engine/ledger.ts";
 import { load } from "./engine/load.ts";
 import { catalogDirectory, catalogFile, listCatalog } from "./catalog.ts";
 import { serveHttp } from "./http-server.ts";
+import { environmentCredentials, environmentSettings } from "./operator.ts";
 import { createStepgateServer, type StepgateServerOptions } from "./server.ts";
 import { userAgent } from "./version.ts";
 import type { LedgerRecord } from "./engine/types.ts";
@@ -111,32 +110,21 @@ function stepfilePath(argument: string): URL | string {
 const stepfiles = positionals.map((argument) => load(readFileSync(stepfilePath(argument), "utf8")));
 const ledgerDir = values["ledger-dir"];
 
+const limits = {
+  callsPerStep: positiveInteger("calls-per-step", values["calls-per-step"]),
+  toolResultChars: positiveInteger("tool-result-chars", values["tool-result-chars"]),
+  requestTimeoutMs: positiveInteger("request-timeout-ms", values["request-timeout-ms"]),
+  responseBytes: positiveInteger("response-bytes", values["response-bytes"]),
+};
+const agent = userAgent(contactEmail(values.contact));
+
 const options: StepgateServerOptions = {
-  credentials: async (name) => {
-    const variable = `${name.toUpperCase().replaceAll("-", "_")}_API_KEY`;
-    const value = process.env[variable];
-    if (value === undefined || value === "") {
-      throw new CredentialUnavailable(name, `set ${variable} in the server's environment`);
-    }
-    return value;
-  },
-  settings: async (name) => {
-    const variable = settingVariable(name);
-    const value = process.env[variable];
-    if (value === undefined || value === "") {
-      throw new SettingUnavailable(name, `set ${variable} in the server's environment`);
-    }
-    return value;
-  },
+  credentials: environmentCredentials(process.env, { userAgent: agent, limits }),
+  settings: environmentSettings(process.env),
   ledger: ledgerDir === undefined ? streamSink(process.stderr) : directorySink(ledgerDir),
-  limits: {
-    callsPerStep: positiveInteger("calls-per-step", values["calls-per-step"]),
-    toolResultChars: positiveInteger("tool-result-chars", values["tool-result-chars"]),
-    requestTimeoutMs: positiveInteger("request-timeout-ms", values["request-timeout-ms"]),
-    responseBytes: positiveInteger("response-bytes", values["response-bytes"]),
-  },
+  limits,
   runIdleMs: positiveInteger("run-idle-ms", values["run-idle-ms"]),
-  userAgent: userAgent(contactEmail(values.contact)),
+  userAgent: agent,
   drafts: { urlAllowed: isPublicHttpsUrl },
 };
 

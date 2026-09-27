@@ -106,6 +106,12 @@ function checkCrossFieldRules(document: StepfileDocument): ValidationIssue[] {
     }
   }
 
+  for (const [name, credential] of Object.entries(credentials)) {
+    if (credential.token_url !== undefined && settingNames(credential.token_url).length > 0) {
+      issues.push({ path: `/credentials/${name}/token_url`, message: "token_url cannot use {setting} placeholders; the refresh token is sent there, so it must be fixed in the file" });
+    }
+  }
+
   const seenSteps = new Set<string>();
   document.steps.forEach((step, index) => {
     const path = `/steps/${index}`;

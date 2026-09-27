@@ -95,11 +95,14 @@ credentials:
   notion:
     kind: oauth2               # api_key | bearer | oauth2 | basic
     scopes: [read_content]     # required for oauth2, not allowed otherwise
+    token_url: https://api.notion.com/v1/oauth/token   # oauth2 only, optional
     hosts: [api.notion.com]
     description: Reads the target database. Never writes.
 ```
 
 A stepfile declares what it needs and never where a secret lives: there is no value field and no environment-variable name. Whoever runs Stepgate supplies the value, as `<NAME>_API_KEY` in its environment. A `basic` credential's value is `user:secret`, for example an Atlassian or Zendesk email and API token, and is sent as HTTP Basic. `description` is required; it is what a person reads before handing the stepfile a credential.
+
+An `oauth2` credential with a `token_url` can also be refreshed: whoever runs Stepgate sets `<NAME>_REFRESH_TOKEN` and `<NAME>_CLIENT_ID` (and `<NAME>_CLIENT_SECRET` for a confidential client) instead of an access token, and Stepgate exchanges them at `token_url` with the declared `scopes`, refreshes the access token before it expires, and once more when an API answers 401. The refresh token is sent to `token_url`, so it is fixed in the file and cannot use a `{setting}`; read it before handing a stepfile a refresh token.
 
 A credential is attached only to requests whose host is in its `hosts`, and never reaches the model, a placeholder or the ledger.
 
