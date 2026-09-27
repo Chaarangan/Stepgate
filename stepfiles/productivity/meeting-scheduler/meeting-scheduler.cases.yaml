@@ -1,0 +1,191 @@
+# Recorded calls and outputs for `stepgate --test meeting-scheduler`, shaped like Google's documented
+# freeBusy.query and drafts.create responses.
+cases:
+  - name: two slots Google confirms free pass every gate
+    inputs: &inputs
+      attendees: [alice@example.com, bob@example.com]
+      title: Q4 planning
+      duration_minutes: 30
+      start_date: "2026-10-06"
+      end_date: "2026-10-08"
+      work_start: "09:00"
+      work_end: "17:00"
+      utc_offset: "+01:00"
+    steps:
+      - &availability
+        step: availability
+        calls:
+          - tool: queryFreeBusy
+            arguments:
+              body:
+                timeMin: "2026-10-06T00:00:00+01:00"
+                timeMax: "2026-10-08T23:59:59+01:00"
+                timeZone: UTC
+                items: [{ id: alice@example.com }, { id: bob@example.com }]
+            result:
+              kind: calendar#freeBusy
+              timeMin: "2026-10-05T23:00:00.000Z"
+              timeMax: "2026-10-08T22:59:59.000Z"
+              calendars: &calendars
+                alice@example.com: { busy: [{ start: "2026-10-06T08:00:00Z", end: "2026-10-06T09:00:00Z" }] }
+                bob@example.com: { busy: [{ start: "2026-10-07T12:00:00Z", end: "2026-10-07T12:30:00Z" }] }
+        output: { calendars: *calendars }
+        expect: pass
+      - &slots
+        step: slots
+        calls:
+          - &confirm-first
+            tool: queryFreeBusy
+            arguments:
+              body: { timeMin: "2026-10-06T10:00:00+01:00", timeMax: "2026-10-06T10:30:00+01:00", timeZone: UTC, items: [{ id: alice@example.com }, { id: bob@example.com }] }
+            result:
+              kind: calendar#freeBusy
+              timeMin: "2026-10-06T09:00:00.000Z"
+              timeMax: "2026-10-06T09:30:00.000Z"
+              calendars: { alice@example.com: { busy: [] }, bob@example.com: { busy: [] } }
+          - tool: queryFreeBusy
+            arguments:
+              body: { timeMin: "2026-10-07T14:00:00+01:00", timeMax: "2026-10-07T14:30:00+01:00", timeZone: UTC, items: [{ id: alice@example.com }, { id: bob@example.com }] }
+            result:
+              kind: calendar#freeBusy
+              timeMin: "2026-10-07T13:00:00.000Z"
+              timeMax: "2026-10-07T13:30:00.000Z"
+              calendars: { alice@example.com: { busy: [] }, bob@example.com: { busy: [] } }
+        output:
+          proposed:
+            - { start: "2026-10-06T10:00:00+01:00", end: "2026-10-06T10:30:00+01:00" }
+            - { start: "2026-10-07T14:00:00+01:00", end: "2026-10-07T14:30:00+01:00" }
+        expect: pass
+      - &invite
+        step: invite
+        output:
+          subject: "Q4 planning: pick a time"
+          body: &body |
+            Hi both,
+
+            Let's meet to plan Q4.
+
+            Proposed times (30 minutes, local time UTC+01:00):
+            - 2026-10-06 10:00 to 10:30 (UTC+01:00)
+            - 2026-10-07 14:00 to 14:30 (UTC+01:00)
+
+            Please reply with the options that work for you.
+        expect: pass
+      - step: draft
+        calls:
+          - tool: createDraft
+            arguments: { body: "To: alice@example.com, bob@example.com\r\nSubject: Q4 planning: pick a time\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8\r\nContent-Transfer-Encoding: 8bit\r\n\r\nHi both,\r\n\r\nLet's meet to plan Q4.\r\n\r\nProposed times (30 minutes, local time UTC+01:00):\r\n- 2026-10-06 10:00 to 10:30 (UTC+01:00)\r\n- 2026-10-07 14:00 to 14:30 (UTC+01:00)\r\n\r\nPlease reply with the options that work for you.\r\n" }
+            result: { id: r-2291837465019283746, message: { id: 19a40b1c2d3e4f50, threadId: 19a40b1c2d3e4f50, labelIds: [DRAFT] } }
+        output: { draft_id: r-2291837465019283746, message_id: 19a40b1c2d3e4f50 }
+        expect: pass
+
+  - name: a calendar Google cannot read stops the run
+    inputs: *inputs
+    steps:
+      - step: availability
+        calls:
+          - tool: queryFreeBusy
+            arguments:
+              body: { timeMin: "2026-10-06T00:00:00+01:00", timeMax: "2026-10-08T23:59:59+01:00", timeZone: UTC, items: [{ id: alice@example.com }, { id: bob@example.com }] }
+            result:
+              kind: calendar#freeBusy
+              calendars:
+                alice@example.com: { busy: [] }
+                bob@example.com: { errors: [{ domain: global, reason: notFound }], busy: [] }
+        output:
+          calendars:
+            alice@example.com: { busy: [] }
+            bob@example.com: { errors: [{ domain: global, reason: notFound }], busy: [] }
+        expect: { fail: [every-calendar-readable] }
+
+  - name: an answer missing an attendee stops the run
+    inputs: *inputs
+    steps:
+      - step: availability
+        calls:
+          - tool: queryFreeBusy
+            arguments:
+              body: { timeMin: "2026-10-06T00:00:00+01:00", timeMax: "2026-10-08T23:59:59+01:00", timeZone: UTC, items: [{ id: alice@example.com }, { id: bob@example.com }] }
+            result: { kind: calendar#freeBusy, calendars: { alice@example.com: { busy: [] } } }
+        output: { calendars: { alice@example.com: { busy: [] } } }
+        expect: { fail: [every-attendee-answered] }
+
+  - name: a slot no query confirmed is rejected
+    inputs: *inputs
+    steps:
+      - *availability
+      - step: slots
+        calls: [*confirm-first]
+        output:
+          proposed:
+            - { start: "2026-10-06T10:00:00+01:00", end: "2026-10-06T10:30:00+01:00" }
+            - { start: "2026-10-08T11:00:00+01:00", end: "2026-10-08T11:30:00+01:00" }
+        expect: { fail: [slot-confirmed-by-google, slot-answered-for-every-attendee] }
+
+  - name: a slot Google reports busy is rejected
+    inputs: *inputs
+    steps:
+      - *availability
+      - step: slots
+        calls:
+          - tool: queryFreeBusy
+            arguments:
+              body: { timeMin: "2026-10-07T13:00:00+01:00", timeMax: "2026-10-07T13:30:00+01:00", timeZone: UTC, items: [{ id: alice@example.com }, { id: bob@example.com }] }
+            result:
+              kind: calendar#freeBusy
+              calendars: { alice@example.com: { busy: [] }, bob@example.com: { busy: [{ start: "2026-10-07T12:00:00Z", end: "2026-10-07T12:30:00Z" }] } }
+        output:
+          proposed:
+            - { start: "2026-10-07T13:00:00+01:00", end: "2026-10-07T13:30:00+01:00" }
+        expect: { fail: [slot-free-for-everyone] }
+
+  - name: a slot running past working hours is rejected
+    inputs: *inputs
+    steps:
+      - *availability
+      - step: slots
+        calls:
+          - tool: queryFreeBusy
+            arguments:
+              body: { timeMin: "2026-10-06T16:45:00+01:00", timeMax: "2026-10-06T17:15:00+01:00", timeZone: UTC, items: [{ id: alice@example.com }, { id: bob@example.com }] }
+            result:
+              kind: calendar#freeBusy
+              calendars: { alice@example.com: { busy: [] }, bob@example.com: { busy: [] } }
+        output:
+          proposed:
+            - { start: "2026-10-06T16:45:00+01:00", end: "2026-10-06T17:15:00+01:00" }
+        expect: { fail: [slots-inside-range-and-hours] }
+
+  - name: an invite quoting a time no slot has is rejected
+    inputs: *inputs
+    steps:
+      - *availability
+      - *slots
+      - step: invite
+        output:
+          subject: "Q4 planning: pick a time"
+          body: "Hi both,\n\nProposed times (30 minutes, local time UTC+01:00):\n- 2026-10-06 10:00 to 10:30 (UTC+01:00)\n- 2026-10-07 15:00 to 15:30 (UTC+01:00)\n"
+        expect: { fail: [slots-quoted-exactly] }
+
+  - name: a subject carrying a second header line is refused by the schema
+    inputs: *inputs
+    steps:
+      - *availability
+      - *slots
+      - step: invite
+        output:
+          subject: "Q4 planning\r\nBcc: someone@example.com"
+          body: *body
+        expect: { fail: [produces] }
+
+  - name: an invite that picks its own recipients is refused
+    inputs: *inputs
+    steps:
+      - *availability
+      - *slots
+      - step: invite
+        output:
+          to: [alice@example.com, eve@example.com]
+          subject: "Q4 planning: pick a time"
+          body: *body
+        expect: { fail: [derive] }
