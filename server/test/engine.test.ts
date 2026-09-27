@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { parse as parseYaml } from "yaml";
 import { StepfileInvalid } from "../src/engine/errors.ts";
 import { directorySink } from "../src/engine/ledger.ts";
+import { testGates } from "../src/gate-test.ts";
 import { load } from "../src/engine/load.ts";
 import { evaluatePredicate } from "../src/engine/predicate.ts";
 import type { Json, JsonObject } from "../src/engine/types.ts";
@@ -236,5 +237,50 @@ describe("ledger", () => {
     expect(intact.stdout).toMatch(/: intact, \d+ records/);
     expect(edited.status).toBe(1);
     expect(edited.stdout).toMatch(/: broken at seq \d+: prev does not match/);
+  });
+});
+
+describe("offline gate tests", () => {
+  const SHELVES = `stepgate: "1"
+id: shelves
+inputs: { type: object, required: [shelves], properties: { shelves: { type: array } } }
+tools:
+  catalogue:
+    openapi:
+      server: https://catalogue.example.com
+      document:
+        openapi: 3.1.0
+        info: { title: Catalogue, version: "1" }
+        paths:
+          /items:
+            get:
+              operationId: listItems
+              parameters: [{ name: shelf, in: query, required: true, schema: { type: string } }]
+    exposes: [listItems]
+steps:
+  - id: count
+    do:
+      calls: [{ id: shelf, operation: listItems, each: { var: inputs.shelves }, arguments: { shelf: { var: item } } }]
+      output: { counts: { map: [{ var: responses.shelf }, { length: { var: items } }] } }
+    produces: { type: object }
+`;
+  const recorded = (second: string) => [
+    { tool: "listItems", arguments: { shelf: "A" }, result: { items: [1, 2] } },
+    { tool: "listItems", arguments: { shelf: second }, result: { items: [3] } },
+  ];
+
+  it("recomputes a mechanical step's arguments and output from its recorded calls", async () => {
+    const stepfile = load(SHELVES);
+    const cases = [
+      { name: "right", inputs: { shelves: ["A", "B"] }, steps: [{ step: "count", calls: recorded("B"), output: { counts: [2, 1] }, expect: "pass" as const }] },
+      { name: "wrong output", inputs: { shelves: ["A", "B"] }, steps: [{ step: "count", calls: recorded("B"), output: { counts: [2, 9] }, expect: "pass" as const }] },
+      { name: "wrong call", inputs: { shelves: ["A", "B"] }, steps: [{ step: "count", calls: recorded("C"), output: { counts: [2, 1] }, expect: "pass" as const }] },
+    ].map((item) => ({ ...item, steps: item.steps.map((step) => ({ ...step, calls: step.calls.map((call) => ({ ...call, is_error: false })) })) }));
+
+    const reports = await testGates(stepfile, cases);
+
+    expect(reports.map((report) => [report.case, report.ok])).toEqual([["right", true], ["wrong output", false], ["wrong call", false]]);
+    expect(reports[1]?.problem).toBe('Stepgate computes output {"counts":[2,1]} from these calls, not the case\'s {"counts":[2,9]}');
+    expect(reports[2]?.problem).toBe('call shelf would send {"shelf":"B"} as listItems call 2, but the case recorded {"shelf":"C"}');
   });
 });
