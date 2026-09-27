@@ -3,6 +3,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import { parse as parseYaml } from "yaml";
 import { verifyLedger } from "../src/engine/ledger.ts";
 import { load } from "../src/engine/load.ts";
+import { evaluatePredicate } from "../src/engine/predicate.ts";
+import type { Json } from "../src/engine/types.ts";
 import { userAgent, VERSION } from "../src/version.ts";
 import { GOOD_STOCK, GOOD_SUMMARY, startHarness, type Harness } from "./harness.ts";
 
@@ -40,6 +42,26 @@ describe("load", () => {
   it("gives the YAML and JSON forms of a stepfile the same identity", () => {
     const yaml = readFileSync(MARKET_RESEARCH, "utf8");
     expect(load(yaml).identity).toBe(load(JSON.stringify(parseYaml(yaml))).identity);
+  });
+});
+
+describe("gate operators", () => {
+  const calendars = { "alice@example.com": { busy: [] }, "bob@example.com": { busy: [{ start: "10:00", end: "11:00" }] } };
+
+  it("get reads a key that contains dots, which var cannot", () => {
+    const context = { inputs: { attendee: "bob@example.com" }, steps: {}, output: { calendars } };
+    expect(evaluatePredicate({ "==": [{ length: { var: "busy" } }, 1] }, { ...context, output: { calendars } })).toBe(false);
+    expect(evaluatePredicate({ "==": [{ length: { get: [{ get: [{ var: "output.calendars" }, { var: "inputs.attendee" }] }, "busy"] } }, 1] }, context)).toBe(true);
+  });
+
+  it("join pairs each row with its evidence so a gate can compare them field by field", () => {
+    const rule = { none: [{ join: [{ var: "output.rows" }, { var: "calls.0.result.items" }, "id", "id"] }, { or: [{ "==": [{ var: "right" }, null] }, { "!=": [{ var: "left.stock" }, { var: "right.stock" }] }] }] };
+    const calls = [{ tool: "listItems", arguments: {}, result: { items: [{ id: "K-2", stock: 0 }, { id: "K-1", stock: 4 }] }, is_error: false }];
+    const context = (rows: Json[]) => ({ inputs: {}, steps: {}, output: { rows }, calls });
+
+    expect(evaluatePredicate(rule, context([{ id: "K-1", stock: 4 }, { id: "K-2", stock: 0 }]))).toBe(true);
+    expect(evaluatePredicate(rule, context([{ id: "K-1", stock: 5 }]))).toBe(false);
+    expect(evaluatePredicate(rule, context([{ id: "K-9", stock: 4 }]))).toBe(false);
   });
 });
 

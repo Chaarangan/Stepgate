@@ -46,6 +46,7 @@ const OPENAPI_BYTES = readFileSync(new URL("fixtures/catalogue.openapi.json", im
 export async function startApi(flakyFailures: number): Promise<Fixture> {
   const received: ReceivedRequest[] = [];
   let flakyCalls = 0;
+  const limitedCalls: Record<string, number> = {};
   const server = createServer(async (request, response) => {
     const body = await readBody(request);
     const path = request.url ?? "/";
@@ -77,6 +78,28 @@ export async function startApi(flakyFailures: number): Promise<Fixture> {
     if (path === "/flaky") {
       flakyCalls += 1;
       send(response, flakyCalls <= flakyFailures ? 503 : 200, flakyCalls <= flakyFailures ? { error: "busy" } : { ok: true });
+      return;
+    }
+    if (path === "/limited" || path === "/secondary-limited" || path === "/limited-long") {
+      limitedCalls[path] = (limitedCalls[path] ?? 0) + 1;
+      if (path === "/limited-long") {
+        response.writeHead(429, { "content-type": "application/json", "retry-after": "120" }).end("{\"error\":\"slow down\"}");
+      } else if (limitedCalls[path] === 1 && path === "/limited") {
+        response.writeHead(429, { "content-type": "application/json", "retry-after": "1" }).end("{\"error\":\"slow down\"}");
+      } else if (limitedCalls[path] === 1) {
+        const reset = String(Math.ceil(Date.now() / 1000) + 1);
+        response.writeHead(403, { "content-type": "application/json", "x-ratelimit-remaining": "0", "x-ratelimit-reset": reset }).end("{\"message\":\"API rate limit exceeded\"}");
+      } else {
+        send(response, 200, { ok: true });
+      }
+      return;
+    }
+    if (path.startsWith("/search?")) {
+      send(response, 200, { tags: new URL(path, "http://fixture").searchParams.getAll("tag"), results: [] });
+      return;
+    }
+    if (path === "/drafts" && request.method === "POST") {
+      send(response, 201, { id: "draft-1", content_type: request.headers["content-type"], bytes: Buffer.byteLength(body) });
       return;
     }
     const formatted = /^\/formatted\/([^/?]+)\?format=json$/.exec(path);

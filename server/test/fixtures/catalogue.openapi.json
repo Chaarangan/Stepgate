@@ -100,6 +100,95 @@
           }
         ]
       }
+    },
+    "/search": {
+      "get": {
+        "operationId": "searchItems",
+        "summary": "Search the catalogue by tags, choosing the fields returned.",
+        "security": [
+          {
+            "key": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "tag",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "fields",
+            "in": "query",
+            "explode": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        ]
+      }
+    },
+    "/drafts": {
+      "post": {
+        "operationId": "createDraft",
+        "summary": "Store a raw email as a draft.",
+        "security": [
+          {
+            "key": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "message/rfc822": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/limited": {
+      "get": {
+        "operationId": "getLimited",
+        "summary": "Rate limited once with Retry-After: 1.",
+        "security": [
+          {
+            "key": []
+          }
+        ]
+      }
+    },
+    "/secondary-limited": {
+      "get": {
+        "operationId": "getSecondaryLimited",
+        "summary": "Rate limited once the way GitHub does, with a 403.",
+        "security": [
+          {
+            "key": []
+          }
+        ]
+      }
+    },
+    "/limited-long": {
+      "get": {
+        "operationId": "getLongLimited",
+        "summary": "Always asks for a two-minute wait.",
+        "security": [
+          {
+            "key": []
+          }
+        ]
+      }
     }
   },
   "components": {

@@ -8,14 +8,14 @@ import type { ToolResult } from "./tool-result.ts";
 
 const METHODS = ["get", "put", "post", "delete", "patch", "head", "options"] as const;
 
-type Parameter = { name: string; in: "path" | "query" | "header" | "cookie"; required: boolean; schema: JsonSchema };
+type Parameter = { name: string; in: "path" | "query" | "header" | "cookie"; required: boolean; schema: JsonSchema; explode: boolean };
 
 type Operation = {
   operationId: string;
   method: string;
   path: string;
   parameters: Parameter[];
-  body: { schema: JsonSchema; required: boolean } | null;
+  body: { schema: JsonSchema; required: boolean; contentType: string } | null;
   summary: string;
   security: JsonObject | null;
 };
@@ -61,11 +61,12 @@ function findOperations(document: JsonObject, toolName: string): Map<string, Ope
         in: parameter.in as Parameter["in"],
         required: parameter.required === true || parameter.in === "path",
         schema: isObject(parameter.schema) ? parameter.schema : {},
+        // OpenAPI's default for query parameters is form style with explode: true, so an array repeats the name.
+        explode: parameter.explode === undefined ? parameter.in === "query" : parameter.explode === true,
       }));
       const requestBody = isObject(operation.requestBody) ? operation.requestBody : null;
       const content = requestBody !== null && isObject(requestBody.content) ? requestBody.content : {};
-      const json = content["application/json"];
-      const body = isObject(json) && isObject(json.schema) ? { schema: json.schema, required: requestBody?.required === true } : null;
+      const body = requestBodyOf(content, requestBody?.required === true);
       const security = Array.isArray(operation.security) ? operation.security : Array.isArray(document.security) ? document.security : [];
       operations.set(operation.operationId, {
         operationId: operation.operationId,
@@ -79,6 +80,23 @@ function findOperations(document: JsonObject, toolName: string): Map<string, Ope
     }
   }
   return operations;
+}
+
+function scalarText(value: Json | undefined): string {
+  return typeof value === "string" ? value : JSON.stringify(value ?? null);
+}
+
+/**
+ * The request body Stepgate can send: JSON when the operation accepts it, otherwise a plain string for a
+ * text/* or message/* content type (for example a raw email as message/rfc822). Other bodies are not sent.
+ */
+function requestBodyOf(content: JsonObject, required: boolean): Operation["body"] {
+  const json = content["application/json"];
+  if (isObject(json) && isObject(json.schema)) {
+    return { schema: json.schema, required, contentType: "application/json" };
+  }
+  const textType = Object.keys(content).find((type) => /^(text|message)\//.test(type));
+  return textType === undefined ? null : { schema: { type: "string" }, required, contentType: textType };
 }
 
 /** The value of a parameter that allows exactly one value (`const` or a one-item `enum`), which is sent without asking the model. */
@@ -203,21 +221,23 @@ export async function prepareOpenApiTool(
         if (value === undefined) {
           continue;
         }
-        const text = typeof value === "string" ? value : JSON.stringify(value);
-        if (parameter.in === "path") {
-          path = path.replace(`{${parameter.name}}`, encodeURIComponent(text));
+        const items = Array.isArray(value) ? value.map(scalarText) : [scalarText(value)];
+        if (parameter.in === "query" && parameter.explode) {
+          items.forEach((item) => query.append(parameter.name, item));
         } else if (parameter.in === "query") {
-          query.set(parameter.name, text);
+          query.append(parameter.name, items.join(","));
+        } else if (parameter.in === "path") {
+          path = path.replace(`{${parameter.name}}`, encodeURIComponent(items.join(",")));
         } else if (parameter.in === "header") {
-          headers.set(parameter.name, text);
+          headers.set(parameter.name, items.join(","));
         }
       }
       const url = new URL(`${base}${path}`);
-      query.forEach((value, key) => url.searchParams.set(key, value));
+      query.forEach((value, key) => url.searchParams.append(key, value));
       const init: RequestInit = { method: operation.method, headers };
       if (operation.body !== null && args.body !== undefined) {
-        headers.set("content-type", "application/json");
-        init.body = JSON.stringify(args.body);
+        headers.set("content-type", operation.body.contentType);
+        init.body = operation.body.contentType === "application/json" ? JSON.stringify(args.body) : String(args.body);
       }
       const response = await guardedFetch(context, `${toolName}.${operationId}`, url, init, bindings.get(operationId) ?? null);
       const text = await response.text();

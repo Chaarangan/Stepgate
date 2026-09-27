@@ -235,6 +235,39 @@ describe("credential kinds and parameters", () => {
     expect(Object.keys((tool?.inputSchema as { properties: JsonObject }).properties)).toEqual(["id"]);
   });
 
+  it("sends an array query parameter as repeated names, or comma-separated when explode is false", async () => {
+    const { call, api } = await start({
+      edit: (stepfile) => {
+        ((stepfile.tools as JsonObject).catalogue as JsonObject).exposes = ["getItem", "getFlaky", "getRevoked", "searchItems"];
+        (steps(stepfile)[0] as JsonObject).tools = ["searchItems"];
+      },
+      turns: [use("s0", "searchItems", { tag: ["red", "blue"], fields: ["name", "stock"] }), GOOD_STOCK, GOOD_SUMMARY],
+    });
+
+    await call({ item: "K-1" });
+
+    expect(api.received.map((request) => request.path)).toContain("/search?tag=red&tag=blue&fields=name%2Cstock");
+  });
+
+  it("sends a message/rfc822 body as the raw text the model wrote", async () => {
+    const email = "To: ops@example.com\r\nSubject: Stock check\r\n\r\nBlue kettle has 4 in stock.";
+    const { call, api, sampled } = await start({
+      edit: (stepfile) => {
+        ((stepfile.tools as JsonObject).catalogue as JsonObject).exposes = ["getItem", "getFlaky", "getRevoked", "createDraft"];
+        (steps(stepfile)[0] as JsonObject).tools = ["createDraft"];
+      },
+      turns: [use("d1", "createDraft", { body: email }), GOOD_STOCK, GOOD_SUMMARY],
+    });
+
+    await call({ item: "K-1" });
+
+    const draft = api.received.find((request) => request.path === "/drafts");
+    expect(draft?.headers["content-type"]).toBe("message/rfc822");
+    expect(draft?.body).toBe(email);
+    const tool = sampled[0]?.tools?.find((item) => item.name === "createDraft");
+    expect((tool?.inputSchema as unknown as { properties: { body: JsonObject } }).properties.body).toEqual({ type: "string" });
+  });
+
   it("compares strings case-insensitively with lower", async () => {
     const { call } = await start({
       edit: (stepfile) => void ((steps(stepfile)[0] as JsonObject).gates = [{
@@ -341,6 +374,41 @@ describe("external call failures", () => {
     expect(result.isError).toBeFalsy();
     expect(records.filter((record) => record.type === "retry").map((record) => [record.attempt, record.status])).toEqual([[1, 503], [2, 503]]);
     expect(records.find((record) => record.type === "tool_call")).toMatchObject({ operation: "getFlaky", status: 200 });
+  });
+
+  const exposing = (operation: string) => (stepfile: JsonObject) => {
+    ((stepfile.tools as JsonObject).catalogue as JsonObject).exposes = ["getItem", "getFlaky", "getRevoked", operation];
+    (steps(stepfile)[0] as JsonObject).tools = [operation];
+  };
+
+  it("waits as long as Retry-After asks before retrying", async () => {
+    const { call, records } = await start({ edit: exposing("getLimited"), turns: [use("r1", "getLimited", {}), GOOD_STOCK, GOOD_SUMMARY] });
+
+    await call({ item: "K-1" });
+
+    const retry = records.find((record) => record.type === "retry");
+    expect(retry).toMatchObject({ attempt: 1, status: 429, wait_ms: 1000 });
+    expect(records.find((record) => record.type === "tool_call")).toMatchObject({ operation: "getLimited", status: 200 });
+  });
+
+  it("treats a 403 with GitHub rate-limit headers as a rate limit, not a refusal", async () => {
+    const { call, records } = await start({ edit: exposing("getSecondaryLimited"), turns: [use("r2", "getSecondaryLimited", {}), GOOD_STOCK, GOOD_SUMMARY] });
+
+    const result = await call({ item: "K-1" });
+
+    expect(result.isError).toBeFalsy();
+    expect(records.find((record) => record.type === "retry")).toMatchObject({ status: 403 });
+    expect(Number(records.find((record) => record.type === "retry")?.wait_ms)).toBeLessThanOrEqual(2000);
+  });
+
+  it("stops at once when an API asks for a longer wait than Stepgate allows", async () => {
+    const { call, api } = await start({ edit: exposing("getLongLimited"), turns: [use("r3", "getLongLimited", {})] });
+
+    const text = resultText(await call({ item: "K-1" }));
+
+    expect(text).toContain("ToolCallFailed");
+    expect(text).toContain("asked to wait 120s, more than the 60s Stepgate allows");
+    expect(api.received.filter((request) => request.path === "/limited-long")).toHaveLength(1);
   });
 
   it("raises InvalidGrant on the first invalid_grant response, without retrying", async () => {
