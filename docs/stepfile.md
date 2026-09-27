@@ -62,6 +62,8 @@ Exposed names match `^[a-zA-Z0-9_-]{1,64}$`, which the major model APIs accept a
 
 An OpenAPI parameter whose schema allows exactly one value (`const`, or an `enum` with one entry) is sent with that value on every call and is not shown to the model. Use it for fixed headers and query values an API requires, such as `format: json`.
 
+An array query parameter is sent the way OpenAPI specifies by default, repeating the name (`tag=red&tag=blue`); with `explode: false` it is sent comma-separated (`fields=name,stock`). A request body is sent as JSON when the operation accepts `application/json`. Otherwise, for a `text/*` or `message/*` content type, the model supplies the body as a plain string and Stepgate sends it with that content type, which is how a raw email reaches Gmail's `message/rfc822` upload without any encoding by the model.
+
 ## Settings
 
 Some services live at a different host for every customer: `acme.atlassian.net`, `acme.service-now.com`, `acme.zendesk.com`. A stepfile declares such a value as a setting and uses it as `{name}` in the host of a tool URL and in credential `hosts`:
@@ -159,7 +161,7 @@ A predicate can check the output against the evidence. This one passes only if e
             - map: [{ var: result.docs }, { var: key }]
 ```
 
-Besides the standard JSONLogic operators, seven more are available:
+Besides the standard JSONLogic operators, nine more are available:
 
 | Operator | Arguments | Result |
 |---|---|---|
@@ -167,11 +169,13 @@ Besides the standard JSONLogic operators, seven more are available:
 | `unique` | array | Distinct elements by JSON equality, in first-seen order |
 | `subset` | array `a`, array `b` | `true` if every element of `a` is in `b` |
 | `lower` | string | The string in lowercase, for case-insensitive comparisons |
+| `get` | object or array, key | The value under one key, read literally; use it for keys that contain dots, such as email addresses, which `var` cannot reach |
+| `join` | array `left`, array `right`, path `l`, path `r` | Each item of `left` as `{ left, right }`, where `right` is the first item of `right` whose value at `r` equals the left item's value at `l`, or `null` |
 | `flatten` | array | The array with nested arrays flattened one level |
 | `host` | string | Lowercased host of an absolute URL, with port if present; `null` if not a URL |
 | `match_all` | string, pattern | Capture group 1 of every match, or the whole match if the pattern has no group |
 
-`subset` exists because JSONLogic's `all`, `map` and `filter` cannot see data outside the current array element, so a rule like "every cited id is a kept source" is otherwise impossible. Use the ECMA-262 regex subset that JSON Schema recommends in `match_all` and `pattern`, so a pattern behaves the same in your editor and in Stepgate.
+`subset` and `join` exist because JSONLogic's `all`, `map` and `filter` cannot see data outside the current array element. `subset` answers "is every cited id a kept source"; `join` lines each output row up with its evidence so a rule can compare them field by field, for example `none` over `join(output.rows, calls.0.result.items, "id", "id")` of rows whose `right` is `null` or whose `left.stock` differs from `right.stock`. Note that JSONLogic's `all` is false on an empty array; use `none`, or a count of violations, when the list may be empty. Use the ECMA-262 regex subset that JSON Schema recommends in `match_all` and `pattern`, so a pattern behaves the same in your editor and in Stepgate.
 
 **`http`** posts `{ stepfile, step, gate, inputs, steps, output, calls }` as JSON to a `verifier` tool. A 2xx response of `{ "pass": true }` passes; `{ "pass": false, "message": "..." }` fails with that message. Any other response is treated as an outage rather than a verdict and stops the run. This is how a check that needs code runs: you operate the verifier.
 

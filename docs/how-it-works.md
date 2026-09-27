@@ -44,7 +44,7 @@ The MCP spec suggests clients let a person approve each sampling request. A step
 
 **Credentials.** Credential `<name>` is read from `<NAME>_API_KEY` in Stepgate's environment, which an MCP client sets in its server configuration. A value is read when a request needs it and kept no longer than that request.
 
-**Retries.** Calls to tools, verifiers and OpenAPI documents are retried on network errors, 429 and 5xx, each retry leaving a `retry` record, and then the last error is raised. An OAuth `invalid_grant` stops the run at once with `InvalidGrant`, because a revoked grant will not recover and retrying can revoke a working one.
+**Retries.** Calls to tools, verifiers and OpenAPI documents are retried up to four times on network errors, 429 and 5xx, and on a 403 that carries rate-limit headers the way GitHub sends them. When the response says how long to wait (`Retry-After`, or `x-ratelimit-remaining: 0` with `x-ratelimit-reset`), Stepgate waits that long; otherwise it backs off from half a second. An API asking for more than 60 seconds ends the call at once with `ToolCallFailed`. Each retry leaves a `retry` record with the wait, and after the last attempt the last error is raised. An OAuth `invalid_grant` stops the run at once with `InvalidGrant`, because a revoked grant will not recover and retrying can revoke a working one.
 
 ## Limits
 
@@ -87,7 +87,7 @@ Every run writes a hash-chained ledger. Each record carries `seq`, `type`, `at` 
 | `tool_refused` | a tool the step does not allow, which the model tried to call |
 | `submit` | the step, attempt, and a hash and length of the output |
 | `gate` | the gate, its verdict and a hash of its diagnosis; a turn with no `submit` is a failed gate named `submit` |
-| `retry` | the operation, attempt and status |
+| `retry` | the operation, attempt, status and how long it waited |
 | `run_finished`, `run_failed` | the outcome or error type |
 
 Request bodies, responses and outputs appear only as hashes and lengths. No credential value, and no hash of one, is ever recorded, because a hash of a short secret can be cracked.
