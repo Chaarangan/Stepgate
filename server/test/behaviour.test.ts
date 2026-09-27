@@ -132,6 +132,22 @@ describe("approve gates", () => {
     expect(records).toContainEqual(expect.objectContaining({ type: "gate", gate: "reviewed", verdict: "pass" }));
   });
 
+  it("does not ask a person to approve a submission another gate already failed", async () => {
+    const approvingAfterChecks = (stepfile: JsonObject) => {
+      const summary = steps(stepfile)[1] as JsonObject;
+      summary.gates = [{ id: "reviewed", approve: { message: "Send this summary to the customer?" } }, ...(summary.gates as JsonObject[])];
+      summary.retries = 1;
+    };
+    const { call, asked, seen } = await start({ edit: approvingAfterChecks, approvals: [{ action: "accept" }], actions: [GOOD_STOCK, submit({ summary: "It is in stock." }), GOOD_SUMMARY] });
+
+    const result = await call({ item: "K-1" });
+
+    expect(stateOf(result)).toMatchObject({ state: "finished" });
+    expect(stateOf(seen[2]).failures).toEqual([expect.objectContaining({ gate: "mentions-name" })]);
+    expect(asked).toHaveLength(1);
+    expect(asked[0]).toContain("Blue kettle has 4 in stock");
+  });
+
   it("returns a person's reason for declining to the client as the gate's diagnosis", async () => {
     const { call, seen } = await start({
       edit: approving,

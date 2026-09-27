@@ -313,7 +313,7 @@ steps:
         http: { tool: checker }
 ```
 
-**`approve`** asks a person. Stepgate sends the client an MCP [elicitation](https://modelcontextprotocol.io/specification/2025-06-18/client/elicitation) with the gate's `message` and the submitted output beneath it; the gate passes when the person accepts, and fails with their reason, which the model sees, when they decline. Put it on the step before anything irreversible, such as sending the email a draft step prepared. A run whose stepfile has an `approve` gate fails preflight on a client that does not support elicitation.
+**`approve`** asks a person. Stepgate sends the client an MCP [elicitation](https://modelcontextprotocol.io/specification/2025-06-18/client/elicitation) with the gate's `message` and the submitted output beneath it; the gate passes when the person accepts, and fails with their reason, which the model sees, when they decline. Put it on the step before anything irreversible, such as sending the email a draft step prepared. A person is asked only once every other gate of the step has passed, so they never approve a submission the checks would reject. A run whose stepfile has an `approve` gate fails preflight on a client that does not support elicitation.
 
 ```yaml
 - id: reviewed

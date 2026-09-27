@@ -127,7 +127,7 @@ if (values.test === true) {
   const casesFile = casesArgument ?? new URL(`${stepfile.document.id}.cases.yaml`, typeof file === "string" ? pathToFileURL(file) : file);
   const reports = await testGates(stepfile, parseCases(stepfile, readFileSync(casesFile, "utf8")));
   for (const report of reports) {
-    const skipped = report.skipped.length === 0 ? "" : ` (verifier gates not run offline: ${report.skipped.join(", ")})`;
+    const skipped = report.skipped.length === 0 ? "" : ` (verifier and approve gates not run offline: ${report.skipped.join(", ")})`;
     console.log(`${report.ok ? "ok" : "FAIL"}  ${report.case} / ${report.step}${skipped}${report.problem === null ? "" : `\n      ${report.problem}`}`);
     for (const failure of report.ok ? [] : report.failed) {
       console.log(`      ${failure.gate}: ${failure.diagnosis ?? ""}`);

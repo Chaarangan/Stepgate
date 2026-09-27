@@ -18,8 +18,8 @@ export type GateVerdict = { gate: string; passed: boolean; diagnosis: string | n
 export type StepCheck = { verdicts: GateVerdict[]; output: JsonObject | null; derived: boolean };
 
 /**
- * A step's gates, compiled once per run. `check` returns a verdict per gate in file order, or only `derive` when the
- * submission holds a derived field, or only `produces` when the output breaks it.
+ * A step's gates, compiled once per run. `check` returns a verdict per gate, approve gates last and only when every other
+ * gate passed, or only `derive` when the submission holds a derived field, or only `produces` when the output breaks it.
  */
 export type StepGates = { check: (context: GateContext) => Promise<StepCheck> };
 
@@ -165,7 +165,9 @@ export function compileStepGates(document: StepfileDocument, services: GateServi
   const defs = document.$defs ?? {};
   const validateOutput = compileWithDefs(ajv, step.produces, defs);
   const validateSubmission = step.derive === undefined ? validateOutput : compileWithDefs(ajv, submittedSchema(step), defs);
-  const gates = (step.gates ?? []).map((gate) => compileGate(document, services, step, gate, ajv));
+  // A person is asked last, and only about a submission every mechanical gate accepted.
+  const checks = (step.gates ?? []).filter((gate) => !("approve" in gate)).map((gate) => compileGate(document, services, step, gate, ajv));
+  const approvals = (step.gates ?? []).filter((gate) => "approve" in gate).map((gate) => compileGate(document, services, step, gate, ajv));
   const lets = Object.entries(step.let ?? {}).map(([name, rule]) => [name, expandResults(rule) as JsonObject] as const);
   const derives = Object.entries(step.derive ?? {}).map(([name, rule]) => [name, expandResults(rule) as JsonObject] as const);
   return {
@@ -185,8 +187,13 @@ export function compileStepGates(document: StepfileDocument, services: GateServi
       }
       const context = { ...submitted, output, let: values };
       const verdicts: GateVerdict[] = [];
-      for (const gate of gates) {
+      for (const gate of checks) {
         verdicts.push(await gate(context));
+      }
+      if (verdicts.every((verdict) => verdict.passed)) {
+        for (const gate of approvals) {
+          verdicts.push(await gate(context));
+        }
       }
       return { verdicts, output, derived: derives.length > 0 };
     },
