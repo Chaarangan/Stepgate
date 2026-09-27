@@ -1,0 +1,23 @@
+{
+  "mcpServers": {
+    "stepgate": {
+      "command": "node",
+      "args": [
+        "--env-file-if-exists=.env.local",
+        "server/src/cli.ts",
+        "--ledger-dir",
+        ".stepgate/ledgers",
+        "market-research",
+        "dependency-upgrade-risk",
+        "drug-shortage-watch",
+        "auto-claim-vin-validation",
+        "regulatory-change-monitor",
+        "book-list-verification",
+        "disaster-declaration-brief",
+        "reference-list-validation",
+        "cve-triage-prioritisation",
+        "event-weather-contingency"
+      ]
+    }
+  }
+}
