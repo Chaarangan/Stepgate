@@ -32,6 +32,23 @@ describe("load", () => {
     expect(() => load(JSON.stringify(document))).toThrow("when is evaluated before the step runs, so it cannot read output or calls");
   });
 
+  it("refuses results with anything but a literal operation and optional path", () => {
+    const document = parseYaml(readFileSync(MARKET_RESEARCH, "utf8")) as { steps: Array<{ gates: JsonObject[] }> };
+    (document.steps[0] as { gates: JsonObject[] }).gates.push({ id: "bad-results", message: "m", predicate: { "==": [{ length: { results: [{ var: "inputs.tool" }] } }, 1] } });
+
+    expect(() => load(JSON.stringify(document))).toThrow(/\/steps\/0\/gates\/bad-results results takes \[operation\] or \[operation, path\]/);
+  });
+
+  it("refuses results in when and select, which have no calls to read", () => {
+    const document = parseYaml(readFileSync(MARKET_RESEARCH, "utf8")) as { steps: Array<Record<string, unknown>>; tools: { tavily: { exposes: Json[] } } };
+    (document.steps[1] as Record<string, unknown>).when = { "==": [{ length: { results: ["tavily_search"] } }, 1] };
+    expect(() => load(JSON.stringify(document))).toThrow("when is evaluated before the step runs, so it cannot read output or calls");
+
+    delete (document.steps[1] as Record<string, unknown>).when;
+    document.tools.tavily.exposes = [{ name: "tavily_search", select: { results: ["tavily_search"] } }];
+    expect(() => load(JSON.stringify(document))).toThrow("tavily_search: select sees one result, so it cannot use results");
+  });
+
   it("requires every {placeholder} to be a declared setting, and every setting to be used", () => {
     const document = parseYaml(readFileSync(MARKET_RESEARCH, "utf8")) as { settings?: unknown; tools: { tavily: { mcp: { url: string } } } };
     document.tools.tavily.mcp.url = "https://{region}.mcp.tavily.com/mcp/";

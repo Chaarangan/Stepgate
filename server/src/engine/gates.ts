@@ -3,7 +3,7 @@ import { ToolCallFailed } from "./errors.ts";
 import { guardedFetch, readText, type HttpContext } from "./http.ts";
 import { compileWithDefs, describeErrors } from "./json-schema.ts";
 import { credentialOf, toolUrl } from "./load.ts";
-import { evaluateExpression, evaluatePredicate, type PredicateContext } from "./predicate.ts";
+import { evaluateExpression, evaluatePredicate, expandResults, type PredicateContext } from "./predicate.ts";
 import type { Approvals, Gate, Json, JsonObject, Step, StepfileDocument } from "./types.ts";
 
 const MAX_EXPLANATION = 2_000;
@@ -72,7 +72,9 @@ function compileGate(document: StepfileDocument, services: GateServices, step: S
     return async (context) => verdict(gate.id, validate(context.output) ? null : describeErrors(validate.errors));
   }
   if ("predicate" in gate) {
-    return async (context) => verdict(gate.id, evaluatePredicate(gate.predicate, context) ? null : explained(gate.message, gate.explain, context));
+    const predicate = expandResults(gate.predicate) as JsonObject;
+    const explain = gate.explain === undefined ? undefined : expandResults(gate.explain) as JsonObject;
+    return async (context) => verdict(gate.id, evaluatePredicate(predicate, context) ? null : explained(gate.message, explain, context));
   }
   if ("approve" in gate) {
     return async (context) => {

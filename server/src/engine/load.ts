@@ -4,7 +4,7 @@ import { StepfileInvalid, type ValidationIssue } from "./errors.ts";
 import { canonicalHash } from "./identity.ts";
 import { createValidator } from "./json-schema.ts";
 import { placeholderPaths } from "./placeholders.ts";
-import { matchAllPatterns, varPaths } from "./predicate.ts";
+import { matchAllPatterns, operatorArguments, resultsProblem, varPaths } from "./predicate.ts";
 import { patternProblem, schemaPatterns } from "./regex.ts";
 import { settingNames } from "./settings.ts";
 import type { CredentialDeclaration, Stepfile, StepfileDocument, ToolDeclaration } from "./types.ts";
@@ -70,6 +70,9 @@ function checkCrossFieldRules(document: StepfileDocument): ValidationIssue[] {
         issues.push({ path: `/tools/${toolName}/exposes`, message: `${name}: schema_sha256 pins an MCP tool's schema; an OpenAPI operation is pinned by the document's sha256` });
       }
       if (typeof entry !== "string" && entry.select !== undefined) {
+        if (operatorArguments(entry.select, "results").length > 0) {
+          issues.push({ path: `/tools/${toolName}/exposes`, message: `${name}: select sees one result, so it cannot use results` });
+        }
         for (const pattern of matchAllPatterns(entry.select)) {
           const problem = patternProblem(pattern);
           if (problem !== null) {
@@ -159,6 +162,14 @@ function checkCrossFieldRules(document: StepfileDocument): ValidationIssue[] {
         issues.push({ path: `${path}/gates`, message: `gate id ${gate.id} is not unique in the step` });
       }
       gateIds.add(gate.id);
+      if ("predicate" in gate) {
+        for (const argument of operatorArguments([gate.predicate, gate.explain ?? null], "results")) {
+          const problem = resultsProblem(argument);
+          if (problem !== null) {
+            issues.push({ path: `${path}/gates/${gate.id}`, message: problem });
+          }
+        }
+      }
       if ("http" in gate && tools[gate.http.tool]?.verifier === undefined) {
         issues.push({ path: `${path}/gates/${gate.id}`, message: `${gate.http.tool} is not a verifier tool` });
       }
@@ -175,7 +186,7 @@ function checkCrossFieldRules(document: StepfileDocument): ValidationIssue[] {
         issues.push({ path, message: `${reference} does not name an earlier step` });
       }
     }
-    if (step.when !== undefined && varPaths(step.when).some((reference) => ["output", "calls"].includes(reference.split(".")[0] ?? ""))) {
+    if (step.when !== undefined && (varPaths(step.when).some((reference) => ["output", "calls"].includes(reference.split(".")[0] ?? "")) || operatorArguments(step.when, "results").length > 0)) {
       issues.push({ path: `${path}/when`, message: "when is evaluated before the step runs, so it cannot read output or calls" });
     }
 

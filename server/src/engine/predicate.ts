@@ -85,18 +85,45 @@ export function evaluatePredicate(rule: JsonObject, context: PredicateContext): 
   return jsonLogic.apply(rule, context) === true;
 }
 
-/** Every literal pattern given to `match_all` in a rule, checked at load time. */
-export function matchAllPatterns(rule: Json): string[] {
+/** The argument of every use of `operator` in a rule, outermost first. */
+export function operatorArguments(rule: Json, operator: string): Json[] {
   if (Array.isArray(rule)) {
-    return rule.flatMap(matchAllPatterns);
+    return rule.flatMap((item) => operatorArguments(item, operator));
   }
   if (rule === null || typeof rule !== "object") {
     return [];
   }
-  return Object.entries(rule).flatMap(([operator, argument]) => [
-    ...(operator === "match_all" && Array.isArray(argument) && typeof argument[1] === "string" ? [argument[1]] : []),
-    ...matchAllPatterns(argument),
-  ]);
+  return Object.entries(rule).flatMap(([name, argument]) => [...(name === operator ? [argument] : []), ...operatorArguments(argument, operator)]);
+}
+
+/** Every literal pattern given to `match_all` in a rule, checked at load time. */
+export function matchAllPatterns(rule: Json): string[] {
+  return operatorArguments(rule, "match_all").flatMap((argument) => (Array.isArray(argument) && typeof argument[1] === "string" ? [argument[1]] : []));
+}
+
+/** Why a `results` argument is malformed, or null; it must be an operation name and optionally a path, both literal. */
+export function resultsProblem(argument: Json): string | null {
+  const literal = Array.isArray(argument) && (argument.length === 1 || argument.length === 2) && argument.every((item) => typeof item === "string" && item !== "");
+  return literal ? null : `results takes [operation] or [operation, path], as literal strings; got ${JSON.stringify(argument)}`;
+}
+
+/**
+ * Rewrites every `results` into the filter over `calls` it stands for, so it reads calls wherever `var: calls` does.
+ * json-logic-js gives an operator its arguments but not the data, which is why it is expanded rather than registered.
+ */
+export function expandResults(rule: Json): Json {
+  if (Array.isArray(rule)) {
+    return rule.map(expandResults);
+  }
+  if (rule === null || typeof rule !== "object") {
+    return rule;
+  }
+  if (Object.keys(rule).length === 1 && Array.isArray(rule.results)) {
+    const [operation, path] = rule.results as [string, string?];
+    const successful = { filter: [{ var: "calls" }, { and: [{ "==": [{ var: "tool" }, operation] }, { "!": { var: "is_error" } }] }] };
+    return { flatten: { map: [successful, { var: path === undefined ? "result" : `result.${path}` }] } };
+  }
+  return Object.fromEntries(Object.entries(rule).map(([name, argument]) => [name, expandResults(argument)]));
 }
 
 /** Every `var` path in a rule, used to check `steps.<id>` references before running. */

@@ -28,6 +28,7 @@ Unknown fields are rejected. Beyond the schema, Stepgate checks these rules when
 4. Every `credential` a tool names is declared, and the tool's host is in that credential's `hosts`.
 5. Every `http` gate names a `verifier` tool.
 6. Every placeholder and every `var` path under `steps.` names an earlier step.
+7. Every `results` takes a literal operation name and optional path, and appears only in gates, never in `when` or `select`.
 
 ## Tools
 
@@ -172,6 +173,17 @@ A predicate can check the output against the evidence. This one passes only if e
             - map: [{ var: result.docs }, { var: key }]
 ```
 
+`results` is shorthand for the filter over `calls` that evidence gates need, and it leaves out calls whose `is_error` is true. The rule above, leaving out failed searches, is:
+
+```yaml
+  predicate:
+    subset:
+      - { map: [{ var: output.books }, { var: key }] }
+      - { map: [{ results: [searchBooks, docs] }, { var: key }] }
+```
+
+Like `var: calls`, it reads the step's calls from the top of the data, so use it where `var: calls` would work, not inside the body of a `map`, `filter` or `all`.
+
 For a `subset` rule, `difference` over the same two arrays makes a good `explain`. This one lists the books no search returned:
 
 ```yaml
@@ -184,10 +196,11 @@ For a `subset` rule, `difference` over the same two arrays makes a good `explain
             - map: [{ var: result.docs }, { var: key }]
 ```
 
-Besides the standard JSONLogic operators, eleven more are available:
+Besides the standard JSONLogic operators, twelve more are available:
 
 | Operator | Arguments | Result |
 |---|---|---|
+| `results` | operation, optional path | The values at `path` (the whole result without one) of every call this step made to the operation that did not fail, flattened one level |
 | `length` | array or string | Number of elements, or of Unicode code points |
 | `unique` | array | Distinct elements by JSON equality, in first-seen order |
 | `subset` | array `a`, array `b` | `true` if every element of `a` is in `b` |
