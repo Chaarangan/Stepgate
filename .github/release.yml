@@ -1,0 +1,15 @@
+# Sections for the notes GitHub generates when a release is drafted with "Generate release notes".
+changelog:
+  categories:
+    - title: Features
+      labels: [enhancement]
+    - title: Fixes
+      labels: [bug]
+    - title: Stepfiles
+      labels: [stepfile]
+    - title: Documentation
+      labels: [documentation]
+    - title: Dependencies
+      labels: [dependencies]
+    - title: Other changes
+      labels: ["*"]
