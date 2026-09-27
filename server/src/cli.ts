@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// Serves stepfiles as MCP tools that run on the client's model through sampling.
+// Serves stepfiles as MCP tools; the client's own agent does each step and Stepgate gates it.
 //
-//   stepgate [--http <port>] [--ledger-dir <dir>] <stepfile.yaml | catalog name>...
+//   stepgate [--http <port>] [--ledger-dir <dir>] [<stepfile.yaml | catalog name>...]
 //
 // An argument ending in .yaml, .yml or .json is a file; anything else names a stepfile in the
 // bundled catalog. Without --http it speaks stdio, which is how desktop MCP clients launch servers. Credential
@@ -23,27 +23,27 @@ import { createStepgateServer, type StepgateServerOptions } from "./server.ts";
 import { userAgent } from "./version.ts";
 import type { LedgerRecord } from "./engine/types.ts";
 
-const HELP = `usage: stepgate [options] <stepfile.yaml | catalog name>...
+const HELP = `usage: stepgate [options] [<stepfile.yaml | catalog name>...]
        stepgate --list
+
+With no stepfiles it serves only the tools for writing new ones.
 
   --list                     show the stepfiles in the bundled catalog
   --contact <email>          your contact email, sent in the User-Agent (SEC EDGAR and USAJOBS require one)
   --http <port>              serve Streamable HTTP on 127.0.0.1:<port>/mcp instead of stdio
   --ledger-dir <dir>         write one ledger file per run there; otherwise records go to stderr
-  --turns-per-step <n>       most model turns one step may take (30)
-  --tool-result-chars <n>    longest tool result passed to the model (20000)
-  --max-tokens <n>           maxTokens on each sampling request (16000)
-  --sampling-timeout-ms <n>  how long one sampling request may take (600000)`;
+  --calls-per-step <n>       most tool calls one step may make (100)
+  --tool-result-chars <n>    longest tool result passed to the client (20000)
+  --run-idle-ms <n>          how long a run waits for the client's next call before it is abandoned (1800000)`;
 
 const { values, positionals } = parseArgs({
   allowPositionals: true,
   options: {
     http: { type: "string" },
     "ledger-dir": { type: "string" },
-    "turns-per-step": { type: "string", default: "30" },
+    "calls-per-step": { type: "string", default: "100" },
     "tool-result-chars": { type: "string", default: "20000" },
-    "max-tokens": { type: "string", default: "16000" },
-    "sampling-timeout-ms": { type: "string", default: "600000" },
+    "run-idle-ms": { type: "string", default: "1800000" },
     help: { type: "boolean" },
     list: { type: "boolean" },
     contact: { type: "string" },
@@ -63,9 +63,9 @@ if (values.list === true) {
   process.exit(0);
 }
 
-if (values.help === true || positionals.length === 0) {
+if (values.help === true) {
   console.error(HELP);
-  process.exit(values.help === true ? 0 : 2);
+  process.exit(0);
 }
 
 function contactEmail(value: string | undefined): string | null {
@@ -123,13 +123,17 @@ const options: StepgateServerOptions = {
     }
   },
   limits: {
-    turnsPerStep: positiveInteger("turns-per-step", values["turns-per-step"]),
+    callsPerStep: positiveInteger("calls-per-step", values["calls-per-step"]),
     toolResultChars: positiveInteger("tool-result-chars", values["tool-result-chars"]),
   },
-  maxTokens: positiveInteger("max-tokens", values["max-tokens"]),
-  samplingTimeoutMs: positiveInteger("sampling-timeout-ms", values["sampling-timeout-ms"]),
+  runIdleMs: positiveInteger("run-idle-ms", values["run-idle-ms"]),
   userAgent: userAgent(contactEmail(values.contact)),
+  draftsMayUseLoopback: false,
 };
+
+function served(): string {
+  return stepfiles.length === 0 ? "the authoring tools only" : stepfiles.map((stepfile) => stepfile.document.id).join(", ");
+}
 
 async function readJson(request: IncomingMessage): Promise<unknown> {
   const chunks: Buffer[] = [];
@@ -143,7 +147,7 @@ async function readJson(request: IncomingMessage): Promise<unknown> {
 if (values.http === undefined) {
   // The MCP SDK's own types disagree under exactOptionalPropertyTypes; the runtime object is a Transport.
   await createStepgateServer(stepfiles, options).connect(new StdioServerTransport() as Transport);
-  console.error(`stepgate: serving ${stepfiles.map((stepfile) => stepfile.document.id).join(", ")} over stdio`);
+  console.error(`stepgate: serving ${served()} over stdio`);
 } else {
   const port = positiveInteger("http", values.http);
   const sessions = new Map<string, StreamableHTTPServerTransport>();
@@ -163,7 +167,7 @@ if (values.http === undefined) {
       response.writeHead(400, { "content-type": "application/json" }).end(JSON.stringify({ error: "unknown session; start with initialize" }));
       return;
     }
-    // Stateful sessions, because sampling sends requests from server to client mid-call.
+    // Stateful sessions, because a run lives in the session's server between calls.
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: randomUUID,
       onsessioninitialized: (id) => void sessions.set(id, transport),
@@ -172,6 +176,6 @@ if (values.http === undefined) {
     await createStepgateServer(stepfiles, options).connect(transport as Transport);
     await transport.handleRequest(request, response, body);
   }).listen(port, "127.0.0.1", () => {
-    console.error(`stepgate: serving ${stepfiles.map((stepfile) => stepfile.document.id).join(", ")} at http://127.0.0.1:${port}/mcp`);
+    console.error(`stepgate: serving ${served()} at http://127.0.0.1:${port}/mcp`);
   });
 }

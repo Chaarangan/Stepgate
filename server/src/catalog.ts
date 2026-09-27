@@ -11,8 +11,20 @@ type Location = { domain: string; id: string };
 // higher. The packaged location is tried first, so an installed package never looks outside itself.
 const LOCATIONS = [new URL("../stepfiles/", import.meta.url), new URL("../../stepfiles/", import.meta.url)];
 
-const LOOPBACK = /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/;
+const PRIVATE_IPV4 = /^(0|10|127)\.|^169\.254\.|^172\.(1[6-9]|2\d|3[01])\.|^192\.168\./;
 const FOLDER_NAME = /^[a-z][a-z0-9-]{0,63}$/;
+
+/**
+ * True for a host with a dot that is not a loopback, private or link-local address or a local-only name.
+ * It reads the name only; a public name that resolves to a private address still passes.
+ */
+export function isPublicHost(authority: string): boolean {
+  const host = authority.toLowerCase().replace(/:\d+$/, "");
+  if (host.startsWith("[") || !host.includes(".") || /\.(local|localhost|internal)$/.test(host)) {
+    return false;
+  }
+  return !(/^\d+\.\d+\.\d+\.\d+$/.test(host) && PRIVATE_IPV4.test(host));
+}
 
 export function catalogDirectory(): URL {
   const found = LOCATIONS.find((location) => existsSync(location));
@@ -93,7 +105,7 @@ export function entryProblems(directory: URL, domain: string, id: string): strin
   }
   for (const [toolName, tool] of Object.entries(stepfile.document.tools ?? {})) {
     const url = toolUrl(tool);
-    if (!url.startsWith("https://") || LOOPBACK.test(declaredToolHost(tool))) {
+    if (!url.startsWith("https://") || !isPublicHost(declaredToolHost(tool))) {
       problems.push(`tool ${toolName} must use a public https URL, not ${url}`);
     }
   }

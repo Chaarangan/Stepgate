@@ -1,12 +1,12 @@
 import type { ValidateFunction } from "ajv/dist/2020.js";
 import { randomUUID } from "node:crypto";
 import {
+  CallLimitReached,
   CredentialUnavailable,
   GateFailed,
   InvalidGrant,
-  ModelTurnFailed,
   PreflightFailed,
-  TurnLimitReached,
+  RunNotActive,
   type GateDiagnosis,
 } from "./errors.ts";
 import { evaluateGates } from "./gates.ts";
@@ -21,14 +21,7 @@ import { resolveSettings } from "./settings.ts";
 import { prepareMcpTool } from "./tools/mcp.ts";
 import { prepareOpenApiTool } from "./tools/openapi.ts";
 import type { ToolResult } from "./tools/tool-result.ts";
-import type { Json, RunContext, JsonObject, Message, RunResult, Stepfile, Step, ToolCall, ToolDefinition } from "./types.ts";
-
-const SYSTEM_PROMPT = [
-  "You are carrying out one step of a procedure.",
-  "Use the tools provided when the instructions call for them.",
-  "When the step is complete, call the submit tool once with the result.",
-  "If submit returns an error, correct the result and call submit again.",
-].join(" ");
+import type { Json, JsonObject, JsonSchema, RunContext, RunResult, Stepfile, Step, ToolDefinition } from "./types.ts";
 
 type PreparedTool = {
   definition: ToolDefinition;
@@ -119,21 +112,6 @@ async function preflight(stepfile: Stepfile, inputs: JsonObject, runContext: Run
   return { tools, close };
 }
 
-/** The submit tool, with the stepfile's `$defs` inlined so the model sees the whole output shape. */
-function submitTool(stepfile: Stepfile, step: Step): ToolDefinition {
-  const root = { $defs: { ...(stepfile.document.$defs ?? {}) } };
-  return {
-    name: "submit",
-    description: "Submit this step's result. Call it once the step is complete.",
-    inputSchema: inlineLocalRefs(step.produces, root, []) as JsonObject,
-  };
-}
-
-function formatFailures(failures: GateDiagnosis[]): string {
-  return `The submission was rejected. Fix every problem below and call submit again.\n${failures
-    .map((failure) => `- ${failure.gate}: ${failure.diagnosis}`)
-    .join("\n")}`;
-}
 
 function truncate(content: string, limit: number): string {
   return content.length <= limit
@@ -151,16 +129,16 @@ function parseResult(content: string): Json {
 }
 
 /** Runs one tool call. `evidence` is what gates see; it is null when the call never reached the tool. */
-async function callTool(prepared: PreparedTool, call: ToolCall, stepId: string, append: AppendRecord, limit: number): Promise<{ shown: ToolResult; evidence: EvidenceCall | null }> {
-  if (!isObject(call.arguments) || !prepared.validateArgs(call.arguments)) {
-    return { shown: { content: `Invalid arguments for ${call.name}: ${describeErrors(prepared.validateArgs.errors) || "arguments must be an object"}`, isError: true, status: null }, evidence: null };
+async function callTool(prepared: PreparedTool, operation: string, args: Json | undefined, stepId: string, append: AppendRecord, limit: number): Promise<{ shown: ToolResult; evidence: EvidenceCall | null }> {
+  if (!isObject(args) || !prepared.validateArgs(args)) {
+    return { shown: { content: `Invalid arguments for ${operation}: ${describeErrors(prepared.validateArgs.errors) || "arguments must be an object"}`, isError: true, status: null }, evidence: null };
   }
   const started = performance.now();
-  const result = await prepared.call(call.arguments);
+  const result = await prepared.call(args);
   await append("tool_call", {
     step: stepId,
     tool: prepared.toolName,
-    operation: call.name,
+    operation,
     host: prepared.host,
     status: result.status,
     is_error: result.isError,
@@ -171,132 +149,176 @@ async function callTool(prepared: PreparedTool, call: ToolCall, stepId: string, 
   });
   return {
     shown: { ...result, content: truncate(result.content, limit) },
-    evidence: { tool: call.name, arguments: call.arguments, result: parseResult(result.content), is_error: result.isError },
+    evidence: { tool: operation, arguments: args, result: parseResult(result.content), is_error: result.isError },
   };
 }
 
-type StepContext = {
-  stepfile: Stepfile;
-  step: Step;
-  inputs: JsonObject;
-  outputs: Record<string, JsonObject>;
-  tools: Map<string, PreparedTool>;
-  runContext: RunContext;
-  http: HttpContext;
-  append: AppendRecord;
+/** What the client is shown of the step it is on; it never sees another step. */
+export type StepView = {
+  step: string;
+  number: number;
+  total: number;
+  instructions: string;
+  operations: ToolDefinition[];
+  produces: JsonSchema;
+  attempts_left: number;
 };
 
-/** Runs one step in a fresh context until its gates pass or its retries run out. */
-async function runStep(context: StepContext): Promise<JsonObject> {
-  const { step, runContext, append } = context;
-  const allowed = new Map((step.tools ?? []).flatMap((name) => {
-    const prepared = context.tools.get(name);
-    return prepared === undefined ? [] : [[name, prepared] as const];
-  }));
-  const instructions = renderInstructions(step.id, step.instructions, { inputs: context.inputs, steps: context.outputs });
-  const tools = [...[...allowed.values()].map((prepared) => prepared.definition), submitTool(context.stepfile, step)];
-  const messages: Message[] = [{ role: "user", text: instructions }];
-  const retries = step.retries ?? 0;
-  let attempt = 1;
-  let calls: EvidenceCall[] = [];
-  const ajv = createValidator();
+export type Progress =
+  | { state: "step"; step: StepView }
+  | { state: "rejected"; failures: GateDiagnosis[]; attempts_left: number }
+  | { state: "finished"; result: RunResult };
 
-  await append("step_started", { step: step.id });
-  for (let turn = 0; turn < runContext.limits.turnsPerStep; turn += 1) {
-    let reply;
+/** A run in progress. Every method raises once the run has ended, and a raised StepgateError ends it. */
+export type Run = {
+  id: string;
+  call: (operation: string, args: Json | undefined) => Promise<ToolResult>;
+  submit: (output: Json | undefined) => Promise<Progress>;
+  /** Ends a run the client stopped driving, closing its tool connections. */
+  abandon: () => Promise<void>;
+};
+
+type Current = {
+  step: Step;
+  index: number;
+  allowed: Map<string, PreparedTool>;
+  instructions: string;
+  attempt: number;
+  callsMade: number;
+  calls: EvidenceCall[];
+};
+
+/** Preflights and opens step 1; the client then drives each step with `call` and `submit`. */
+export async function startRun(written: Stepfile, inputs: JsonObject, runContext: RunContext): Promise<{ run: Run; progress: Progress }> {
+  const id = randomUUID();
+  const append = createLedger(runContext.ledger);
+  await append("run_started", { run: id, stepfile: written.document.id, identity: written.identity, inputs: canonicalHash(inputs) });
+  let prepared: Prepared | undefined;
+  let ended = false;
+  const end = async (type: string, fields: JsonObject) => {
+    ended = true;
+    await append(type, fields);
+    await prepared?.close();
+  };
+  const guarded = async <T>(work: () => Promise<T>): Promise<T> => {
+    if (ended) {
+      throw new RunNotActive(id);
+    }
     try {
-      reply = await runContext.model({ system: SYSTEM_PROMPT, messages: [...messages], tools });
+      return await work();
     } catch (error) {
-      throw new ModelTurnFailed(step.id, error);
-    }
-    messages.push({ role: "assistant", text: reply.text, toolCalls: reply.toolCalls });
-
-    if (reply.toolCalls.length === 0) {
-      const failures = [{ gate: "submit", diagnosis: "the turn ended without calling submit" }];
-      await append("gate", { step: step.id, attempt, gate: "submit", verdict: "fail", diagnosis: textHash(failures[0]?.diagnosis ?? "") });
-      if (attempt > retries) {
-        throw new GateFailed(step.id, failures);
+      if (!ended) {
+        await end("run_failed", { error: error instanceof Error ? error.name : "unknown" });
       }
-      attempt += 1;
-      messages.push({ role: "user", text: "Call the submit tool with the step's result." });
-      continue;
+      throw error;
     }
+  };
+  // One operation at a time, so parallel calls from a client cannot interleave a step's evidence or ledger.
+  let queue: Promise<unknown> = Promise.resolve();
+  const serial = <T>(work: () => Promise<T>): Promise<T> => {
+    const next = queue.then(() => guarded(work));
+    queue = next.then(() => undefined, () => undefined);
+    return next;
+  };
 
-    let submitted = false;
-    for (const call of reply.toolCalls) {
-      if (call.name !== "submit") {
-        const prepared = allowed.get(call.name);
-        if (prepared === undefined) {
-          await append("tool_refused", { step: step.id, operation: call.name });
-        }
-        const { shown, evidence } = prepared === undefined
-          ? { shown: { content: `${call.name} is not available in this step.`, isError: true, status: null }, evidence: null }
-          : await callTool(prepared, call, step.id, append, runContext.limits.toolResultChars);
-        if (evidence !== null) {
-          calls = [...calls, evidence];
-        }
-        messages.push({ role: "tool", toolCallId: call.id, content: shown.content, isError: shown.isError });
+  const session = await guarded(async () => {
+    // Settings are filled in first, so the host allowlist below only ever holds concrete hosts.
+    const stepfile: Stepfile = { ...written, document: await resolveSettings(written.document, runContext) };
+    const http: HttpContext = { runContext, allowedHosts: new Set(Object.values(stepfile.document.tools ?? {}).map(declaredToolHost)), append };
+    prepared = await preflight(stepfile, inputs, runContext, http);
+    return { stepfile, http, tools: prepared.tools };
+  });
+  const steps = session.stepfile.document.steps;
+  const defs = { $defs: { ...(session.stepfile.document.$defs ?? {}) } };
+  const outputs: Record<string, JsonObject> = {};
+  const ajv = createValidator();
+  let current: Current | null = null;
+
+  const view = (open: Current): StepView => ({
+    step: open.step.id,
+    number: open.index + 1,
+    total: steps.length,
+    instructions: open.instructions,
+    operations: [...open.allowed.values()].map((tool) => tool.definition),
+    produces: inlineLocalRefs(open.step.produces, defs, []) as JsonObject,
+    attempts_left: (open.step.retries ?? 0) + 2 - open.attempt,
+  });
+
+  const advance = async (from: number): Promise<Progress> => {
+    for (let index = from; index < steps.length; index += 1) {
+      const step = steps[index] as Step;
+      if (step.when !== undefined && !evaluatePredicate(step.when, { inputs, steps: outputs })) {
+        await append("step_skipped", { step: step.id });
         continue;
       }
-      if (submitted) {
-        messages.push({ role: "tool", toolCallId: call.id, content: "Already submitted in this turn.", isError: true });
-        continue;
+      const allowed = new Map((step.tools ?? []).flatMap((name) => {
+        const tool = session.tools.get(name);
+        return tool === undefined ? [] : [[name, tool] as const];
+      }));
+      const instructions = renderInstructions(step.id, step.instructions, { inputs, steps: outputs });
+      await append("step_started", { step: step.id });
+      current = { step, index, allowed, instructions, attempt: 1, callsMade: 0, calls: [] };
+      return { state: "step", step: view(current) };
+    }
+    current = null;
+    await end("run_finished", { outcome: "passed" });
+    return { state: "finished", result: { identity: written.identity, outputs } };
+  };
+
+  const progress = await guarded(() => advance(0));
+
+  const run: Run = {
+    id,
+    call: (operation, args) => serial(async () => {
+      const open = current as Current;
+      if (open.callsMade >= runContext.limits.callsPerStep) {
+        throw new CallLimitReached(open.step.id, runContext.limits.callsPerStep);
       }
-      submitted = true;
-      const output = call.arguments;
+      open.callsMade += 1;
+      const tool = open.allowed.get(operation);
+      if (tool === undefined) {
+        await append("tool_refused", { step: open.step.id, operation });
+        return { content: `${operation} is not available in this step.`, isError: true, status: null };
+      }
+      const { shown, evidence } = await callTool(tool, operation, args ?? {}, open.step.id, append, runContext.limits.toolResultChars);
+      if (evidence !== null) {
+        open.calls = [...open.calls, evidence];
+      }
+      return shown;
+    }),
+    submit: (output) => serial(async () => {
+      const open = current as Current;
+      const { step, attempt } = open;
       await append("submit", { step: step.id, attempt, output: { sha256: canonicalHash(output ?? null), length: JSON.stringify(output ?? null).length } });
       const failures = await evaluateGates({
-        document: context.stepfile.document,
+        document: session.stepfile.document,
         step,
-        context: { inputs: context.inputs, steps: context.outputs, output: (output ?? null) as JsonObject, calls },
+        context: { inputs, steps: outputs, output: output ?? null, calls: open.calls },
         ajv,
-        http: context.http,
-        verifierCredential: (toolName) => credentialFor(context.stepfile, toolName),
+        http: session.http,
+        verifierCredential: (toolName) => credentialFor(session.stepfile, toolName),
       });
-      const failedIds = new Set(failures.map((failure) => failure.gate));
-      const checked = failedIds.has("produces") ? ["produces"] : step.gates.map((gate) => gate.id);
+      const checked = failures.some((failure) => failure.gate === "produces") ? ["produces"] : step.gates.map((gate) => gate.id);
       for (const gate of checked) {
         const failure = failures.find((item) => item.gate === gate);
         await append("gate", { step: step.id, attempt, gate, verdict: failure === undefined ? "pass" : "fail", diagnosis: failure === undefined ? null : textHash(failure.diagnosis) });
       }
       if (failures.length === 0) {
         await append("step_passed", { step: step.id, attempt });
-        return output as JsonObject;
+        outputs[step.id] = output as JsonObject;
+        return advance(open.index + 1);
       }
-      if (attempt > retries) {
+      if (attempt > (step.retries ?? 0)) {
         throw new GateFailed(step.id, failures);
       }
-      attempt += 1;
-      messages.push({ role: "tool", toolCallId: call.id, content: formatFailures(failures), isError: true });
-    }
-  }
-  throw new TurnLimitReached(step.id, runContext.limits.turnsPerStep);
-}
-
-/** Preflights, then runs every step in order, asking the context's model for one turn at a time. */
-export async function run(written: Stepfile, inputs: JsonObject, runContext: RunContext): Promise<RunResult> {
-  const append = createLedger(runContext.ledger);
-  await append("run_started", { run: randomUUID(), stepfile: written.document.id, identity: written.identity, inputs: canonicalHash(inputs) });
-  let prepared: Prepared | undefined;
-  try {
-    // Settings are filled in first, so the host allowlist below only ever holds concrete hosts.
-    const stepfile: Stepfile = { ...written, document: await resolveSettings(written.document, runContext) };
-    const http: HttpContext = { runContext, allowedHosts: new Set(Object.values(stepfile.document.tools ?? {}).map(declaredToolHost)), append };
-    prepared = await preflight(stepfile, inputs, runContext, http);
-    const outputs: Record<string, JsonObject> = {};
-    for (const step of stepfile.document.steps) {
-      if (step.when !== undefined && !evaluatePredicate(step.when, { inputs, steps: outputs })) {
-        await append("step_skipped", { step: step.id });
-        continue;
+      open.attempt += 1;
+      return { state: "rejected", failures, attempts_left: view(open).attempts_left };
+    }),
+    abandon: async () => {
+      if (!ended) {
+        await end("run_abandoned", {});
       }
-      outputs[step.id] = await runStep({ stepfile, step, inputs, outputs, tools: prepared.tools, runContext, http, append });
-    }
-    await append("run_finished", { outcome: "passed" });
-    return { identity: written.identity, outputs };
-  } catch (error) {
-    await append("run_failed", { error: error instanceof Error ? error.name : "unknown" });
-    throw error;
-  } finally {
-    await prepared?.close();
-  }
+    },
+  };
+  return { run, progress };
 }

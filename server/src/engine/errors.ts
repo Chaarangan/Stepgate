@@ -102,22 +102,53 @@ export class GateFailed extends StepgateError {
   }
 }
 
-export class TurnLimitReached extends StepgateError {
-  override name = "TurnLimitReached";
+/** A step made more tool calls than Stepgate allows, which usually means the client is looping. */
+export class CallLimitReached extends StepgateError {
+  override name = "CallLimitReached";
   readonly step: string;
   constructor(step: string, limit: number) {
-    super(`step ${step} reached the limit of ${limit} model turns`);
+    super(`step ${step} reached the limit of ${limit} tool calls`);
     this.step = step;
   }
 }
 
-/** A model turn failed, for example a rejected sampling request. The original error is the cause. */
-export class ModelTurnFailed extends StepgateError {
-  override name = "ModelTurnFailed";
-  readonly step: string;
-  constructor(step: string, cause: unknown) {
-    super(`model turn failed in step ${step}: ${cause instanceof Error ? cause.message : String(cause)}`, { cause });
-    this.step = step;
+/** No run with this id is in progress: it finished, failed, expired, or was never started. */
+export class RunNotActive extends StepgateError {
+  override name = "RunNotActive";
+  readonly run: string;
+  constructor(run: string) {
+    super(`run ${run} is not active; it finished, failed or expired, so call the stepfile's tool again to start a new run`);
+    this.run = run;
+  }
+}
+
+/** A draft passed to stepgate_try breaks a rule drafts must follow, such as declaring a credential. */
+export class DraftRefused extends StepgateError {
+  override name = "DraftRefused";
+  readonly problems: string[];
+  constructor(problems: string[]) {
+    super(`draft refused: ${problems.join("; ")}`);
+    this.problems = problems;
+  }
+}
+
+/** An authoring tool was asked to contact a URL that is not public https. */
+export class UrlNotPublic extends StepgateError {
+  override name = "UrlNotPublic";
+  readonly url: string;
+  constructor(url: string) {
+    super(`${url} is not a public https URL`);
+    this.url = url;
+  }
+}
+
+/** A fetched API description is not a JSON or YAML object. */
+export class ApiDocumentInvalid extends StepgateError {
+  override name = "ApiDocumentInvalid";
+  readonly url: string;
+  constructor(url: string, reason: string) {
+    super(`API document ${url} is invalid: ${reason}`);
+    this.url = url;
   }
 }
 

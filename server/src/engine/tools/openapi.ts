@@ -8,14 +8,16 @@ import type { ToolResult } from "./tool-result.ts";
 
 const METHODS = ["get", "put", "post", "delete", "patch", "head", "options"] as const;
 
-type Parameter = { name: string; in: "path" | "query" | "header" | "cookie"; required: boolean; schema: JsonSchema; explode: boolean };
+type Parameter = { name: string; in: "path" | "query" | "header" | "cookie"; required: boolean; schema: JsonSchema; explode: boolean; description: string | null };
 
-type Operation = {
+export type Operation = {
   operationId: string;
   method: string;
   path: string;
   parameters: Parameter[];
   body: { schema: JsonSchema; required: boolean; contentType: string } | null;
+  /** The JSON schema of the first 2xx response, which is what a step's gates read as a call's result. */
+  response: JsonSchema | null;
   summary: string;
   security: JsonObject | null;
 };
@@ -41,7 +43,8 @@ function inlineRefs(value: Json, document: JsonObject, toolName: string): Json {
   }
 }
 
-function findOperations(document: JsonObject, toolName: string): Map<string, Operation> {
+/** Every operation in the document that has an operationId, with `$ref`s inlined. */
+export function findOperations(document: JsonObject, toolName: string): Map<string, Operation> {
   const operations = new Map<string, Operation>();
   const paths = isObject(document.paths) ? document.paths : {};
   for (const [path, rawItem] of Object.entries(paths)) {
@@ -63,6 +66,7 @@ function findOperations(document: JsonObject, toolName: string): Map<string, Ope
         schema: isObject(parameter.schema) ? parameter.schema : {},
         // OpenAPI's default for query parameters is form style with explode: true, so an array repeats the name.
         explode: parameter.explode === undefined ? parameter.in === "query" : parameter.explode === true,
+        description: typeof parameter.description === "string" ? parameter.description : null,
       }));
       const requestBody = isObject(operation.requestBody) ? operation.requestBody : null;
       const content = requestBody !== null && isObject(requestBody.content) ? requestBody.content : {};
@@ -74,12 +78,22 @@ function findOperations(document: JsonObject, toolName: string): Map<string, Ope
         path,
         parameters,
         body,
+        response: successSchema(operation),
         summary: typeof operation.summary === "string" ? operation.summary : typeof operation.description === "string" ? operation.description : "",
         security: isObject(security[0]) ? security[0] : null,
       });
     }
   }
   return operations;
+}
+
+function successSchema(operation: JsonObject): JsonSchema | null {
+  const responses = isObject(operation.responses) ? operation.responses : {};
+  const status = Object.keys(responses).sort().find((code) => /^2(\d\d|XX)$/.test(code));
+  const response = status === undefined ? undefined : responses[status];
+  const content = isObject(response) && isObject(response.content) ? response.content : {};
+  const json = content["application/json"];
+  return isObject(json) && isObject(json.schema) ? json.schema : null;
 }
 
 function scalarText(value: Json | undefined): string {
@@ -107,14 +121,16 @@ function constantValue(schema: JsonSchema): Json | undefined {
   return Array.isArray(schema.enum) && schema.enum.length === 1 ? schema.enum[0] : undefined;
 }
 
-function toDefinition(operation: Operation): ToolDefinition {
+/** The operation as the client sees it; parameters with one allowed value are left out, since Stepgate sends them. */
+export function toDefinition(operation: Operation): ToolDefinition {
   const properties: JsonObject = {};
   const required: string[] = [];
   for (const parameter of operation.parameters) {
     if (constantValue(parameter.schema) !== undefined) {
       continue;
     }
-    properties[parameter.name] = parameter.schema;
+    // OpenAPI puts a parameter's description beside its schema; the client only sees the schema.
+    properties[parameter.name] = parameter.description === null || "description" in parameter.schema ? parameter.schema : { ...parameter.schema, description: parameter.description };
     if (parameter.required) {
       required.push(parameter.name);
     }

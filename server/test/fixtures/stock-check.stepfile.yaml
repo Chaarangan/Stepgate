@@ -21,7 +21,7 @@ tools:
     openapi:
       server: "${catalogue.origin}"
       url: "${catalogue.origin}/openapi.json"
-      sha256: "sha256:e785e9e6095b99644d7e29c7a660bd2ca22f112b8bb61f5aca50aa08cd3cd9a0"
+      sha256: "sha256:c8f335103277630946cdba3c49198b6f100be6fc30eefd6278393e5f2da78f28"
     credential: catalogue
     exposes: [getItem, getFlaky, getRevoked]
   suppliers:

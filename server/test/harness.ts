@@ -1,7 +1,7 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
-import { CreateMessageRequestSchema, type CallToolResult, type CreateMessageRequest, type CreateMessageResultWithTools } from "@modelcontextprotocol/sdk/types.js";
+import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { readFileSync } from "node:fs";
 import { parse as parseYaml } from "yaml";
 import { SettingUnavailable } from "../src/engine/errors.ts";
@@ -13,39 +13,49 @@ import { API_KEY, MCP_TOKEN, secretsFrom, startApi, startMcp, type Fixture } fro
 
 const BASE = readFileSync(new URL("fixtures/stock-check.stepfile.yaml", import.meta.url), "utf8");
 
-export type SamplingContent = CreateMessageResultWithTools["content"];
-export type Sampled = CreateMessageRequest["params"];
+/** One scripted client action: a call to one of the step's operations, or a submission. */
+export type Action = { operation: string; arguments: JsonObject } | { submit: JsonObject };
 
-/** One scripted model turn that calls a tool. */
-export function use(id: string, name: string, input: JsonObject): SamplingContent {
-  return [{ type: "tool_use", id, name, input }];
+export function use(operation: string, args: JsonObject): Action {
+  return { operation, arguments: args };
 }
 
-export const GOOD_STOCK = use("s1", "submit", { name: "Blue kettle", count: 4, supplier: "Acme" });
-export const GOOD_SUMMARY = use("s2", "submit", { summary: "Blue kettle has 4 in stock." });
+export function submit(output: JsonObject): Action {
+  return { submit: output };
+}
+
+export const GOOD_STOCK = submit({ name: "Blue kettle", count: 4, supplier: "Acme" });
+export const GOOD_SUMMARY = submit({ summary: "Blue kettle has 4 in stock." });
+
+/** What a run response carries in structuredContent. */
+export type RunState = { run: string | null; state: "running" | "finished" | "failed"; step?: { step: string; instructions: string; operations: Array<{ name: string; inputSchema: JsonObject }> } } & JsonObject;
 
 export type Setup = {
   /** Changes the base stepfile before it is loaded. */
   edit?: (stepfile: JsonObject, addresses: { catalogue: string; checker: string; cataloguePort: string }) => void;
-  turns: SamplingContent[];
+  /** What the client does after starting the run, in order, until the run finishes or fails. */
+  actions: Action[];
   credentials?: Record<string, string>;
   settings?: (addresses: { cataloguePort: string }) => Record<string, string>;
   limits?: RunContext["limits"];
   flakyFailures?: number;
-  sampling?: boolean;
+  runIdleMs?: number;
+  draftsMayUseLoopback?: boolean;
 };
 
 export type Harness = {
   client: Client;
+  /** Starts a run with these inputs, plays the actions, and returns the last response. */
   call: (args: JsonObject) => Promise<CallToolResult>;
-  sampled: Sampled[];
+  /** Every response the client received, starting with the run's first step. */
+  seen: CallToolResult[];
   records: LedgerRecord[];
   api: Fixture;
   mcp: Fixture;
   close: () => Promise<void>;
 };
 
-/** Starts the fixture servers and the Stepgate server, and connects a client whose sampling replays `turns`. */
+/** Starts the fixture servers and the Stepgate server, and connects a client that plays `actions` on each run. */
 export async function startHarness(setup: Setup): Promise<Harness> {
   const api = await startApi(setup.flakyFailures ?? 0);
   const mcp = await startMcp();
@@ -67,32 +77,38 @@ export async function startHarness(setup: Setup): Promise<Harness> {
       return value;
     },
     ledger: (_call, record) => void records.push(record),
-    limits: setup.limits ?? { turnsPerStep: 8, toolResultChars: 10_000 },
-    maxTokens: 4000,
-    samplingTimeoutMs: 10_000,
+    limits: setup.limits ?? { callsPerStep: 8, toolResultChars: 10_000 },
+    runIdleMs: setup.runIdleMs ?? 60_000,
     userAgent: userAgent(null),
+    draftsMayUseLoopback: setup.draftsMayUseLoopback ?? true,
   });
-  const sampling = setup.sampling ?? true;
-  const client = new Client({ name: "platform", version: "1.0.0" }, { capabilities: sampling ? { sampling: { tools: {} } } : {} });
-  const sampled: Sampled[] = [];
-  if (sampling) {
-    client.setRequestHandler(CreateMessageRequestSchema, async (request) => {
-      sampled.push(structuredClone(request.params));
-      const content = setup.turns[sampled.length - 1];
-      if (content === undefined) {
-        throw new Error(`no scripted sampling turn ${sampled.length}`);
-      }
-      return { role: "assistant", model: "scripted", stopReason: "toolUse", content };
-    });
-  }
+  const client = new Client({ name: "platform", version: "1.0.0" });
+  const seen: CallToolResult[] = [];
+  const respond = async (name: string, args: JsonObject) => {
+    const result = (await client.callTool({ name, arguments: args })) as CallToolResult;
+    seen.push(result);
+    return result;
+  };
   const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
   await server.connect(serverSide as Transport);
   await client.connect(clientSide as Transport);
 
   return {
     client,
-    call: async (args) => (await client.callTool({ name: "stock-check", arguments: args })) as CallToolResult,
-    sampled,
+    call: async (args) => {
+      let result = await respond("stock-check", args);
+      const { run } = stateOf(result);
+      for (const action of setup.actions) {
+        if (stateOf(result).state !== "running") {
+          break;
+        }
+        result = "submit" in action
+          ? await respond("stepgate_submit", { run, output: action.submit })
+          : await respond("stepgate_call", { run, operation: action.operation, arguments: action.arguments });
+      }
+      return result;
+    },
+    seen,
     records,
     api,
     mcp,
@@ -107,4 +123,13 @@ export async function startHarness(setup: Setup): Promise<Harness> {
 /** The text of a tool result, for asserting on error messages. */
 export function resultText(result: CallToolResult): string {
   return result.content.map((part) => (part.type === "text" ? part.text : "")).join("");
+}
+
+export function stateOf(result: CallToolResult | undefined): RunState {
+  return result?.structuredContent as RunState;
+}
+
+/** The step views the client was shown, in order. */
+export function stepViews(seen: CallToolResult[]): NonNullable<RunState["step"]>[] {
+  return seen.flatMap((result) => stateOf(result).step ?? []);
 }
