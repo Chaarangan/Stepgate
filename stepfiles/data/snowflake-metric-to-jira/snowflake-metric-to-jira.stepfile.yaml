@@ -3,9 +3,10 @@ stepgate: "1"
 id: snowflake-metric-to-jira
 title: Check a Snowflake metric against a threshold and open a draft Jira issue on breach
 description: >
-  Runs one fixed, read-only SELECT you supply against Snowflake through the SQL API, checks the metric
-  it returns against your threshold, and only when the threshold is breached creates a Jira issue
-  labelled stepgate-draft that quotes the exact values returned and the exact SQL.
+  Runs one fixed, read-only SELECT you supply against Snowflake through the SQL API once a person
+  approves it, checks the metric it returns against your threshold, and only when the threshold is
+  breached, and a person approves the draft, creates a Jira issue labelled stepgate-draft that quotes
+  the exact values returned and the exact SQL.
 
 inputs:
   type: object
@@ -180,308 +181,222 @@ tools:
     credential: jira
     exposes: [createJiraIssue]
 
+# executeStatement runs whatever SQL it is given, so it counts as a write even for a SELECT, and a person
+# approves the statement before Stepgate sends it.
 steps:
-  - id: query
-    tools: [executeStatement]
+  - id: confirm
     instructions: |
-      Run this SQL statement in Snowflake by calling executeStatement exactly once, with body
-      {"statement": SQL, "warehouse": "{{inputs.warehouse}}", "role": "{{inputs.role}}"}, where SQL is
-      the text between the markers below copied character for character, including any whitespace and
-      trailing semicolon. Do not edit, reformat or complete it, and do not run any other statement.
+      Stepgate will run this SQL statement in Snowflake, in warehouse {{inputs.warehouse}} as role
+      {{inputs.role}}, once a person approves it:
 
       ----- SQL START -----
       {{inputs.sql}}
       ----- SQL END -----
 
-      From the response submit:
-      - statement_handle: statementHandle;
-      - num_rows: resultSetMetaData.numRows;
-      - columns: the name of every entry in resultSetMetaData.rowType, in order;
-      - column_index: the 0-based position in rowType of the column named exactly "{{inputs.metric_column}}";
-      - row: the first row of data, every value exactly as returned (strings, or null);
-      - metric_raw: the value at column_index in that row, exactly as returned;
-      - metric_value: metric_raw as a number.
-
-      Do not call the tool a second time, even if a gate rejects your submission.
+      Submit an empty object, {}. Stepgate fills in the statement, warehouse and role and asks a
+      person to approve them.
     produces:
       type: object
-      required: [statement_handle, num_rows, columns, column_index, row, metric_raw, metric_value]
+      required: [statement, warehouse, role]
       additionalProperties: false
       properties:
-        statement_handle: { type: string, minLength: 1 }
-        num_rows: { type: integer }
-        columns: { type: array, items: { type: string } }
-        column_index: { type: integer, minimum: 0 }
-        row: { type: array, items: { type: [string, "null"] } }
-        metric_raw: { type: string, minLength: 1 }
-        metric_value: { type: number }
+        statement: { type: string }
+        warehouse: { type: string }
+        role: { type: string }
+    derive:
+      statement: { var: inputs.sql }
+      warehouse: { var: inputs.warehouse }
+      role: { var: inputs.role }
     gates:
-      - id: sql-is-single-select
-        message: >
-          The input sql must be one SELECT or WITH statement, with no semicolon except one optional
-          semicolon at the very end.
-        predicate:
-          and:
-            - "==": [{ length: { match_all: [{ lower: { var: inputs.sql } }, "^\\s*(select|with)\\s"] } }, 1]
-            - or:
-                - "==": [{ length: { match_all: [{ var: inputs.sql }, ";"] } }, 0]
-                - and:
-                    - "==": [{ length: { match_all: [{ var: inputs.sql }, ";"] } }, 1]
-                    - "==": [{ length: { match_all: [{ var: inputs.sql }, ";\\s*$"] } }, 1]
-      - id: executed-input-sql
-        message: >
-          Make exactly one successful executeStatement call whose statement is the input sql character
-          for character, with the input warehouse and role.
-        predicate:
-          and:
-            - "==": [{ length: { var: calls } }, 1]
-            - "!": { var: calls.0.is_error }
-            - "===": [{ var: calls.0.arguments.body.statement }, { var: inputs.sql }]
-            - "===": [{ var: calls.0.arguments.body.warehouse }, { var: inputs.warehouse }]
-            - "===": [{ var: calls.0.arguments.body.role }, { var: inputs.role }]
-      - id: one-complete-row
-        message: >
-          The statement must have finished (code 090001) and returned exactly one row with distinct
-          column names; statement_handle, num_rows and columns must be copied from the response.
-        predicate:
-          and:
-            - "===": [{ var: calls.0.result.code }, "090001"]
-            - "===": [{ var: calls.0.result.resultSetMetaData.numRows }, 1]
-            - "==": [{ length: { var: calls.0.result.data } }, 1]
-            - "===": [{ var: output.statement_handle }, { var: calls.0.result.statementHandle }]
-            - "===": [{ var: output.num_rows }, { var: calls.0.result.resultSetMetaData.numRows }]
-            - "==": [{ length: { var: output.columns } }, { length: { var: calls.0.result.resultSetMetaData.rowType } }]
-            - "===":
-                - reduce: [{ var: output.columns }, { cat: [{ var: accumulator }, "\u001f", { var: current }] }, ""]
-                - reduce: [{ var: calls.0.result.resultSetMetaData.rowType }, { cat: [{ var: accumulator }, "\u001f", { var: current.name }] }, ""]
-            - "==": [{ length: { unique: { var: output.columns } } }, { length: { var: output.columns } }]
-      # "\u001f" (unit separator) joins the values so a value cannot pose as two; the null check keeps SQL NULL apart from the text "null".
-      - id: row-copied
-        message: row must be the first data row exactly as returned, with null where the response has null.
-        predicate:
-          and:
-            - "==": [{ length: { var: output.row } }, { length: { var: calls.0.result.data.0 } }]
-            - "===":
-                - reduce: [{ var: output.row }, { cat: [{ var: accumulator }, "\u001f", { if: [{ "===": [{ var: current }, null] }, "\u001eNULL", { var: current }] }] }, ""]
-                - reduce: [{ var: calls.0.result.data.0 }, { cat: [{ var: accumulator }, "\u001f", { if: [{ "===": [{ var: current }, null] }, "\u001eNULL", { var: current }] }] }, ""]
-      - id: metric-from-result
-        message: >
-          column_index must point at the column named exactly metric_column; metric_raw must be that
-          value in the returned row, a plain decimal number (not null or text), and metric_value must
-          equal it as a number.
-        predicate:
-          and:
-            - "===": [{ var: [{ cat: ["calls.0.result.resultSetMetaData.rowType.", { var: output.column_index }, ".name"] }] }, { var: inputs.metric_column }]
-            - "==": [{ length: { match_all: [{ var: output.metric_raw }, "^-?[0-9]+(\\.[0-9]+)?([eE][-+]?[0-9]+)?$"] } }, 1]
-            - "===": [{ var: [{ cat: ["calls.0.result.data.0.", { var: output.column_index }] }] }, { var: output.metric_raw }]
-            - "===": [{ "+": [{ var: output.metric_raw }] }, { var: output.metric_value }]
-    retries: 2
+      - id: person-approves-sql
+        approve: { message: "Stepgate will run this SQL statement in Snowflake, in this warehouse and as this role, and read one row of its result. Run it?" }
 
-  - id: plan
+  - id: query
+    do:
+      calls:
+        - id: query
+          operation: executeStatement
+          arguments:
+            body:
+              statement: { var: steps.confirm.statement }
+              warehouse: { var: steps.confirm.warehouse }
+              role: { var: steps.confirm.role }
+      output:
+        code: { var: responses.query.code }
+        statement_handle: { var: responses.query.statementHandle }
+        num_rows: { var: responses.query.resultSetMetaData.numRows }
+        columns: { map: [{ var: responses.query.resultSetMetaData.rowType }, { var: name }] }
+        column_index: &column-index
+          get:
+            - get:
+                - get:
+                    - join:
+                        - [{ object: [[name, { var: inputs.metric_column }]] }]
+                        - reduce: [{ var: responses.query.resultSetMetaData.rowType }, { merge: [{ var: accumulator }, [{ object: [[i, { length: { var: accumulator } }], [name, { var: current.name }]] }]] }, []]
+                        - name
+                        - name
+                    - 0
+                - right
+            - i
+        row: { var: responses.query.data.0 }
+        metric_raw: &metric-raw { get: [{ var: responses.query.data.0 }, *column-index] }
+        # Snowflake returns every value as a string; only a plain decimal number is read as the metric.
+        metric_value: &metric-value
+          if:
+            - "==": [{ length: { match_all: [*metric-raw, "^-?[0-9]+(\\.[0-9]+)?([eE][-+]?[0-9]+)?$"] } }, 1]
+            - "+": [*metric-raw]
+            - null
+        breached:
+          if:
+            - "===": [*metric-value, null]
+            - null
+            - "==": [{ var: inputs.breach_when }, above]
+            - ">": [*metric-value, { var: inputs.threshold }]
+            - "<": [*metric-value, { var: inputs.threshold }]
+    produces:
+      type: object
+      required: [code, statement_handle, num_rows, columns, column_index, row, metric_raw, metric_value, breached]
+      properties:
+        code: { type: [string, "null"] }
+        statement_handle: { type: [string, "null"] }
+        num_rows: { type: [integer, "null"] }
+        columns: { type: array, items: { type: string } }
+        column_index: { type: [integer, "null"] }
+        row: { type: [array, "null"], items: { type: [string, "null"] } }
+        metric_raw: { type: [string, "null"] }
+        metric_value: { type: [number, "null"] }
+        breached: { type: [boolean, "null"] }
+    gates:
+      - id: one-complete-row
+        message: The statement must finish (code 090001) and return exactly one row, with distinct column names.
+        predicate:
+          and:
+            - "===": [{ var: output.code }, "090001"]
+            - "===": [{ var: output.num_rows }, 1]
+            - "==": [{ length: { unique: { var: output.columns } } }, { length: { var: output.columns } }]
+      - id: metric-is-number
+        message: The result must have a column named exactly metric_column, holding a plain decimal number, not null or text.
+        predicate: { "!==": [{ var: output.metric_value }, null] }
+
+  - id: draft
+    when: { var: steps.query.breached }
     instructions: |
       The metric "{{inputs.metric_name}}" (column {{inputs.metric_column}}) came back from Snowflake as
-      {{steps.query.metric_raw}}. The threshold is {{inputs.threshold}} and the metric is breached when
-      it is {{inputs.breach_when}} the threshold (strictly greater for above, strictly less for below).
+      {{steps.query.metric_raw}}, {{inputs.breach_when}} the threshold {{inputs.threshold}}, so
+      Stepgate will open a Jira issue in {{inputs.jira_project}} with the summary
+      "{{inputs.metric_name}} breached: {{steps.query.metric_raw}}" and the SQL in a code block.
 
-      Set breached to true or false by that rule.
-
-      If breached, plan exactly one Jira issue in create: project_key "{{inputs.jira_project}}",
-      issue_type "{{inputs.jira_issue_type}}", summary "{{inputs.metric_name}} breached: {{steps.query.metric_raw}}"
-      and description, one line of plain text with no line breaks. It starts with exactly
+      Write its description: one line of plain text with no line breaks. It starts with exactly
       "{{inputs.metric_name}} ({{inputs.metric_column}}) returned {{steps.query.metric_raw}}, {{inputs.breach_when}} the threshold {{inputs.threshold}}. "
       and goes on to name the Snowflake statement handle {{steps.query.statement_handle}} and every
-      value of the returned row exactly as returned, labelled with its column name. The columns and
-      row are:
+      value of the returned row exactly as returned, labelled with its column name. Do not repeat the
+      SQL. The columns and row are:
 
       {{steps.query.columns}}
       {{steps.query.row}}
-
-      The SQL itself is attached to the issue as a code block by the next step, so do not repeat it in
-      the description. If not breached, set create to null.
     produces:
       type: object
-      required: [breached, create]
+      required: [project_key, issue_type, summary, description]
       additionalProperties: false
       properties:
-        breached: { type: boolean }
-        create:
-          oneOf:
-            - type: "null"
-            - type: object
-              required: [project_key, issue_type, summary, description]
-              additionalProperties: false
-              properties:
-                project_key: { type: string }
-                issue_type: { type: string }
-                summary: { type: string, minLength: 1, maxLength: 255 }
-                description: { type: string, minLength: 1, maxLength: 4000, pattern: "^[^\\n]*$" }
+        project_key: { type: string }
+        issue_type: { type: string }
+        summary: { type: string, minLength: 1, maxLength: 255 }
+        description: { type: string, minLength: 1, maxLength: 4000, pattern: "^[^\\n]*$" }
+    derive:
+      project_key: { var: inputs.jira_project }
+      issue_type: { var: inputs.jira_issue_type }
+      summary: { cat: [{ var: inputs.metric_name }, " breached: ", { var: steps.query.metric_raw }] }
+    let:
+      opening: { cat: [{ var: inputs.metric_name }, " (", { var: inputs.metric_column }, ") returned ", { var: steps.query.metric_raw }, ", ", { var: inputs.breach_when }, " the threshold ", { var: inputs.threshold }, ". "] }
     gates:
-      - id: breach-recomputed
-        message: breached must follow the rule applied to metric_raw and the input threshold.
+      - id: description-opening
+        message: The description must start with the opening sentence given in the instructions.
+        predicate: { "===": [{ substr: [{ var: output.description }, 0, { length: { var: let.opening } }] }, { var: let.opening }] }
+      - id: description-cites-handle
+        message: The description must name the Snowflake statement handle.
+        predicate: { in: [{ var: steps.query.statement_handle }, { var: output.description }] }
+      # The accumulator stays the description while every non-null row value appears in it, and becomes "" at the first that does not.
+      - id: description-quotes-row
+        message: The description must quote every non-null value of the returned row exactly as returned.
         predicate:
           "===":
-            - var: output.breached
-            - if:
-                - "==": [{ var: inputs.breach_when }, above]
-                - ">": [{ "+": [{ var: steps.query.metric_raw }] }, { var: inputs.threshold }]
-                - "<": [{ "+": [{ var: steps.query.metric_raw }] }, { var: inputs.threshold }]
-      - id: issue-only-on-breach
-        message: create must be set when breached and null when not.
-        predicate:
-          "===": [{ var: output.breached }, { "!=": [{ var: output.create }, null] }]
-      - id: issue-fields
-        message: >
-          The planned issue must use the input project key and issue type and the summary
-          "<metric_name> breached: <metric_raw>".
-        predicate:
-          or:
-            - "==": [{ var: output.create }, null]
-            - and:
-                - "===": [{ var: output.create.project_key }, { var: inputs.jira_project }]
-                - "===": [{ var: output.create.issue_type }, { var: inputs.jira_issue_type }]
-                - "===": [{ var: output.create.summary }, { cat: [{ var: inputs.metric_name }, " breached: ", { var: steps.query.metric_raw }] }]
-      # The accumulator stays the description while every non-null row value appears in it, and becomes "" at the first that does not.
-      - id: description-quotes-numbers
-        message: >
-          The description must start "<metric_name> (<metric_column>) returned <metric_raw>,
-          <breach_when> the threshold <threshold>. " and quote the statement handle and every non-null
-          value of the returned row exactly as returned.
-        predicate:
-          or:
-            - "==": [{ var: output.create }, null]
-            - and:
-                - "===":
-                    - substr: [{ var: output.create.description }, 0, { length: &opening { cat: [{ var: inputs.metric_name }, " (", { var: inputs.metric_column }, ") returned ", { var: steps.query.metric_raw }, ", ", { var: inputs.breach_when }, " the threshold ", { var: inputs.threshold }, ". "] } }]
-                    - *opening
-                - in: [{ var: steps.query.statement_handle }, { var: output.create.description }]
-                - "===":
-                    - reduce:
-                        - var: steps.query.row
-                        - if:
-                            - or: [{ "===": [{ var: current }, null] }, { in: [{ var: current }, { var: accumulator }] }]
-                            - var: accumulator
-                            - ""
-                        - var: output.create.description
-                    - var: output.create.description
+            - reduce:
+                - var: steps.query.row
+                - if:
+                    - or: [{ "===": [{ var: current }, null] }, { in: [{ var: current }, { var: accumulator }] }]
+                    - var: accumulator
+                    - ""
+                - var: output.description
+            - var: output.description
+      - id: person-approves-issue
+        approve: { message: "Stepgate will create this Jira issue, labelled stepgate-draft, with the SQL in a code block after the description. Create it?" }
     retries: 2
 
-  - id: execute
-    tools: [createJiraIssue]
-    instructions: |
-      The planned write is:
-
-      {{steps.plan.create}}
-
-      If it is null, call no tool and submit jira_key null.
-
-      Otherwise call createJiraIssue exactly once with body
-      {"fields": {"project": {"key": project_key}, "issuetype": {"name": issue_type}, "summary": summary,
-      "labels": ["stepgate-draft"], "description": {"type": "doc", "version": 1, "content": [
-      {"type": "paragraph", "content": [{"type": "text", "text": description}]},
-      {"type": "codeBlock", "content": [{"type": "text", "text": SQL}]}]}}}
-      using the planned values unchanged, where SQL is the text between the markers below copied
-      character for character:
-
-      ----- SQL START -----
-      {{inputs.sql}}
-      ----- SQL END -----
-
-      Then submit jira_key, the key createJiraIssue returned. Never call the tool a second time, even if
-      a gate rejects your submission.
+  - id: create
+    when: { var: steps.query.breached }
+    do:
+      calls:
+        - id: create
+          operation: createJiraIssue
+          arguments:
+            body:
+              fields:
+                project: { key: { var: steps.draft.project_key } }
+                issuetype: { name: { var: steps.draft.issue_type } }
+                summary: { var: steps.draft.summary }
+                labels: [stepgate-draft]
+                description:
+                  type: doc
+                  version: 1
+                  content:
+                    - { type: paragraph, content: [{ type: text, text: { var: steps.draft.description } }] }
+                    - { type: codeBlock, content: [{ type: text, text: { var: steps.confirm.statement } }] }
+      output:
+        jira_key: { var: responses.create.key }
     produces:
       type: object
       required: [jira_key]
-      additionalProperties: false
       properties:
-        jira_key: { type: [string, "null"], pattern: "^[A-Z][A-Z0-9_]+-[0-9]+$" }
-    gates:
-      - id: one-write-only-on-breach
-        message: Call createJiraIssue exactly once, successfully, when breached, and not at all otherwise.
-        predicate:
-          and:
-            - "==": [{ length: { var: calls } }, { if: [{ var: steps.plan.breached }, 1, 0] }]
-            - none: [{ var: calls }, { var: is_error }]
-      - id: body-as-planned
-        message: >
-          The issue must have exactly the planned project key, issue type, summary and description, the
-          label stepgate-draft, and the input sql character for character in its code block.
-        predicate:
-          or:
-            - "!": { var: steps.plan.breached }
-            - and:
-                - "===": [{ var: calls.0.arguments.body.fields.project.key }, { var: steps.plan.create.project_key }]
-                - "===": [{ var: calls.0.arguments.body.fields.issuetype.name }, { var: steps.plan.create.issue_type }]
-                - "===": [{ var: calls.0.arguments.body.fields.summary }, { var: steps.plan.create.summary }]
-                - "===": [{ cat: [{ var: calls.0.arguments.body.fields.labels }] }, stepgate-draft]
-                - "===": [{ var: calls.0.arguments.body.fields.description.content.0.content.0.text }, { var: steps.plan.create.description }]
-                - "===": [{ var: calls.0.arguments.body.fields.description.content.1.content.0.text }, { var: inputs.sql }]
-      - id: key-from-result
-        message: jira_key must be the key createJiraIssue returned, or null when nothing was created.
-        predicate:
-          "===":
-            - var: output.jira_key
-            - if: [{ var: steps.plan.breached }, { var: calls.0.result.key }, null]
-    retries: 2
+        jira_key: { type: string, pattern: "^[A-Z][A-Z0-9_]+-[0-9]+$" }
 
   - id: report
-    instructions: |
-      Write the result of the metric check.
-
-      Metric: {{inputs.metric_name}} (column {{inputs.metric_column}})
-      Value returned: {{steps.query.metric_raw}}
-      Threshold: {{inputs.threshold}}, breached when {{inputs.breach_when}}
-      Breached: {{steps.plan.breached}}
-      Jira issue created: {{steps.execute.jira_key}}
-      Snowflake statement handle: {{steps.query.statement_handle}}
-
-      SQL that was run:
-      ----- SQL START -----
-      {{inputs.sql}}
-      ----- SQL END -----
-
-      Submit sql (the SQL above character for character), metric_raw, threshold, breached and jira_key
-      copied from above (jira_key null if none was created), and summary: a short Markdown report
-      stating the value, the threshold and whether it was breached. If breached, name the Jira issue
-      key and say it is labelled stepgate-draft for review. If not, say that no Jira issue was created.
-      Include the SQL in a fenced code block. Mention no {{inputs.jira_project}} issue key other than the
-      one created.
+    do:
+      output:
+        sql: { var: inputs.sql }
+        metric_raw: { var: steps.query.metric_raw }
+        threshold: { var: inputs.threshold }
+        breached: { var: steps.query.breached }
+        jira_key: { var: steps.create.jira_key }
+        summary:
+          cat:
+            - "**"
+            - { var: inputs.metric_name }
+            - "** ("
+            - { var: inputs.metric_column }
+            - ") returned "
+            - { var: steps.query.metric_raw }
+            - "; the threshold is "
+            - { var: inputs.threshold }
+            - ", breached when the metric is "
+            - { var: inputs.breach_when }
+            - " it. "
+            - if:
+                - { var: steps.query.breached }
+                - { cat: ["The threshold is breached, so Jira issue ", { var: steps.create.jira_key }, " was created, labelled stepgate-draft for review."] }
+                - The threshold is not breached, so no Jira issue was created.
+            - "\n\nSnowflake statement handle: "
+            - { var: steps.query.statement_handle }
+            - "\n\n```sql\n"
+            - { var: inputs.sql }
+            - "\n```\n"
     produces:
       type: object
       required: [sql, metric_raw, threshold, breached, jira_key, summary]
-      additionalProperties: false
       properties:
         sql: { type: string }
         metric_raw: { type: string }
         threshold: { type: number }
         breached: { type: boolean }
         jira_key: { type: [string, "null"] }
-        summary: { type: string, minLength: 1, maxLength: 16000 }
-    gates:
-      - id: values-echoed
-        message: sql, metric_raw, threshold, breached and jira_key must be copied exactly from the run.
-        predicate:
-          and:
-            - "===": [{ var: output.sql }, { var: inputs.sql }]
-            - "===": [{ var: output.metric_raw }, { var: steps.query.metric_raw }]
-            - "===": [{ var: output.threshold }, { var: inputs.threshold }]
-            - "===": [{ var: output.breached }, { var: steps.plan.breached }]
-            - "===": [{ var: output.jira_key }, { var: steps.execute.jira_key }]
-      - id: summary-states-result
-        message: >
-          The summary must quote metric_raw and the SQL exactly, and name the created Jira key and no
-          other key in the project, or name none when nothing was created.
-        predicate:
-          and:
-            - in: [{ var: steps.query.metric_raw }, { var: output.summary }]
-            - in: [{ var: inputs.sql }, { var: output.summary }]
-            - "===":
-                - cat: [{ match_all: [{ var: output.summary }, { cat: ["\\b", { var: inputs.jira_project }, "-[0-9]+\\b"] }] }]
-                - if:
-                    - var: steps.execute.jira_key
-                    - cat: [{ match_all: [{ var: output.summary }, { cat: ["\\b", { var: steps.execute.jira_key }, "\\b"] }] }]
-                    - ""
-            - if:
-                - var: steps.execute.jira_key
-                - ">": [{ length: { match_all: [{ var: output.summary }, { cat: ["\\b", { var: steps.execute.jira_key }, "\\b"] }] } }, 0]
-                - true
-    retries: 2
+        summary: { type: string }
