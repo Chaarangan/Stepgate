@@ -145,7 +145,9 @@ export function entryProblems(directory: URL, domain: string, id: string): strin
     throw error;
   }
   const cases = new URL(`${id}.cases.yaml`, folder);
-  if (existsSync(cases)) {
+  if (!existsSync(cases)) {
+    problems.push(`${id}.cases.yaml is missing; record a run with --record-cases, or write one, so CI tests the gates offline`);
+  } else {
     try {
       parseCases(stepfile, readFileSync(cases, "utf8"));
     } catch (error) {

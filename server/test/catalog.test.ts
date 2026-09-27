@@ -71,7 +71,8 @@ describe("catalog", () => {
       const problems = entryProblems(CATALOG, domain, id);
       expect(problems).toContain("README.md still has TODO( markers from the template");
       expect(problems).toContain(`${id}.stepfile.yaml still has TODO( markers from the template`);
-      expect(problems.filter((problem) => !problem.includes("TODO("))).toEqual([]);
+      expect(problems).toContain(`${id}.cases.yaml is missing; record a run with --record-cases, or write one, so CI tests the gates offline`);
+      expect(problems.filter((problem) => !problem.includes("TODO(") && !problem.includes(".cases.yaml is missing"))).toEqual([]);
     } finally {
       rmSync(new URL(`${domain}/`, CATALOG), { recursive: true, force: true });
     }
@@ -118,6 +119,13 @@ describe("catalog", () => {
     ];
     writeFileSync(file, stringify(document));
     expect(entryProblems(catalog, "marketing", "market-research")).toContain("step send writes with tavily_extract from responses.first, but a write may use only inputs, settings and earlier steps' outputs, which the person approved");
+  });
+
+  it("requires a cases file beside every catalog stepfile", () => {
+    const catalog = scratchCatalog();
+    rmSync(new URL("marketing/market-research/market-research.cases.yaml", catalog));
+
+    expect(entryProblems(catalog, "marketing", "market-research")).toContain("market-research.cases.yaml is missing; record a run with --record-cases, or write one, so CI tests the gates offline");
   });
 
   it("rejects an id used in two domains and a stepfile outside an entry folder", () => {
