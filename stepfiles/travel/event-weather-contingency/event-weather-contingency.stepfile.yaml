@@ -1,0 +1,318 @@
+# yaml-language-server: $schema=../../../server/schema/stepfile.schema.json
+stepgate: "1"
+id: event-weather-contingency
+title: Weather go, contingency or postpone call for an outdoor event
+description: >
+  Finds the event location with Open-Meteo geocoding, fetches the daily
+  forecast for the event date, applies fixed go, contingency and postpone
+  thresholds, and writes a contingency plan that quotes the forecast it rests on.
+
+inputs:
+  type: object
+  required: [place, country_code, date]
+  properties:
+    place: { type: string, minLength: 2, description: "Town or city name, for example Edinburgh" }
+    country_code: { type: string, pattern: "^[A-Z]{2}$", description: "ISO 3166-1 alpha-2 country code of the place, for example GB" }
+    date: { type: string, pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}$", description: "Event date in the place's local time, YYYY-MM-DD, at most 15 days ahead" }
+
+tools:
+  geocoding:
+    openapi:
+      server: https://geocoding-api.open-meteo.com/v1
+      document:
+        openapi: 3.1.0
+        info: { title: Open-Meteo Geocoding API (trimmed), version: "1" }
+        paths:
+          /search:
+            get:
+              operationId: searchPlace
+              summary: Search places by name. Returns up to count matches with id, name, latitude, longitude, country_code, country and admin1.
+              parameters:
+                - { name: name, in: query, required: true, schema: { type: string, minLength: 2 } }
+                - { name: count, in: query, schema: { type: integer, minimum: 1, maximum: 10 } }
+                - { name: language, in: query, schema: { type: string, enum: [en] } }
+                - { name: countryCode, in: query, schema: { type: string, pattern: "^[A-Z]{2}$" } }
+    exposes: [searchPlace]
+  forecast:
+    openapi:
+      server: https://api.open-meteo.com/v1
+      document:
+        openapi: 3.1.0
+        info: { title: Open-Meteo Forecast API (trimmed), version: "1" }
+        paths:
+          /forecast:
+            get:
+              operationId: getForecast
+              summary: Daily forecast for one point. Values come back as parallel arrays under daily, one entry per date in daily.time; units are °C, mm, % and km/h.
+              parameters:
+                - { name: latitude, in: query, required: true, schema: { type: number, minimum: -90, maximum: 90 } }
+                - { name: longitude, in: query, required: true, schema: { type: number, minimum: -180, maximum: 180 } }
+                - name: daily
+                  in: query
+                  required: true
+                  schema:
+                    type: string
+                    enum: ["weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max,wind_speed_10m_max,wind_gusts_10m_max"]
+                - { name: timezone, in: query, required: true, schema: { type: string, enum: [auto] } }
+                - { name: start_date, in: query, required: true, schema: { type: string, pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" } }
+                - { name: end_date, in: query, required: true, schema: { type: string, pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" } }
+    exposes: [getForecast]
+
+steps:
+  - id: locate
+    tools: [searchPlace]
+    instructions: |
+      Find the event location "{{inputs.place}}" with searchPlace. Pass
+      count: 5, language: en and countryCode: {{inputs.country_code}}.
+
+      Pick the single result that best matches the place. Submit its id as
+      geocoding_id and its name, latitude, longitude, country_code, country
+      and admin1 exactly as the API returned them. Do not round coordinates.
+      Use null for country or admin1 only when the result lacks that field.
+    produces:
+      type: object
+      required: [geocoding_id, name, latitude, longitude, country_code, country, admin1]
+      properties:
+        geocoding_id: { type: integer }
+        name: { type: string }
+        latitude: { type: number }
+        longitude: { type: number }
+        country_code: { type: string }
+        country: { type: [string, "null"] }
+        admin1: { type: [string, "null"] }
+    gates:
+      - id: place-from-geocoder
+        message: The place (id, name, latitude, longitude, country_code, country, admin1) must be one searchPlace result, copied exactly.
+        predicate:
+          subset:
+            - - [{ var: output.geocoding_id }, { var: output.name }, { var: output.latitude }, { var: output.longitude }, { var: output.country_code }, { var: output.country }, { var: output.admin1 }]
+            - flatten:
+                map:
+                  - filter: [{ var: calls }, { "==": [{ var: tool }, searchPlace] }]
+                  - map:
+                      - { var: result.results }
+                      - [{ var: id }, { var: name }, { var: latitude }, { var: longitude }, { var: country_code }, { var: country }, { var: admin1 }]
+      - id: country-respected
+        message: The chosen place must be in the input country_code.
+        predicate:
+          "==": [{ var: output.country_code }, { var: inputs.country_code }]
+    retries: 2
+
+  - id: forecast
+    tools: [getForecast]
+    instructions: |
+      Fetch the daily forecast for {{steps.locate.name}} with getForecast.
+      Pass latitude {{steps.locate.latitude}} and longitude
+      {{steps.locate.longitude}} exactly, timezone auto, the only allowed
+      daily value, and start_date and end_date both {{inputs.date}}.
+
+      Submit the values for {{inputs.date}} exactly as returned, index 0 of
+      each daily array: forecast_date from daily.time, weather_code,
+      temperature_max_c from temperature_2m_max, temperature_min_c from
+      temperature_2m_min, precipitation_sum_mm, precipitation_probability_max_pct,
+      wind_speed_max_kmh from wind_speed_10m_max and wind_gusts_max_kmh from
+      wind_gusts_10m_max. Do not round, convert or estimate. If the API
+      rejects the date as out of range, say so in your reply; do not invent a
+      forecast.
+    produces:
+      type: object
+      required: [forecast_date, weather_code, temperature_max_c, temperature_min_c, precipitation_sum_mm, precipitation_probability_max_pct, wind_speed_max_kmh, wind_gusts_max_kmh]
+      properties:
+        forecast_date: { type: string }
+        weather_code: { type: integer }
+        temperature_max_c: { type: number }
+        temperature_min_c: { type: number }
+        precipitation_sum_mm: { type: number, minimum: 0 }
+        precipitation_probability_max_pct: { type: number, minimum: 0, maximum: 100 }
+        wind_speed_max_kmh: { type: number, minimum: 0 }
+        wind_gusts_max_kmh: { type: number, minimum: 0 }
+    gates:
+      - id: date-is-event-date
+        message: forecast_date must be the event date from the inputs.
+        predicate:
+          "==": [{ var: output.forecast_date }, { var: inputs.date }]
+      # One tuple, so every value must come from the same call for the located point.
+      - id: forecast-from-api
+        message: >
+          Every forecast value must be index 0 of a successful getForecast call
+          made with the located latitude and longitude, whose daily.time[0] is
+          the event date. Copy the values exactly.
+        predicate:
+          subset:
+            - - - { var: steps.locate.latitude }
+                - { var: steps.locate.longitude }
+                - { var: output.forecast_date }
+                - { var: output.weather_code }
+                - { var: output.temperature_max_c }
+                - { var: output.temperature_min_c }
+                - { var: output.precipitation_sum_mm }
+                - { var: output.precipitation_probability_max_pct }
+                - { var: output.wind_speed_max_kmh }
+                - { var: output.wind_gusts_max_kmh }
+            - map:
+                - filter:
+                    - { var: calls }
+                    - and:
+                        - "==": [{ var: tool }, getForecast]
+                        - "!": { var: is_error }
+                - - { var: arguments.latitude }
+                  - { var: arguments.longitude }
+                  - { var: result.daily.time.0 }
+                  - { var: result.daily.weather_code.0 }
+                  - { var: result.daily.temperature_2m_max.0 }
+                  - { var: result.daily.temperature_2m_min.0 }
+                  - { var: result.daily.precipitation_sum.0 }
+                  - { var: result.daily.precipitation_probability_max.0 }
+                  - { var: result.daily.wind_speed_10m_max.0 }
+                  - { var: result.daily.wind_gusts_10m_max.0 }
+    retries: 2
+
+  - id: decide
+    instructions: |
+      Forecast for {{steps.locate.name}} on {{inputs.date}}:
+      {{steps.forecast}}
+
+      Apply these thresholds. List in triggered the id of every rule whose
+      condition holds, and no other.
+
+      Postpone rules:
+      - postpone-thunderstorm: weather_code is 95, 96 or 99
+      - postpone-gusts: wind_gusts_max_kmh >= 65
+      - postpone-heavy-rain: precipitation_sum_mm >= 15
+      - postpone-extreme-heat: temperature_max_c >= 38
+
+      Contingency rules:
+      - contingency-rain-chance: precipitation_probability_max_pct >= 40
+      - contingency-rain: precipitation_sum_mm >= 2
+      - contingency-gusts: wind_gusts_max_kmh >= 40
+      - contingency-wind: wind_speed_max_kmh >= 30
+      - contingency-heat: temperature_max_c >= 32
+      - contingency-cold: temperature_min_c <= 5
+
+      decision is postpone if any postpone rule holds, otherwise contingency
+      if any contingency rule holds, otherwise go. Give a one or two sentence
+      rationale naming the values that decided it.
+    produces:
+      type: object
+      required: [decision, triggered, rationale]
+      properties:
+        decision: { enum: [go, contingency, postpone] }
+        triggered:
+          type: array
+          uniqueItems: true
+          items:
+            enum: [postpone-thunderstorm, postpone-gusts, postpone-heavy-rain, postpone-extreme-heat, contingency-rain-chance, contingency-rain, contingency-gusts, contingency-wind, contingency-heat, contingency-cold]
+        rationale: { type: string, minLength: 10, maxLength: 600 }
+    gates:
+      - id: decision-follows-thresholds
+        message: >
+          decision must follow the thresholds: postpone if any postpone rule
+          holds, otherwise contingency if any contingency rule holds, otherwise go.
+        predicate:
+          "==":
+            - { var: output.decision }
+            - if:
+                - or:
+                    - &postpone-thunderstorm { in: [{ var: steps.forecast.weather_code }, [95, 96, 99]] }
+                    - &postpone-gusts { ">=": [{ var: steps.forecast.wind_gusts_max_kmh }, 65] }
+                    - &postpone-heavy-rain { ">=": [{ var: steps.forecast.precipitation_sum_mm }, 15] }
+                    - &postpone-extreme-heat { ">=": [{ var: steps.forecast.temperature_max_c }, 38] }
+                - postpone
+                - or:
+                    - &contingency-rain-chance { ">=": [{ var: steps.forecast.precipitation_probability_max_pct }, 40] }
+                    - &contingency-rain { ">=": [{ var: steps.forecast.precipitation_sum_mm }, 2] }
+                    - &contingency-gusts { ">=": [{ var: steps.forecast.wind_gusts_max_kmh }, 40] }
+                    - &contingency-wind { ">=": [{ var: steps.forecast.wind_speed_max_kmh }, 30] }
+                    - &contingency-heat { ">=": [{ var: steps.forecast.temperature_max_c }, 32] }
+                    - &contingency-cold { "<=": [{ var: steps.forecast.temperature_min_c }, 5] }
+                - contingency
+                - go
+      - id: triggered-matches-forecast
+        message: triggered must list exactly the rules whose condition holds for the forecast values.
+        predicate:
+          and:
+            - "==": [{ in: [postpone-thunderstorm, { var: output.triggered }] }, *postpone-thunderstorm]
+            - "==": [{ in: [postpone-gusts, { var: output.triggered }] }, *postpone-gusts]
+            - "==": [{ in: [postpone-heavy-rain, { var: output.triggered }] }, *postpone-heavy-rain]
+            - "==": [{ in: [postpone-extreme-heat, { var: output.triggered }] }, *postpone-extreme-heat]
+            - "==": [{ in: [contingency-rain-chance, { var: output.triggered }] }, *contingency-rain-chance]
+            - "==": [{ in: [contingency-rain, { var: output.triggered }] }, *contingency-rain]
+            - "==": [{ in: [contingency-gusts, { var: output.triggered }] }, *contingency-gusts]
+            - "==": [{ in: [contingency-wind, { var: output.triggered }] }, *contingency-wind]
+            - "==": [{ in: [contingency-heat, { var: output.triggered }] }, *contingency-heat]
+            - "==": [{ in: [contingency-cold, { var: output.triggered }] }, *contingency-cold]
+    retries: 2
+
+  - id: plan
+    instructions: |
+      Write the contingency plan for an outdoor event at {{steps.locate.name}}
+      ({{steps.locate.country}}) on {{inputs.date}}.
+
+      Forecast: {{steps.forecast}}
+      Decision: {{steps.decide.decision}}
+      Triggered rules: {{steps.decide.triggered}}
+      Rationale: {{steps.decide.rationale}}
+
+      Submit decision (copied from above) and markdown with the sections
+      "## Decision", "## Forecast", "## Thresholds triggered" and "## Plan",
+      in that order.
+      - Decision: state the decision in bold, as **go**, **contingency** or
+        **postpone**. Bold no other decision word anywhere.
+      - Forecast: quote every value exactly as given, followed by its unit:
+        "WMO code <weather_code>", "<temperature_max_c> °C",
+        "<temperature_min_c> °C", "<precipitation_sum_mm> mm",
+        "<precipitation_probability_max_pct> %", "<wind_speed_max_kmh> km/h"
+        and "<wind_gusts_max_kmh> km/h". Say the source is the Open-Meteo forecast.
+      - Thresholds triggered: each triggered rule id in backticks, for
+        example `contingency-rain`, with the value that tripped it. Write
+        "None" if the list is empty. Put no other rule id in backticks.
+      - Plan: concrete actions for the organiser that fit the decision (for
+        contingency: covered areas, wind-safe structures, heat or cold
+        measures as the triggered rules require; for postpone: who to notify
+        and when to re-check; for go: final checks). No new forecast figures.
+    produces:
+      type: object
+      required: [decision, markdown]
+      properties:
+        decision: { enum: [go, contingency, postpone] }
+        markdown: { type: string, maxLength: 6000 }
+    gates:
+      - id: sections-in-order
+        schema:
+          properties:
+            markdown:
+              pattern: "## Decision[\\s\\S]*## Forecast[\\s\\S]*## Thresholds triggered[\\s\\S]*## Plan"
+      - id: decision-carried
+        message: decision must equal the decide step's decision, and the markdown must bold that decision and no other.
+        predicate:
+          and:
+            - "==": [{ var: output.decision }, { var: steps.decide.decision }]
+            - ">": [{ length: { match_all: [{ var: output.markdown }, "\\*\\*(go|contingency|postpone)\\*\\*"] } }, 0]
+            - subset:
+                - { match_all: [{ var: output.markdown }, "\\*\\*(go|contingency|postpone)\\*\\*"] }
+                - [{ var: steps.decide.decision }]
+      - id: forecast-quoted
+        message: >
+          The markdown must quote every forecast value exactly as the forecast
+          step recorded it, with its unit: "WMO code N", "N °C" (max and min),
+          "N mm", "N %" and "N km/h" (wind and gusts).
+        predicate:
+          and:
+            - in: [{ cat: ["WMO code ", { var: steps.forecast.weather_code }] }, { var: output.markdown }]
+            - in: [{ cat: [{ var: steps.forecast.temperature_max_c }, " °C"] }, { var: output.markdown }]
+            - in: [{ cat: [{ var: steps.forecast.temperature_min_c }, " °C"] }, { var: output.markdown }]
+            - in: [{ cat: [{ var: steps.forecast.precipitation_sum_mm }, " mm"] }, { var: output.markdown }]
+            - in: [{ cat: [{ var: steps.forecast.precipitation_probability_max_pct }, " %"] }, { var: output.markdown }]
+            - in: [{ cat: [{ var: steps.forecast.wind_speed_max_kmh }, " km/h"] }, { var: output.markdown }]
+            - in: [{ cat: [{ var: steps.forecast.wind_gusts_max_kmh }, " km/h"] }, { var: output.markdown }]
+      - id: thresholds-cited
+        message: The backticked rule ids in the markdown must be exactly the rules the decide step triggered.
+        predicate:
+          and:
+            - subset:
+                - { match_all: [{ var: output.markdown }, "`((?:postpone|contingency)-[a-z-]+)`"] }
+                - { var: steps.decide.triggered }
+            - subset:
+                - { var: steps.decide.triggered }
+                - { match_all: [{ var: output.markdown }, "`((?:postpone|contingency)-[a-z-]+)`"] }
+    retries: 2

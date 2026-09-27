@@ -1,0 +1,410 @@
+# yaml-language-server: $schema=../../../server/schema/stepfile.schema.json
+stepgate: "1"
+id: book-list-verification
+title: Verify a reading list against Open Library
+description: >
+  Confirms that every book on a reading list exists in Open Library under the
+  stated author, and flags books that do not exist or belong to someone else.
+
+inputs:
+  type: object
+  required: [books]
+  properties:
+    books:
+      type: array
+      description: The books to check, each with its title and the author the list names.
+      minItems: 1
+      maxItems: 30
+      items:
+        type: object
+        required: [title, author]
+        additionalProperties: false
+        properties:
+          title: { type: string, minLength: 1 }
+          author: { type: string, minLength: 1 }
+
+tools:
+  # Two tools over one endpoint so gates can tell a search filtered by the
+  # stated author, which is the attribution check, from a title-only search.
+  openlibrary-by-author:
+    openapi:
+      server: https://openlibrary.org
+      document:
+        openapi: 3.1.0
+        info: { title: Open Library search, by title and author, version: "1" }
+        paths:
+          /search.json:
+            get:
+              operationId: searchByTitleAndAuthor
+              summary: >
+                Search Open Library works matching both a title and an author
+                name. docs is empty when no work matches both.
+              parameters:
+                - name: title
+                  in: query
+                  required: true
+                  schema: { type: string, minLength: 1 }
+                - name: author
+                  in: query
+                  required: true
+                  schema: { type: string, minLength: 1 }
+                - name: limit
+                  in: query
+                  required: true
+                  description: Number of results, 1 to 5.
+                  schema: { type: integer, minimum: 1, maximum: 5 }
+                - name: fields
+                  in: query
+                  required: true
+                  description: The fields to return; only this value is accepted.
+                  schema: { type: string, enum: ["key,title,author_name,first_publish_year"] }
+              responses:
+                "200": { description: Search results }
+    exposes: [searchByTitleAndAuthor]
+  openlibrary-by-title:
+    openapi:
+      server: https://openlibrary.org
+      document:
+        openapi: 3.1.0
+        info: { title: Open Library search, by title, version: "1" }
+        paths:
+          /search.json:
+            get:
+              operationId: searchByTitle
+              summary: Search Open Library works by title alone, whoever wrote them.
+              parameters:
+                - name: title
+                  in: query
+                  required: true
+                  schema: { type: string, minLength: 1 }
+                - name: limit
+                  in: query
+                  required: true
+                  description: Number of results, 1 to 5.
+                  schema: { type: integer, minimum: 1, maximum: 5 }
+                - name: fields
+                  in: query
+                  required: true
+                  description: The fields to return; only this value is accepted.
+                  schema: { type: string, enum: ["key,title,author_name,first_publish_year"] }
+              responses:
+                "200": { description: Search results }
+    exposes: [searchByTitle]
+
+steps:
+  - id: search
+    tools: [searchByTitleAndAuthor]
+    instructions: |
+      Here is a reading list:
+
+      {{inputs.books}}
+
+      Number the books B-01, B-02 and so on, in the order given. For every
+      book, call searchByTitleAndAuthor once, with title and author copied
+      exactly as given, limit 5, and fields
+      "key,title,author_name,first_publish_year". Make one call at a time.
+
+      For each book submit its id, title and author unchanged, and docs: every
+      returned doc, in order, as { key, title, author_name } copied exactly
+      (author_name is null if the doc has none).
+
+      Set match to the doc that is this book: the same title, allowing for
+      case, punctuation and a subtitle. A doc with a different title by the
+      same author is not a match, nor is an omnibus or box set. If no doc is
+      this book, set match to null.
+    produces:
+      type: object
+      required: [books]
+      properties:
+        books:
+          type: array
+          items:
+            type: object
+            required: [id, title, author, docs, match]
+            additionalProperties: false
+            properties:
+              id: { type: string, pattern: "^B-[0-9]{2,}$" }
+              title: { type: string }
+              author: { type: string }
+              docs: { type: array, maxItems: 5, items: { $ref: "#/$defs/doc" } }
+              match: { anyOf: [{ $ref: "#/$defs/doc" }, { type: "null" }] }
+    gates:
+      - id: every-book-once
+        message: Submit every input book exactly once, with title and author unchanged and a unique id.
+        predicate:
+          and:
+            - "==":
+                - { length: { var: output.books } }
+                - { length: { var: inputs.books } }
+            - "==":
+                - { length: { unique: { map: [{ var: output.books }, { var: id }] } } }
+                - { length: { var: output.books } }
+            - subset:
+                - map: [{ var: inputs.books }, [{ var: title }, { var: author }]]
+                - map: [{ var: output.books }, [{ var: title }, { var: author }]]
+      - id: docs-match-searches
+        message: >
+          Every book needs a successful searchByTitleAndAuthor call with its
+          exact title and author, and docs must be that call's docs, in order,
+          copied exactly.
+        predicate:
+          subset:
+            - map:
+                - { var: output.books }
+                - - { var: title }
+                  - { var: author }
+                  - map: [{ var: docs }, [{ var: key }, { var: title }, { var: author_name }]]
+            - map:
+                - filter:
+                    - { var: calls }
+                    - and:
+                        - "==": [{ var: tool }, searchByTitleAndAuthor]
+                        - "!": { var: is_error }
+                - - { var: arguments.title }
+                  - { var: arguments.author }
+                  - map: [{ var: result.docs }, [{ var: key }, { var: title }, { var: author_name }]]
+      - id: match-is-own-doc
+        message: match must be null or one of that book's own docs, copied exactly.
+        predicate:
+          "==":
+            - length:
+                filter:
+                  - { var: output.books }
+                  - "!":
+                      or:
+                        - "==": [{ var: match }, null]
+                        - subset:
+                            - [[{ var: match.key }, { var: match.title }, { var: match.author_name }]]
+                            - map: [{ var: docs }, [{ var: key }, { var: title }, { var: author_name }]]
+            - 0
+    retries: 2
+
+  - id: crosscheck
+    tools: [searchByTitle]
+    instructions: |
+      These books were searched under their stated author:
+
+      {{steps.search.books}}
+
+      For every book whose match is null, and only those, call searchByTitle
+      with the title copied exactly, limit 5, and fields
+      "key,title,author_name,first_publish_year", to learn whether the book
+      exists under a different author. If every book has a match, make no
+      calls and submit an empty checks list.
+
+      For each book checked submit its id, title and author unchanged, and
+      docs: every returned doc, in order, as { key, title, author_name }
+      copied exactly. Set found to the doc that is this book (same title,
+      allowing for case, punctuation and a subtitle) or null if none is. A
+      found doc must not list the stated author, since that search already
+      failed.
+    produces:
+      type: object
+      required: [checks]
+      properties:
+        checks:
+          type: array
+          items:
+            type: object
+            required: [id, title, author, docs, found]
+            additionalProperties: false
+            properties:
+              id: { type: string }
+              title: { type: string }
+              author: { type: string }
+              docs: { type: array, maxItems: 5, items: { $ref: "#/$defs/doc" } }
+              found: { anyOf: [{ $ref: "#/$defs/doc" }, { type: "null" }] }
+    gates:
+      - id: every-unmatched-book-once
+        message: Check exactly the books whose match is null, once each, with id, title and author unchanged.
+        predicate:
+          and:
+            - "==":
+                - { length: { var: output.checks } }
+                - { length: { filter: [{ var: steps.search.books }, { "==": [{ var: match }, null] }] } }
+            - subset:
+                - map:
+                    - filter: [{ var: steps.search.books }, { "==": [{ var: match }, null] }]
+                    - [{ var: id }, { var: title }, { var: author }]
+                - map: [{ var: output.checks }, [{ var: id }, { var: title }, { var: author }]]
+      - id: docs-match-searches
+        message: >
+          Every checked book needs a successful searchByTitle call with its
+          exact title, and docs must be that call's docs, in order, copied
+          exactly.
+        predicate:
+          subset:
+            - map:
+                - { var: output.checks }
+                - - { var: title }
+                  - map: [{ var: docs }, [{ var: key }, { var: title }, { var: author_name }]]
+            - map:
+                - filter:
+                    - { var: calls }
+                    - and:
+                        - "==": [{ var: tool }, searchByTitle]
+                        - "!": { var: is_error }
+                - - { var: arguments.title }
+                  - map: [{ var: result.docs }, [{ var: key }, { var: title }, { var: author_name }]]
+      - id: found-is-own-doc-by-another-author
+        message: found must be null or one of that book's own docs, copied exactly, whose author_name does not list the stated author.
+        predicate:
+          "==":
+            - length:
+                filter:
+                  - { var: output.checks }
+                  - "!":
+                      or:
+                        - "==": [{ var: found }, null]
+                        - and:
+                            - subset:
+                                - [[{ var: found.key }, { var: found.title }, { var: found.author_name }]]
+                                - map: [{ var: docs }, [{ var: key }, { var: title }, { var: author_name }]]
+                            - "!": { in: [{ var: author }, { var: found.author_name }] }
+            - 0
+    retries: 2
+
+  - id: publish
+    instructions: |
+      Search under the stated author:
+
+      {{steps.search.books}}
+
+      Title-only checks for books with no match:
+
+      {{steps.crosscheck.checks}}
+
+      Give every book one verdict, keeping its id, title and author:
+
+      - verified: its match is not null. work_key is match.key and
+        open_library_authors is match.author_name.
+      - wrong_author: no match, but the title-only check found it. work_key is
+        found.key and open_library_authors is found.author_name.
+      - not_found: neither search found it; the book may not exist. work_key
+        and open_library_authors are null.
+
+      List the verified books, and only those, in confirmed. Write a Markdown
+      summary with the sections "## Confirmed" and "## Problems", in that
+      order. Name every book by title with its id in parentheses, for example
+      (B-03). For a wrong_author book name the author Open Library gives; for
+      a verified or wrong_author book give its link as
+      https://openlibrary.org followed by its work_key. Mention no work key
+      that is not in your verdicts.
+    produces:
+      type: object
+      required: [verdicts, confirmed, counts, summary]
+      properties:
+        verdicts:
+          type: array
+          items:
+            type: object
+            required: [id, title, author, verdict, work_key, open_library_authors]
+            additionalProperties: false
+            properties:
+              id: { type: string }
+              title: { type: string }
+              author: { type: string }
+              verdict: { enum: [verified, wrong_author, not_found] }
+              work_key: { type: [string, "null"] }
+              open_library_authors: { type: [array, "null"], items: { type: string } }
+        confirmed:
+          type: array
+          items:
+            type: object
+            required: [title, author, work_key]
+            additionalProperties: false
+            properties:
+              title: { type: string }
+              author: { type: string }
+              work_key: { type: string }
+        counts:
+          type: object
+          required: [verified, wrong_author, not_found]
+          additionalProperties: false
+          properties:
+            verified: { type: integer, minimum: 0 }
+            wrong_author: { type: integer, minimum: 0 }
+            not_found: { type: integer, minimum: 0 }
+        summary: { type: string, maxLength: 12000 }
+    gates:
+      - id: sections-in-order
+        schema:
+          properties:
+            summary: { pattern: "## Confirmed[\\s\\S]*## Problems" }
+      # Each book's id has exactly one evidence tuple, so subset plus equal
+      # length pins every verdict to what the two searches found.
+      - id: verdicts-follow-evidence
+        message: >
+          verified needs a match from the search step, wrong_author a found doc
+          from the crosscheck step, and not_found neither; work_key and
+          open_library_authors must be copied from that doc.
+        predicate:
+          and:
+            - "==":
+                - { length: { var: output.verdicts } }
+                - { length: { var: steps.search.books } }
+            - subset:
+                - map:
+                    - { var: output.verdicts }
+                    - [{ var: id }, { var: title }, { var: author }, { var: verdict }, { var: work_key }, { var: open_library_authors }]
+                - merge:
+                    - map:
+                        - filter: [{ var: steps.search.books }, { "!=": [{ var: match }, null] }]
+                        - [{ var: id }, { var: title }, { var: author }, verified, { var: match.key }, { var: match.author_name }]
+                    - map:
+                        - filter: [{ var: steps.crosscheck.checks }, { "!=": [{ var: found }, null] }]
+                        - [{ var: id }, { var: title }, { var: author }, wrong_author, { var: found.key }, { var: found.author_name }]
+                    - map:
+                        - filter: [{ var: steps.crosscheck.checks }, { "==": [{ var: found }, null] }]
+                        - [{ var: id }, { var: title }, { var: author }, not_found, null, null]
+            - "==":
+                - { length: { unique: { map: [{ var: output.verdicts }, { var: id }] } } }
+                - { length: { var: output.verdicts } }
+      - id: confirmed-only-verified
+        message: confirmed must list exactly the verified books, with their title, author and work_key.
+        predicate:
+          and:
+            - "==":
+                - { length: { var: output.confirmed } }
+                - { length: { filter: [{ var: output.verdicts }, { "==": [{ var: verdict }, verified] }] } }
+            - subset:
+                - map: [{ var: output.confirmed }, [{ var: title }, { var: author }, { var: work_key }]]
+                - map:
+                    - filter: [{ var: output.verdicts }, { "==": [{ var: verdict }, verified] }]
+                    - [{ var: title }, { var: author }, { var: work_key }]
+      - id: counts-match-verdicts
+        message: Each count must equal the number of verdicts of that kind.
+        predicate:
+          and:
+            - "==":
+                - { var: output.counts.verified }
+                - { length: { filter: [{ var: output.verdicts }, { "==": [{ var: verdict }, verified] }] } }
+            - "==":
+                - { var: output.counts.wrong_author }
+                - { length: { filter: [{ var: output.verdicts }, { "==": [{ var: verdict }, wrong_author] }] } }
+            - "==":
+                - { var: output.counts.not_found }
+                - { length: { filter: [{ var: output.verdicts }, { "==": [{ var: verdict }, not_found] }] } }
+      - id: summary-covers-every-book
+        message: The summary must mention every book id, for example (B-01).
+        predicate:
+          subset:
+            - { map: [{ var: output.verdicts }, { var: id }] }
+            - { match_all: [{ var: output.summary }, "B-[0-9]{2,}"] }
+      - id: summary-keys-are-real
+        message: Every Open Library work key in the summary must be a work_key from the verdicts.
+        predicate:
+          subset:
+            - { match_all: [{ var: output.summary }, "/works/OL[0-9]+W"] }
+            - { map: [{ var: output.verdicts }, { var: work_key }] }
+    retries: 2
+
+$defs:
+  doc:
+    type: object
+    required: [key, title, author_name]
+    additionalProperties: false
+    properties:
+      key: { type: string, pattern: "^/works/OL[0-9]+W$" }
+      title: { type: string }
+      author_name: { type: [array, "null"], items: { type: string } }

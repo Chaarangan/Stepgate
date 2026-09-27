@@ -1,0 +1,461 @@
+# yaml-language-server: $schema=../../../server/schema/stepfile.schema.json
+stepgate: "1"
+id: reference-list-validation
+title: Validate a reference list against Crossref
+description: >
+  Resolves every reference in a list to a real Crossref DOI record and flags
+  references that are fabricated, carry the wrong DOI, or misstate the author
+  or year.
+
+inputs:
+  type: object
+  required: [references]
+  properties:
+    references:
+      type: array
+      description: One formatted reference per entry, in any citation style.
+      minItems: 1
+      maxItems: 25
+      items: { type: string, minLength: 10 }
+
+tools:
+  # Two tools over the same endpoint so gates can tell a DOI lookup from a
+  # bibliographic search. The single-work endpoint /works/{doi} is avoided
+  # because it cannot trim its response and returns about 40,000 characters.
+  crossref-doi:
+    openapi:
+      server: https://api.crossref.org
+      document:
+        openapi: 3.1.0
+        info: { title: Crossref REST API, DOI lookup, version: "1" }
+        paths:
+          /works:
+            get:
+              operationId: lookupDoi
+              summary: >
+                Look up one DOI in Crossref. message.items holds the record, or
+                is empty with total-results 0 when Crossref has no such DOI.
+              parameters:
+                - name: filter
+                  in: query
+                  required: true
+                  description: "The string doi: followed by exactly one DOI, for example doi:10.1038/nature14539"
+                  schema: { type: string, pattern: "^doi:10\\.[0-9]{4,9}/[^,\\s]+$" }
+                - name: select
+                  in: query
+                  required: true
+                  description: The fields to return; only this value is accepted.
+                  schema: { type: string, enum: ["DOI,title,author,issued,container-title"] }
+              responses:
+                "200": { description: A Crossref work list }
+    exposes: [lookupDoi]
+  crossref-search:
+    openapi:
+      server: https://api.crossref.org
+      document:
+        openapi: 3.1.0
+        info: { title: Crossref REST API, work search, version: "1" }
+        paths:
+          /works:
+            get:
+              operationId: searchWorks
+              summary: >
+                Search Crossref works by free text and return the best matches
+                first in message.items.
+              parameters:
+                - name: query
+                  in: query
+                  required: true
+                  description: Free-text search terms, for example a title followed by the first author's family name.
+                  schema: { type: string, minLength: 3 }
+                - name: rows
+                  in: query
+                  required: true
+                  description: Number of results, 1 to 5.
+                  schema: { type: integer, minimum: 1, maximum: 5 }
+                - name: select
+                  in: query
+                  required: true
+                  description: The fields to return; only this value is accepted.
+                  schema: { type: string, enum: ["DOI,title,author,issued,container-title"] }
+              responses:
+                "200": { description: A Crossref work list }
+    exposes: [searchWorks]
+
+steps:
+  - id: parse
+    instructions: |
+      Here is a list of references:
+
+      {{inputs.references}}
+
+      Parse every reference into structured fields. Number them R-01, R-02
+      and so on, in the order given. For each one submit:
+
+      - raw: the reference text exactly as given, character for character.
+      - title: the work's title, copied verbatim from raw (same case and
+        punctuation, without surrounding quotes).
+      - first_author: the first author's family name, copied verbatim from raw.
+      - year: the publication year as an integer, or null if raw has none.
+      - doi: the DOI starting with "10.", copied verbatim from raw without any
+        https://doi.org/ prefix, or null if raw cites no DOI.
+
+      Do not correct anything you believe is wrong; record what the reference
+      says.
+    produces:
+      type: object
+      required: [references]
+      properties:
+        references:
+          type: array
+          items: { $ref: "#/$defs/cited" }
+    gates:
+      - id: every-reference-once
+        message: Submit one parsed entry per input reference, with raw equal to the input text exactly.
+        predicate:
+          and:
+            - "==":
+                - { length: { var: output.references } }
+                - { length: { var: inputs.references } }
+            - subset:
+                - { var: inputs.references }
+                - { map: [{ var: output.references }, { var: raw }] }
+            - subset:
+                - { map: [{ var: output.references }, { var: raw }] }
+                - { var: inputs.references }
+      - id: ids-unique
+        message: Every reference id must appear once.
+        predicate:
+          "==":
+            - { length: { unique: { map: [{ var: output.references }, { var: id }] } } }
+            - { length: { var: output.references } }
+      - id: fields-come-from-raw
+        message: title, first_author, year and doi must each appear verbatim in that reference's raw text.
+        predicate:
+          "==":
+            - length:
+                filter:
+                  - { var: output.references }
+                  - "!":
+                      and:
+                        - in: [{ var: title }, { var: raw }]
+                        - in: [{ var: first_author }, { var: raw }]
+                        - or:
+                            - "==": [{ var: doi }, null]
+                            - in: [{ var: doi }, { var: raw }]
+                        - or:
+                            - "==": [{ var: year }, null]
+                            - in: [{ cat: [{ var: year }] }, { var: raw }]
+            - 0
+    retries: 2
+
+  - id: resolve
+    tools: [lookupDoi, searchWorks]
+    instructions: |
+      Parsed references:
+
+      {{steps.parse.references}}
+
+      Check every reference against Crossref. Make one call at a time.
+
+      1. If the reference has a doi, call lookupDoi with filter set to "doi:"
+         followed by that doi exactly as parsed, and select set to
+         "DOI,title,author,issued,container-title". Set doi_record to the
+         returned item, or null if message.items is empty. If doi is null,
+         set doi_record to null and make no lookup.
+      2. For every reference, call searchWorks with query set to the parsed
+         title, a space, and the parsed first_author; rows 3; and the same
+         select value. Record that query string as search_terms and every
+         returned item, in order, as candidates.
+
+      Every record you submit (doi_record, each candidate, matched) is
+      { doi, title, first_author, year } copied from one Crossref item: doi is
+      its DOI exactly as returned, title its title[0], first_author its
+      author[0].family, and year its issued.date-parts[0][0]. Use null for any
+      of the last three that the item lacks.
+
+      Then decide a verdict and set matched to the Crossref record that is
+      this work, taken from doi_record or candidates, or null:
+
+      - verified: a record has the same title, its first author's family name
+        appears in raw, its year is within one of the cited year, and, when
+        the reference cites a DOI, that record is doi_record.
+      - wrong_doi: the work exists in the candidates, but the cited DOI does
+        not resolve or resolves to a different work. matched is the real work.
+      - metadata_mismatch: the work exists but its first author or year
+        disagrees with the reference. matched is the real work.
+      - not_found: no record is this work; the reference may be fabricated.
+        matched is null.
+
+      Copy id, raw, title, first_author, year and doi from the parsed entry
+      unchanged. Give a short note explaining the verdict.
+    produces:
+      type: object
+      required: [references]
+      properties:
+        references:
+          type: array
+          items:
+            allOf:
+              - { $ref: "#/$defs/cited" }
+              - type: object
+                required: [doi_record, search_terms, candidates, verdict, matched, note]
+                properties:
+                  doi_record: { anyOf: [{ $ref: "#/$defs/record" }, { type: "null" }] }
+                  search_terms: { type: string }
+                  candidates: { type: array, maxItems: 5, items: { $ref: "#/$defs/record" } }
+                  verdict: { enum: [verified, wrong_doi, metadata_mismatch, not_found] }
+                  matched: { anyOf: [{ $ref: "#/$defs/record" }, { type: "null" }] }
+                  note: { type: string, minLength: 5 }
+    gates:
+      - id: every-reference-once
+        message: Submit every parsed reference exactly once, with id, raw, title, first_author, year and doi unchanged.
+        predicate:
+          and:
+            - "==":
+                - { length: { var: output.references } }
+                - { length: { var: steps.parse.references } }
+            - subset:
+                - map:
+                    - { var: steps.parse.references }
+                    - [{ var: id }, { var: raw }, { var: title }, { var: first_author }, { var: year }, { var: doi }]
+                - map:
+                    - { var: output.references }
+                    - [{ var: id }, { var: raw }, { var: title }, { var: first_author }, { var: year }, { var: doi }]
+      # Pairs each cited DOI with what its own lookup returned, so a DOI
+      # Crossref resolved cannot be reported as missing, nor the reverse.
+      - id: doi-records-match-lookups
+        message: >
+          Every cited DOI needs a successful lookupDoi call with filter "doi:<doi>",
+          and doi_record must be that call's item copied exactly, or null when
+          it returned no items.
+        predicate:
+          subset:
+            - map:
+                - filter: [{ var: output.references }, { "!=": [{ var: doi }, null] }]
+                - - cat: ["doi:", { var: doi }]
+                  - if:
+                      - "==": [{ var: doi_record }, null]
+                      - []
+                      - - - { var: doi_record.doi }
+                          - { var: doi_record.title }
+                          - { var: doi_record.first_author }
+                          - { var: doi_record.year }
+            - map:
+                - filter:
+                    - { var: calls }
+                    - and:
+                        - "==": [{ var: tool }, lookupDoi]
+                        - "!": { var: is_error }
+                - - { var: arguments.filter }
+                  - map:
+                      - { var: result.message.items }
+                      - [{ var: DOI }, { var: title.0 }, { var: author.0.family }, { var: "issued.date-parts.0.0" }]
+      - id: candidates-match-searches
+        message: >
+          Every reference needs a successful searchWorks call whose query equals
+          its search_terms, and candidates must be that call's items, in order,
+          copied exactly.
+        predicate:
+          subset:
+            - map:
+                - { var: output.references }
+                - - { var: search_terms }
+                  - map:
+                      - { var: candidates }
+                      - [{ var: doi }, { var: title }, { var: first_author }, { var: year }]
+            - map:
+                - filter:
+                    - { var: calls }
+                    - and:
+                        - "==": [{ var: tool }, searchWorks]
+                        - "!": { var: is_error }
+                - - { var: arguments.query }
+                  - map:
+                      - { var: result.message.items }
+                      - [{ var: DOI }, { var: title.0 }, { var: author.0.family }, { var: "issued.date-parts.0.0" }]
+      - id: search-uses-title
+        message: search_terms must contain the reference's parsed title verbatim.
+        predicate:
+          "==":
+            - length:
+                filter:
+                  - { var: output.references }
+                  - "!": { in: [{ var: title }, { var: search_terms }] }
+            - 0
+      - id: matched-is-evidence
+        message: matched must be null or one of that reference's own candidates or its doi_record, copied exactly.
+        predicate:
+          "==":
+            - length:
+                filter:
+                  - { var: output.references }
+                  - "!":
+                      or:
+                        - "==": [{ var: matched }, null]
+                        - subset:
+                            - - - { var: matched.doi }
+                                - { var: matched.title }
+                                - { var: matched.first_author }
+                                - { var: matched.year }
+                            - merge:
+                                - map:
+                                    - { var: candidates }
+                                    - [{ var: doi }, { var: title }, { var: first_author }, { var: year }]
+                                - if:
+                                    - "==": [{ var: doi_record }, null]
+                                    - []
+                                    - - - { var: doi_record.doi }
+                                        - { var: doi_record.title }
+                                        - { var: doi_record.first_author }
+                                        - { var: doi_record.year }
+            - 0
+      - id: verdicts-follow-rules
+        message: >
+          not_found exactly when matched is null. verified needs matched.year
+          within one of the cited year, matched.first_author inside raw, and,
+          when a DOI is cited, matched to be doi_record. wrong_doi needs a cited
+          DOI whose record is not matched.
+        predicate:
+          "==":
+            - length:
+                filter:
+                  - { var: output.references }
+                  - "!":
+                      and:
+                        - "==":
+                            - "==": [{ var: verdict }, not_found]
+                            - "==": [{ var: matched }, null]
+                        - or:
+                            - "!=": [{ var: verdict }, verified]
+                            - and:
+                                - or:
+                                    - "==": [{ var: year }, null]
+                                    - "<=":
+                                        - { "-": [{ var: year }, 1] }
+                                        - { var: matched.year }
+                                        - { "+": [{ var: year }, 1] }
+                                - in: [{ var: matched.first_author }, { var: raw }]
+                                - or:
+                                    - "==": [{ var: doi }, null]
+                                    - "==": [{ var: matched.doi }, { var: doi_record.doi }]
+                        - or:
+                            - "!=": [{ var: verdict }, wrong_doi]
+                            - and:
+                                - "!=": [{ var: doi }, null]
+                                - "!=": [{ var: matched.doi }, { var: doi_record.doi }]
+            - 0
+    retries: 2
+
+  - id: report
+    instructions: |
+      Checked references:
+
+      {{steps.resolve.references}}
+
+      Write a Markdown summary with the sections "## Summary", "## Flagged
+      references" and "## Verified references", in that order. Summary gives
+      the counts. Flagged references lists every reference whose verdict is
+      not verified, by id (for example R-03), with its verdict, its note and,
+      where matched is not null, the correct DOI. Verified references lists
+      every verified id with its DOI. Mention every reference id at least
+      once. Write every DOI in backticks, for example `10.1038/nature14539`,
+      and write no DOI that is not in the checked references.
+
+      Also submit counts per verdict, and flagged: one entry per reference
+      that is not verified, with correct_doi set to matched.doi, or null
+      when matched is null.
+    produces:
+      type: object
+      required: [summary, counts, flagged]
+      properties:
+        summary: { type: string, maxLength: 12000 }
+        counts:
+          type: object
+          required: [verified, wrong_doi, metadata_mismatch, not_found]
+          additionalProperties: false
+          properties:
+            verified: { type: integer, minimum: 0 }
+            wrong_doi: { type: integer, minimum: 0 }
+            metadata_mismatch: { type: integer, minimum: 0 }
+            not_found: { type: integer, minimum: 0 }
+        flagged:
+          type: array
+          items:
+            type: object
+            required: [id, verdict, correct_doi]
+            additionalProperties: false
+            properties:
+              id: { type: string }
+              verdict: { enum: [wrong_doi, metadata_mismatch, not_found] }
+              correct_doi: { type: [string, "null"] }
+    gates:
+      - id: sections-in-order
+        schema:
+          properties:
+            summary:
+              pattern: "## Summary[\\s\\S]*## Flagged references[\\s\\S]*## Verified references"
+      - id: counts-match-verdicts
+        message: Each count must equal the number of references the resolve step gave that verdict.
+        predicate:
+          and:
+            - "==":
+                - { var: output.counts.verified }
+                - { length: { filter: [{ var: steps.resolve.references }, { "==": [{ var: verdict }, verified] }] } }
+            - "==":
+                - { var: output.counts.wrong_doi }
+                - { length: { filter: [{ var: steps.resolve.references }, { "==": [{ var: verdict }, wrong_doi] }] } }
+            - "==":
+                - { var: output.counts.metadata_mismatch }
+                - { length: { filter: [{ var: steps.resolve.references }, { "==": [{ var: verdict }, metadata_mismatch] }] } }
+            - "==":
+                - { var: output.counts.not_found }
+                - { length: { filter: [{ var: steps.resolve.references }, { "==": [{ var: verdict }, not_found] }] } }
+      - id: flagged-match-verdicts
+        message: flagged must list every reference that is not verified once, with its verdict and matched.doi as correct_doi.
+        predicate:
+          and:
+            - "==":
+                - { length: { var: output.flagged } }
+                - { length: { filter: [{ var: steps.resolve.references }, { "!=": [{ var: verdict }, verified] }] } }
+            - subset:
+                - map: [{ var: output.flagged }, [{ var: id }, { var: verdict }, { var: correct_doi }]]
+                - map:
+                    - filter: [{ var: steps.resolve.references }, { "!=": [{ var: verdict }, verified] }]
+                    - [{ var: id }, { var: verdict }, { var: matched.doi }]
+      - id: summary-covers-every-reference
+        message: The summary must mention every reference id.
+        predicate:
+          subset:
+            - { map: [{ var: steps.resolve.references }, { var: id }] }
+            - { match_all: [{ var: output.summary }, "R-[0-9]{2,}"] }
+      - id: summary-dois-are-real
+        message: Every DOI in the summary must be written in backticks and be a cited DOI or a matched Crossref DOI.
+        predicate:
+          subset:
+            - { match_all: [{ var: output.summary }, "`(10\\.[0-9]{4,9}/[^`\\s]+)`"] }
+            - merge:
+                - { map: [{ var: steps.resolve.references }, { var: matched.doi }] }
+                - { map: [{ var: steps.resolve.references }, { var: doi }] }
+    retries: 2
+
+$defs:
+  cited:
+    type: object
+    required: [id, raw, title, first_author, year, doi]
+    properties:
+      id: { type: string, pattern: "^R-[0-9]{2,}$" }
+      raw: { type: string }
+      title: { type: string, minLength: 1 }
+      first_author: { type: string, minLength: 1 }
+      year: { type: [integer, "null"] }
+      doi: { type: [string, "null"], pattern: "^10\\.[0-9]{4,9}/\\S+$" }
+  record:
+    type: object
+    required: [doi, title, first_author, year]
+    additionalProperties: false
+    properties:
+      doi: { type: string }
+      title: { type: [string, "null"] }
+      first_author: { type: [string, "null"] }
+      year: { type: [integer, "null"] }

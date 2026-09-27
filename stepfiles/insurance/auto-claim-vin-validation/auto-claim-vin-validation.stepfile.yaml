@@ -1,0 +1,373 @@
+# yaml-language-server: $schema=../../../server/schema/stepfile.schema.json
+stepgate: "1"
+id: auto-claim-vin-validation
+title: Auto claim vehicle check against the VIN and NHTSA recalls
+description: >
+  Decodes an auto claim's VIN with NHTSA vPIC, compares the claimed make, model
+  and year against the decode, lists the vehicle's NHTSA recalls, and returns a
+  consistent-or-refer verdict whose every value comes from those APIs.
+
+inputs:
+  type: object
+  required: [vin, claimed_make, claimed_model, claimed_year]
+  properties:
+    vin: { type: string, pattern: "^[A-HJ-NPR-Z0-9]{17}$" }
+    claimed_make: { type: string, pattern: "^\\S(.{0,58}\\S)?$" }
+    claimed_model: { type: string, pattern: "^\\S(.{0,58}\\S)?$" }
+    claimed_year: { type: integer, minimum: 1981, maximum: 2100 }
+
+tools:
+  vpic:
+    openapi:
+      server: https://vpic.nhtsa.dot.gov/api/vehicles
+      document:
+        openapi: 3.1.0
+        info: { title: NHTSA vPIC VIN decoding (trimmed), version: "1" }
+        paths:
+          /DecodeVinValues/{vin}:
+            get:
+              operationId: decodeVin
+              summary: Decode one 17-character VIN into flat make, model, model year and other fields.
+              parameters:
+                - name: vin
+                  in: path
+                  required: true
+                  schema: { type: string, pattern: "^[A-HJ-NPR-Z0-9]{17}$" }
+                - name: format
+                  in: query
+                  required: true
+                  description: Always json; the API answers XML otherwise.
+                  schema: { type: string, enum: [json] }
+              responses:
+                "200": { description: "An object whose Results array holds one decoded record" }
+    exposes: [decodeVin]
+  nhtsa:
+    openapi:
+      server: https://api.nhtsa.gov
+      document:
+        openapi: 3.1.0
+        info: { title: NHTSA recalls (trimmed), version: "1" }
+        paths:
+          /recalls/recallsByVehicle:
+            get:
+              operationId: getRecallsByVehicle
+              summary: >
+                List NHTSA safety recalls for one make, model and model year.
+                Answers HTTP 400 with a body of Count 0 when there are none.
+              parameters:
+                - name: make
+                  in: query
+                  required: true
+                  schema: { type: string, minLength: 1 }
+                - name: model
+                  in: query
+                  required: true
+                  schema: { type: string, minLength: 1 }
+                - name: modelYear
+                  in: query
+                  required: true
+                  schema: { type: string, pattern: "^[0-9]{4}$" }
+              responses:
+                "200": { description: "Count and a results array of recall campaigns" }
+                "400": { description: No recalls for that vehicle }
+    exposes: [getRecallsByVehicle]
+
+steps:
+  - id: decode
+    tools: [decodeVin]
+    instructions: |
+      Decode VIN {{inputs.vin}} by calling decodeVin once with that exact VIN
+      and format: json.
+
+      Submit the VIN you sent and these fields copied exactly from Results[0]:
+      Make as make, Model as model, ModelYear as model_year, BodyClass as
+      body_class, ErrorCode as error_code and ErrorText as error_text. Do not
+      correct, reformat or complete any value.
+    produces:
+      type: object
+      required: [vin, make, model, model_year, body_class, error_code, error_text]
+      properties:
+        vin: { type: string }
+        make: { type: string }
+        model: { type: string }
+        model_year: { type: string }
+        body_class: { type: string }
+        error_code: { type: string }
+        error_text: { type: string }
+    gates:
+      - id: vehicle-decoded
+        schema:
+          properties:
+            make: { minLength: 1 }
+            model: { minLength: 1 }
+            model_year: { pattern: "^[0-9]{4}$" }
+      - id: decode-from-vpic
+        message: The VIN must be the input VIN and every field must be copied exactly from a decodeVin response for it.
+        predicate:
+          and:
+            - "===": [{ var: output.vin }, { var: inputs.vin }]
+            - subset:
+                - - - { var: output.vin }
+                    - { var: output.make }
+                    - { var: output.model }
+                    - { var: output.model_year }
+                    - { var: output.body_class }
+                    - { var: output.error_code }
+                    - { var: output.error_text }
+                - map:
+                    - filter: [{ var: calls }, { and: [{ "==": [{ var: tool }, decodeVin] }, { "!": { var: is_error } }] }]
+                    - - { var: arguments.vin }
+                      - { var: result.Results.0.Make }
+                      - { var: result.Results.0.Model }
+                      - { var: result.Results.0.ModelYear }
+                      - { var: result.Results.0.BodyClass }
+                      - { var: result.Results.0.ErrorCode }
+                      - { var: result.Results.0.ErrorText }
+    retries: 2
+
+  - id: compare
+    instructions: |
+      The claim states make {{inputs.claimed_make}}, model
+      {{inputs.claimed_model}} and model year {{inputs.claimed_year}}.
+
+      The VIN decodes to make {{steps.decode.make}}, model
+      {{steps.decode.model}} and model year {{steps.decode.model_year}}.
+
+      For each of make, model and model_year, submit the claimed value and the
+      decoded value exactly as given above, and match: true only if they are
+      identical ignoring letter case. Anything else, including a missing
+      hyphen or an extra word, is a mismatch. Set any_mismatch to true if any
+      field does not match.
+    produces:
+      type: object
+      required: [make, model, model_year, any_mismatch]
+      properties:
+        make: { $ref: "#/$defs/textComparison" }
+        model: { $ref: "#/$defs/textComparison" }
+        model_year:
+          type: object
+          required: [claimed, decoded, match]
+          properties:
+            claimed: { type: integer }
+            decoded: { type: string }
+            match: { type: boolean }
+        any_mismatch: { type: boolean }
+    gates:
+      - id: values-as-given
+        message: Claimed values must be the claim's inputs and decoded values the decode step's output, unchanged.
+        predicate:
+          and:
+            - "===": [{ var: output.make.claimed }, { var: inputs.claimed_make }]
+            - "===": [{ var: output.model.claimed }, { var: inputs.claimed_model }]
+            - "===": [{ var: output.model_year.claimed }, { var: inputs.claimed_year }]
+            - "===": [{ var: output.make.decoded }, { var: steps.decode.make }]
+            - "===": [{ var: output.model.decoded }, { var: steps.decode.model }]
+            - "===": [{ var: output.model_year.decoded }, { var: steps.decode.model_year }]
+      # Case-insensitive equality: split into characters, lowercase A to Z, compare the arrays.
+      - id: make-match-is-case-insensitive-equality
+        message: make.match must be true exactly when the claimed and decoded make are equal ignoring letter case.
+        predicate:
+          "==":
+            - { var: output.make.match }
+            - subset:
+                - [{ map: [{ match_all: [{ var: output.make.claimed }, "[\\s\\S]"] }, &fold { if: [
+                      { in: [{ var: "" }, Aa] }, a,
+                      { in: [{ var: "" }, Bb] }, b,
+                      { in: [{ var: "" }, Cc] }, c,
+                      { in: [{ var: "" }, Dd] }, d,
+                      { in: [{ var: "" }, Ee] }, e,
+                      { in: [{ var: "" }, Ff] }, f,
+                      { in: [{ var: "" }, Gg] }, g,
+                      { in: [{ var: "" }, Hh] }, h,
+                      { in: [{ var: "" }, Ii] }, i,
+                      { in: [{ var: "" }, Jj] }, j,
+                      { in: [{ var: "" }, Kk] }, k,
+                      { in: [{ var: "" }, Ll] }, l,
+                      { in: [{ var: "" }, Mm] }, m,
+                      { in: [{ var: "" }, Nn] }, n,
+                      { in: [{ var: "" }, Oo] }, o,
+                      { in: [{ var: "" }, Pp] }, p,
+                      { in: [{ var: "" }, Qq] }, q,
+                      { in: [{ var: "" }, Rr] }, r,
+                      { in: [{ var: "" }, Ss] }, s,
+                      { in: [{ var: "" }, Tt] }, t,
+                      { in: [{ var: "" }, Uu] }, u,
+                      { in: [{ var: "" }, Vv] }, v,
+                      { in: [{ var: "" }, Ww] }, w,
+                      { in: [{ var: "" }, Xx] }, x,
+                      { in: [{ var: "" }, Yy] }, y,
+                      { in: [{ var: "" }, Zz] }, z,
+                      { var: "" }
+                    ] }] }]
+                - [{ map: [{ match_all: [{ var: output.make.decoded }, "[\\s\\S]"] }, *fold] }]
+      - id: model-match-is-case-insensitive-equality
+        message: model.match must be true exactly when the claimed and decoded model are equal ignoring letter case.
+        predicate:
+          "==":
+            - { var: output.model.match }
+            - subset:
+                - [{ map: [{ match_all: [{ var: output.model.claimed }, "[\\s\\S]"] }, *fold] }]
+                - [{ map: [{ match_all: [{ var: output.model.decoded }, "[\\s\\S]"] }, *fold] }]
+      - id: year-match-and-summary
+        message: model_year.match must be true exactly when the years are equal, and any_mismatch true exactly when some field does not match.
+        predicate:
+          and:
+            - "==":
+                - { var: output.model_year.match }
+                - "==": [{ var: output.model_year.claimed }, { var: output.model_year.decoded }]
+            - "==":
+                - { var: output.any_mismatch }
+                - "!": { and: [{ var: output.make.match }, { var: output.model.match }, { var: output.model_year.match }] }
+    retries: 2
+
+  - id: recalls
+    tools: [getRecallsByVehicle]
+    instructions: |
+      List NHTSA recalls for the decoded vehicle by calling
+      getRecallsByVehicle once with make {{steps.decode.make}}, model
+      {{steps.decode.model}} and modelYear {{steps.decode.model_year}},
+      exactly as written here. Make no other call.
+
+      Submit recall_count copied from the response's Count (0 if the API
+      answered 400 with Count 0). List recalls from the response in the order
+      returned, at least the first ten or all of them if there are fewer, with
+      NHTSACampaignNumber as campaign_number, Component as component and
+      ReportReceivedDate as report_received_date, copied exactly.
+    produces:
+      type: object
+      required: [recall_count, recalls]
+      properties:
+        recall_count: { type: integer, minimum: 0 }
+        recalls:
+          type: array
+          items:
+            type: object
+            required: [campaign_number, component, report_received_date]
+            properties:
+              campaign_number: { type: string }
+              component: { type: string }
+              report_received_date: { type: string }
+    gates:
+      - id: queried-decoded-vehicle
+        message: Call getRecallsByVehicle at least once, and only with the decoded make, model and model year exactly as given.
+        predicate:
+          and:
+            - ">": [{ length: { filter: [{ var: calls }, { "==": [{ var: tool }, getRecallsByVehicle] }] } }, 0]
+            - subset:
+                - map:
+                    - { var: calls }
+                    - [{ var: arguments.make }, { var: arguments.model }, { var: arguments.modelYear }]
+                - [[{ var: steps.decode.make }, { var: steps.decode.model }, { var: steps.decode.model_year }]]
+      - id: count-from-nhtsa
+        message: recall_count must be the Count NHTSA returned, or 0 only where it answered with Count 0.
+        predicate:
+          subset:
+            - [{ var: output.recall_count }]
+            - merge:
+                - map:
+                    - filter: [{ var: calls }, { "!": { var: is_error } }]
+                    - { var: result.Count }
+                - map:
+                    - filter: [{ var: calls }, { and: [{ var: is_error }, { in: ["\"Count\":0", { var: result }] }] }]
+                    - 0
+      - id: recalls-from-nhtsa
+        message: Every listed recall must be a campaign NHTSA returned, with its component and date copied exactly.
+        predicate:
+          subset:
+            - { map: [{ var: output.recalls }, [{ var: campaign_number }, { var: component }, { var: report_received_date }]] }
+            - flatten:
+                map:
+                  - filter: [{ var: calls }, { "!": { var: is_error } }]
+                  - map:
+                      - { var: result.results }
+                      - [{ var: NHTSACampaignNumber }, { var: Component }, { var: ReportReceivedDate }]
+      - id: recalls-listed
+        message: List at least the first ten recalls, or all of them if there are fewer, each campaign once.
+        predicate:
+          and:
+            - ">=":
+                - { length: { var: output.recalls } }
+                - { min: [{ var: output.recall_count }, 10] }
+            - "==":
+                - { length: { unique: { map: [{ var: output.recalls }, { var: campaign_number }] } } }
+                - { length: { var: output.recalls } }
+    retries: 2
+
+  - id: report
+    instructions: |
+      Claim VIN: {{inputs.vin}}
+      Decode: {{steps.decode}}
+      Comparison with the claim: {{steps.compare}}
+      NHTSA recalls ({{steps.recalls.recall_count}} in total): {{steps.recalls.recalls}}
+
+      Submit reasons for referring the claim, using only these values:
+      vin_decode_error if the decode error_code is not "0"; make_mismatch,
+      model_mismatch and model_year_mismatch for each field whose match is
+      false. The verdict is consistent when there are no reasons and refer
+      otherwise. Copy recall_count from the recalls step.
+
+      Write summary_markdown for a claims handler: the VIN, the decoded make,
+      model and model year exactly as decoded, the verdict and each reason in
+      plain words, then the recall count and the listed recalls by campaign
+      number and component. Cite no campaign number that is not listed above.
+    produces:
+      type: object
+      required: [verdict, reasons, recall_count, summary_markdown]
+      properties:
+        verdict: { enum: [consistent, refer] }
+        reasons:
+          type: array
+          items: { enum: [vin_decode_error, make_mismatch, model_mismatch, model_year_mismatch] }
+        recall_count: { type: integer }
+        summary_markdown: { type: string, minLength: 1, maxLength: 5000 }
+    gates:
+      - id: reasons-follow-evidence
+        message: reasons must list exactly the decode error and the mismatched fields, each once.
+        predicate:
+          and:
+            - subset:
+                - { var: output.reasons }
+                - &reasons
+                  merge:
+                    - if: [{ "!==": [{ var: steps.decode.error_code }, "0"] }, [vin_decode_error], []]
+                    - if: [{ var: steps.compare.make.match }, [], [make_mismatch]]
+                    - if: [{ var: steps.compare.model.match }, [], [model_mismatch]]
+                    - if: [{ var: steps.compare.model_year.match }, [], [model_year_mismatch]]
+            - subset: [*reasons, { var: output.reasons }]
+            - "==":
+                - { length: { unique: { var: output.reasons } } }
+                - { length: { var: output.reasons } }
+      - id: verdict-follows-reasons
+        message: verdict must be consistent when there are no reasons and refer otherwise.
+        predicate:
+          "==":
+            - { var: output.verdict }
+            - if: [{ "==": [{ length: { var: output.reasons } }, 0] }, consistent, refer]
+      - id: recall-count-carried
+        message: recall_count must equal the recalls step's count.
+        predicate:
+          "===": [{ var: output.recall_count }, { var: steps.recalls.recall_count }]
+      - id: summary-names-vehicle
+        message: The summary must state the VIN and the decoded make, model and model year exactly as decoded.
+        predicate:
+          and:
+            - in: [{ var: inputs.vin }, { var: output.summary_markdown }]
+            - in: [{ var: steps.decode.make }, { var: output.summary_markdown }]
+            - in: [{ var: steps.decode.model }, { var: output.summary_markdown }]
+            - in: [{ var: steps.decode.model_year }, { var: output.summary_markdown }]
+      - id: summary-cites-listed-recalls
+        message: Every campaign number in the summary must be a recall the recalls step listed.
+        predicate:
+          subset:
+            - { match_all: [{ var: output.summary_markdown }, "\\b([0-9]{2}[A-Z][0-9]{6})\\b"] }
+            - { map: [{ var: steps.recalls.recalls }, { var: campaign_number }] }
+    retries: 2
+
+$defs:
+  textComparison:
+    type: object
+    required: [claimed, decoded, match]
+    properties:
+      claimed: { type: string }
+      decoded: { type: string }
+      match: { type: boolean }

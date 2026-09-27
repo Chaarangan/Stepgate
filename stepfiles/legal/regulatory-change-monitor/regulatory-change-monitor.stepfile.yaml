@@ -1,0 +1,394 @@
+# yaml-language-server: $schema=../../../server/schema/stepfile.schema.json
+stepgate: "1"
+id: regulatory-change-monitor
+title: Federal Register rules and proposed rules for a topic or agency
+description: >
+  Finds the final and proposed rules the Federal Register published for a topic
+  or agency in a date range, and briefs which ones matter, citing document
+  numbers and effective or comment-close dates taken from the API.
+
+inputs:
+  type: object
+  required: [start_date, end_date]
+  anyOf:
+    - required: [topic]
+    - required: [agency]
+  properties:
+    topic: { type: string, minLength: 1, description: "Full-text search term, for example drone" }
+    agency:
+      type: string
+      pattern: "^[a-z0-9-]+$"
+      description: "Federal Register agency slug, for example federal-aviation-administration"
+    start_date: { type: string, pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}$", description: "First publication date, YYYY-MM-DD" }
+    end_date: { type: string, pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}$", description: "Last publication date, YYYY-MM-DD" }
+
+tools:
+  federal-register:
+    openapi:
+      server: https://www.federalregister.gov/api/v1
+      document:
+        openapi: 3.1.0
+        info: { title: Federal Register API (trimmed), version: "1" }
+        paths:
+          /documents.json:
+            get:
+              operationId: searchDocuments
+              summary: >
+                Search Federal Register documents. Returns count and up to per_page
+                results, each with document_number, title, type, abstract,
+                publication_date and agencies.
+              parameters:
+                - { name: per_page, in: query, required: true, schema: { type: integer, minimum: 1, maximum: 6 } }
+                - { name: page, in: query, schema: { type: integer, minimum: 1, maximum: 3 } }
+                - { name: order, in: query, schema: { enum: [newest, oldest, relevance] } }
+                - name: "conditions[type][]"
+                  in: query
+                  required: true
+                  description: RULE for final rules, PRORULE for proposed rules
+                  schema: { enum: [RULE, PRORULE] }
+                - { name: "conditions[term]", in: query, description: Full-text search term, schema: { type: string } }
+                - { name: "conditions[agencies][]", in: query, description: Agency slug, schema: { type: string } }
+                - name: "conditions[publication_date][gte]"
+                  in: query
+                  required: true
+                  schema: { type: string, pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" }
+                - name: "conditions[publication_date][lte]"
+                  in: query
+                  required: true
+                  schema: { type: string, pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" }
+          /documents/{document_number}.json:
+            get:
+              operationId: getDocuments
+              summary: >
+                Full detail for one document, including action, citation,
+                effective_on and comments_close_on.
+              parameters:
+                - name: document_number
+                  in: path
+                  required: true
+                  schema: { type: string, pattern: "^[0-9A-Za-z-]+$" }
+    exposes: [searchDocuments, getDocuments]
+
+steps:
+  - id: search
+    tools: [searchDocuments]
+    instructions: |
+      Run inputs:
+      {{inputs}}
+
+      Search the Federal Register with searchDocuments for documents published
+      between start_date and end_date inclusive. Make at least one search with
+      conditions[type][] set to RULE and at least one with PRORULE. On every
+      search set conditions[publication_date][gte] to start_date and
+      conditions[publication_date][lte] to end_date exactly, set
+      conditions[term] to the topic if the inputs have one, set
+      conditions[agencies][] to the agency if the inputs have one, and pass
+      per_page 6 and order newest. You may fetch page 2 or 3 of a search when it
+      has more results.
+
+      Submit every document the searches returned as a candidate, copying
+      document_number, title, type, publication_date and the agency names
+      exactly as returned. Do not drop, merge or judge any yet. Submit each
+      search's count as rule_count (RULE) and proposed_rule_count (PRORULE).
+    produces:
+      type: object
+      required: [candidates, rule_count, proposed_rule_count]
+      properties:
+        candidates:
+          type: array
+          items:
+            type: object
+            required: [document_number, title, type, publication_date, agencies]
+            properties:
+              document_number: { type: string }
+              title: { type: string }
+              type: { enum: [Rule, Proposed Rule] }
+              publication_date: { type: string }
+              agencies: { type: array, items: { type: [string, "null"] } }
+        rule_count: { type: integer, minimum: 0 }
+        proposed_rule_count: { type: integer, minimum: 0 }
+    gates:
+      - id: both-types-searched
+        message: Make at least one successful searchDocuments call with conditions[type][] RULE and one with PRORULE.
+        predicate:
+          and:
+            - in:
+                - RULE
+                - map:
+                    - filter: [{ var: calls }, { and: [{ "==": [{ var: tool }, searchDocuments] }, { "!": { var: is_error } }] }]
+                    - { var: "arguments.conditions[type][]" }
+            - in:
+                - PRORULE
+                - map:
+                    - filter: [{ var: calls }, { and: [{ "==": [{ var: tool }, searchDocuments] }, { "!": { var: is_error } }] }]
+                    - { var: "arguments.conditions[type][]" }
+      - id: date-window-applied
+        message: Every search must set conditions[publication_date][gte] to start_date and conditions[publication_date][lte] to end_date exactly.
+        predicate:
+          and:
+            - subset:
+                - map:
+                    - filter: [{ var: calls }, { "==": [{ var: tool }, searchDocuments] }]
+                    - { var: "arguments.conditions[publication_date][gte]" }
+                - [{ var: inputs.start_date }]
+            - subset:
+                - map:
+                    - filter: [{ var: calls }, { "==": [{ var: tool }, searchDocuments] }]
+                    - { var: "arguments.conditions[publication_date][lte]" }
+                - [{ var: inputs.end_date }]
+      - id: topic-and-agency-applied
+        message: When the inputs give a topic or agency, every search must pass it as conditions[term] or conditions[agencies][] exactly.
+        predicate:
+          and:
+            - or:
+                - "!": { var: inputs.topic }
+                - subset:
+                    - map:
+                        - filter: [{ var: calls }, { "==": [{ var: tool }, searchDocuments] }]
+                        - { var: "arguments.conditions[term]" }
+                    - [{ var: inputs.topic }]
+            - or:
+                - "!": { var: inputs.agency }
+                - subset:
+                    - map:
+                        - filter: [{ var: calls }, { "==": [{ var: tool }, searchDocuments] }]
+                        - { var: "arguments.conditions[agencies][]" }
+                    - [{ var: inputs.agency }]
+      # One tuple per document, so a real number with an invented title or date still fails.
+      - id: candidates-from-results
+        message: Every candidate's document_number, title, type, publication_date and agency names must match one searchDocuments result exactly.
+        predicate:
+          subset:
+            - map:
+                - { var: output.candidates }
+                - [{ var: document_number }, { var: title }, { var: type }, { var: publication_date }, { var: agencies }]
+            - flatten:
+                map:
+                  - filter: [{ var: calls }, { "==": [{ var: tool }, searchDocuments] }]
+                  - map:
+                      - { var: result.results }
+                      - - { var: document_number }
+                        - { var: title }
+                        - { var: type }
+                        - { var: publication_date }
+                        - map: [{ var: agencies }, { var: name }]
+      - id: no-silent-drops
+        message: Every document the searches returned must be submitted as a candidate, once.
+        predicate:
+          and:
+            - subset:
+                - flatten:
+                    map:
+                      - filter: [{ var: calls }, { "==": [{ var: tool }, searchDocuments] }]
+                      - map: [{ var: result.results }, { var: document_number }]
+                - map: [{ var: output.candidates }, { var: document_number }]
+            - "==":
+                - { length: { unique: { map: [{ var: output.candidates }, { var: document_number }] } } }
+                - { length: { var: output.candidates } }
+      - id: counts-from-api
+        message: rule_count and proposed_rule_count must be the count a RULE and a PRORULE search returned.
+        predicate:
+          and:
+            - in:
+                - { var: output.rule_count }
+                - map:
+                    - filter: [{ var: calls }, { "==": [{ var: "arguments.conditions[type][]" }, RULE] }]
+                    - { var: result.count }
+            - in:
+                - { var: output.proposed_rule_count }
+                - map:
+                    - filter: [{ var: calls }, { "==": [{ var: "arguments.conditions[type][]" }, PRORULE] }]
+                    - { var: result.count }
+    retries: 2
+
+  - id: triage
+    tools: [getDocuments]
+    instructions: |
+      Run inputs:
+      {{inputs}}
+
+      Candidates found by the search:
+      {{steps.search.candidates}}
+
+      Decide for every candidate whether it matters to someone tracking the
+      topic or agency in the inputs, and say why in at least 20 characters. A
+      document matters when it creates, changes or proposes obligations in that
+      area; routine or unrelated documents do not. Every candidate appears in
+      decisions exactly once.
+
+      For every candidate that matters, call getDocuments with its document
+      number and submit its details: action,
+      citation, effective_on and comments_close_on, copied exactly as returned.
+      Use null where the API returns null.
+    produces:
+      type: object
+      required: [decisions, details]
+      properties:
+        decisions:
+          type: array
+          items:
+            type: object
+            required: [document_number, matters, reason]
+            properties:
+              document_number: { type: string }
+              matters: { type: boolean }
+              reason: { type: string, minLength: 20 }
+        details:
+          type: array
+          items:
+            type: object
+            required: [document_number, action, citation, effective_on, comments_close_on]
+            properties:
+              document_number: { type: string }
+              action: { type: [string, "null"] }
+              citation: { type: [string, "null"] }
+              effective_on: { type: [string, "null"] }
+              comments_close_on: { type: [string, "null"] }
+    gates:
+      - id: every-candidate-once
+        message: Decide on every candidate document number exactly once, and invent none.
+        predicate:
+          and:
+            - subset:
+                - { map: [{ var: steps.search.candidates }, { var: document_number }] }
+                - { map: [{ var: output.decisions }, { var: document_number }] }
+            - subset:
+                - { map: [{ var: output.decisions }, { var: document_number }] }
+                - { map: [{ var: steps.search.candidates }, { var: document_number }] }
+            - "==":
+                - { length: { unique: { map: [{ var: output.decisions }, { var: document_number }] } } }
+                - { length: { var: output.decisions } }
+      - id: something-matters
+        message: When there are candidates, at least one must be judged to matter.
+        predicate:
+          or:
+            - "==": [{ length: { var: steps.search.candidates } }, 0]
+            - ">": [{ length: { filter: [{ var: output.decisions }, { var: matters }] } }, 0]
+      - id: details-cover-kept
+        message: Submit details for exactly the documents judged to matter, once each.
+        predicate:
+          and:
+            - subset:
+                - { map: [{ filter: [{ var: output.decisions }, { var: matters }] }, { var: document_number }] }
+                - { map: [{ var: output.details }, { var: document_number }] }
+            - subset:
+                - { map: [{ var: output.details }, { var: document_number }] }
+                - { map: [{ filter: [{ var: output.decisions }, { var: matters }] }, { var: document_number }] }
+            - "==":
+                - { length: { unique: { map: [{ var: output.details }, { var: document_number }] } } }
+                - { length: { var: output.details } }
+      - id: details-from-api
+        message: Every detail's action, citation, effective_on and comments_close_on must match a getDocuments result exactly, with null where the API has null.
+        predicate:
+          subset:
+            - map:
+                - { var: output.details }
+                - [{ var: document_number }, { var: action }, { var: citation }, { var: effective_on }, { var: comments_close_on }]
+            - map:
+                - filter: [{ var: calls }, { and: [{ "==": [{ var: tool }, getDocuments] }, { "!": { var: is_error } }] }]
+                - [{ var: result.document_number }, { var: result.action }, { var: result.citation }, { var: result.effective_on }, { var: result.comments_close_on }]
+    retries: 2
+
+  - id: brief
+    instructions: |
+      Run inputs:
+      {{inputs}}
+
+      Candidates (with titles, types and publication dates):
+      {{steps.search.candidates}}
+
+      Documents judged to matter, with their details:
+      {{steps.triage.details}}
+
+      The searches found {{steps.search.rule_count}} rules and
+      {{steps.search.proposed_rule_count}} proposed rules in the window.
+
+      Submit one item for every document in the details list, and no others,
+      copying document_number, title, type, publication_date, effective_on and
+      comments_close_on exactly. Give each a priority (high, medium or low) and
+      a one or two sentence why_it_matters.
+
+      Then write summary, a Markdown brief with the sections "## Summary",
+      "## Final rules", "## Proposed rules" and "## Key dates", in that order.
+      Cite every item by its document number (for example 2026-16628). Write
+      every date as YYYY-MM-DD, and use only the run's start and end dates and
+      the items' publication, effective and comment-close dates. Write "None"
+      in a section with nothing to list.
+    produces:
+      type: object
+      required: [items, summary]
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            required: [document_number, title, type, publication_date, effective_on, comments_close_on, priority, why_it_matters]
+            properties:
+              document_number: { type: string }
+              title: { type: string }
+              type: { enum: [Rule, Proposed Rule] }
+              publication_date: { type: string }
+              effective_on: { type: [string, "null"] }
+              comments_close_on: { type: [string, "null"] }
+              priority: { enum: [high, medium, low] }
+              why_it_matters: { type: string, minLength: 20, maxLength: 600 }
+        summary: { type: string, maxLength: 12000 }
+    gates:
+      - id: sections-in-order
+        schema:
+          properties:
+            summary:
+              pattern: "## Summary[\\s\\S]*## Final rules[\\s\\S]*## Proposed rules[\\s\\S]*## Key dates"
+      - id: items-are-the-kept-documents
+        message: Submit one item for every document in the triage details, once each, and no others.
+        predicate:
+          and:
+            - subset:
+                - { map: [{ var: steps.triage.details }, { var: document_number }] }
+                - { map: [{ var: output.items }, { var: document_number }] }
+            - subset:
+                - { map: [{ var: output.items }, { var: document_number }] }
+                - { map: [{ var: steps.triage.details }, { var: document_number }] }
+            - "==":
+                - { length: { unique: { map: [{ var: output.items }, { var: document_number }] } } }
+                - { length: { var: output.items } }
+      - id: item-facts-match
+        message: Each item's title, type and publication_date must match the search step, and its effective_on and comments_close_on must match the triage details.
+        predicate:
+          and:
+            - subset:
+                - map:
+                    - { var: output.items }
+                    - [{ var: document_number }, { var: title }, { var: type }, { var: publication_date }]
+                - map:
+                    - { var: steps.search.candidates }
+                    - [{ var: document_number }, { var: title }, { var: type }, { var: publication_date }]
+            - subset:
+                - map:
+                    - { var: output.items }
+                    - [{ var: document_number }, { var: effective_on }, { var: comments_close_on }]
+                - map:
+                    - { var: steps.triage.details }
+                    - [{ var: document_number }, { var: effective_on }, { var: comments_close_on }]
+      - id: citations-resolve
+        message: The summary must cite every item by document number, and cite no other document number.
+        predicate:
+          and:
+            - subset:
+                - { match_all: [{ var: output.summary }, "(?:^|[^0-9-])([0-9]{4}-[0-9]{5})(?![0-9])"] }
+                - { map: [{ var: output.items }, { var: document_number }] }
+            - subset:
+                - { map: [{ var: output.items }, { var: document_number }] }
+                - { match_all: [{ var: output.summary }, "(?:^|[^0-9-])([0-9]{4}-[0-9]{5})(?![0-9])"] }
+      - id: dates-from-evidence
+        message: Every YYYY-MM-DD date in the summary must be the run's start or end date or an item's publication, effective or comment-close date.
+        predicate:
+          subset:
+            - { match_all: [{ var: output.summary }, "(?:^|[^0-9-])([0-9]{4}-[0-9]{2}-[0-9]{2})(?![0-9-])"] }
+            - merge:
+                - { var: inputs.start_date }
+                - { var: inputs.end_date }
+                - { map: [{ var: output.items }, { var: publication_date }] }
+                - { map: [{ var: output.items }, { var: effective_on }] }
+                - { map: [{ var: output.items }, { var: comments_close_on }] }
+    retries: 2
