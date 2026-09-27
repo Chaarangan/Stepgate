@@ -1,4 +1,4 @@
-import jsonLogic from "json-logic-js";
+import jsonLogic, { type AdditionalOperation, type RulesLogic } from "json-logic-js";
 import { isDeepStrictEqual } from "node:util";
 import { linearRegExp } from "./regex.ts";
 import type { Json, JsonObject } from "./types.ts";
@@ -77,9 +77,10 @@ export type PredicateContext = {
   let?: JsonObject;
 };
 
-/** What a rule evaluates to over some data: a gate's context for `explain`, a tool result for `select`. */
-export function evaluateExpression(rule: JsonObject, data: PredicateContext | Json): Json {
-  return (jsonLogic.apply(rule, data) ?? null) as Json;
+/** What a rule evaluates to over some data: a gate's context for `explain`, a tool result for `select`; a literal is itself. */
+export function evaluateExpression(rule: Json, data: PredicateContext | Json): Json {
+  // json-logic-js returns a literal as is, which its type for a rule does not admit.
+  return (jsonLogic.apply(rule as RulesLogic<AdditionalOperation>, data) ?? null) as Json;
 }
 
 /** True only when the rule evaluates to exactly `true`, as docs/stepfile.md specifies. */

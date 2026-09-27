@@ -1,0 +1,21 @@
+name: a failed == predicate with no explain reports the value expected and the value submitted
+stepfile:
+  stepgate: "1"
+  id: citations
+  inputs: { type: object, required: [sources], properties: { sources: { type: array, items: { type: string } } } }
+  steps:
+    - id: count
+      instructions: "Count these sources: {{inputs.sources}}"
+      produces: { type: object, required: [count], properties: { count: { type: integer } } }
+      gates:
+        - id: counted
+          message: count must be the number of sources
+          predicate: { "==": [{ var: output.count }, { length: { var: inputs.sources } }] }
+inputs: { sources: [S-01, S-02] }
+actions:
+  - submit: { count: 3 }
+expect:
+  replies:
+    - { state: running, step: count }
+    - { state: failed, error: GateFailed, contain: 'counted: count must be the number of sources expected 2, got 3' }
+  ledger: [run_started, step_started, submit, gate, run_failed]

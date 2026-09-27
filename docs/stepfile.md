@@ -150,7 +150,7 @@ Each entry in `calls` is `{ tool, arguments, result, is_error }`, where `tool` i
   schema: { properties: { sources: { minItems: 12 } } }
 ```
 
-**`predicate`** evaluates a [JSONLogic](https://jsonlogic.com/operations.html) rule and passes only if it returns exactly `true`. Its `message` is the diagnosis the model sees on failure. An optional `explain` is a second JSONLogic expression, evaluated only when the rule fails, whose result is added after the message, so the model is told which items broke the rule instead of guessing. A `null`, empty string or empty array adds nothing, and the addition is cut at 2,000 characters.
+**`predicate`** evaluates a [JSONLogic](https://jsonlogic.com/operations.html) rule and passes only if it returns exactly `true`. Its `message` is the diagnosis the model sees on failure. An optional `explain` is a second JSONLogic expression, evaluated only when the rule fails, whose result is added after the message, so the model is told which items broke the rule instead of guessing. A `null`, empty string or empty array adds nothing, and the addition is cut at 2,000 characters. Without an `explain`, the predicates listed under [When a gate fails](#when-a-gate-fails) explain themselves.
 
 ```yaml
 - id: domain-breadth
@@ -276,7 +276,16 @@ Steps run in the order listed, and a step expected to `pass` becomes `steps.<id>
 
 ## When a gate fails
 
-The model gets back every failing gate's id and diagnosis as the result of its `stepgate_submit` call, and may submit again. Once a step has used its `retries`, the run stops with `GateFailed`. A step also stops at the tool-call limit whoever runs Stepgate has set.
+The model gets back every failing gate's id and diagnosis as the result of its `stepgate_submit` call, and may submit again. A predicate with no `explain` adds what broke after its `message` when its rule has one of these shapes:
+
+| Rule | Added |
+|---|---|
+| `subset: [a, b]` | The `difference` of `a` and `b`: the items of `a` not in `b` |
+| `none: [{ join: ... }, condition]` | The `left` item of every pair that met the condition |
+| `==` or `===` of two values | `expected <second>, got <first>`, so put the submitted value first |
+| `and` of rules | What each failing part of the shapes above adds, separated by ` \| ` |
+
+An `explain` replaces this, and any other shape shows only its `message`. Once a step has used its `retries`, the run stops with `GateFailed`. A step also stops at the tool-call limit whoever runs Stepgate has set.
 
 ## Identity
 

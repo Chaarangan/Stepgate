@@ -57,13 +57,58 @@ async function askVerifier(document: StepfileDocument, http: HttpContext, step: 
   throw new ToolCallFailed(operation, response.status, `response has no boolean pass: ${text.slice(0, 500)}`);
 }
 
-/** The message, followed by what `explain` evaluates to unless that is null or empty, cut to a length a model can act on. */
-function explained(message: string, explain: JsonObject | undefined, context: GateContext): string {
-  const detail = explain === undefined ? null : evaluateExpression(explain, context);
-  if (detail === null || (Array.isArray(detail) && detail.length === 0) || detail === "") {
+/** What a failed gate adds to its message; null, an empty string and an empty array add nothing. */
+type Detail = (context: GateContext) => Json;
+
+function isEmpty(detail: Json): boolean {
+  return detail === null || detail === "" || (Array.isArray(detail) && detail.length === 0);
+}
+
+function onlyOperator(rule: Json, operator: string): Json[] | null {
+  return rule !== null && typeof rule === "object" && !Array.isArray(rule) && Object.keys(rule).length === 1 && Array.isArray(rule[operator]) ? rule[operator] as Json[] : null;
+}
+
+/** The detail a predicate of a known shape gives when it fails, or null when its shape has none (docs/stepfile.md, When a gate fails). */
+function automaticDetail(rule: Json): Detail | null {
+  const subset = onlyOperator(rule, "subset");
+  if (subset !== null && subset.length === 2) {
+    return (context) => evaluateExpression({ difference: subset }, context);
+  }
+  const none = onlyOperator(rule, "none");
+  if (none !== null && none.length === 2 && onlyOperator(none[0] ?? null, "join") !== null) {
+    return (context) => evaluateExpression({ map: [{ filter: none }, { var: "left" }] }, context);
+  }
+  const equal = onlyOperator(rule, "==") ?? onlyOperator(rule, "===");
+  if (equal !== null && equal.length === 2) {
+    const [submitted, expected] = equal as [Json, Json];
+    return (context) => `expected ${JSON.stringify(evaluateExpression(expected, context))}, got ${JSON.stringify(evaluateExpression(submitted, context))}`;
+  }
+  const parts = onlyOperator(rule, "and");
+  if (parts !== null) {
+    const diagnosable = parts.flatMap((part) => {
+      const detail = automaticDetail(part);
+      return detail === null ? [] : [{ part: part as JsonObject, detail }];
+    });
+    if (diagnosable.length === 0) {
+      return null;
+    }
+    return (context) => diagnosable
+      .filter(({ part }) => !evaluatePredicate(part, context))
+      .map(({ detail }) => detail(context))
+      .filter((detail) => !isEmpty(detail))
+      .map((detail) => (typeof detail === "string" ? detail : JSON.stringify(detail)))
+      .join(" | ");
+  }
+  return null;
+}
+
+/** The message, followed by the detail unless it is empty, cut to a length a model can act on. */
+function explained(message: string, detail: Detail | null, context: GateContext): string {
+  const value = detail === null ? null : detail(context);
+  if (isEmpty(value)) {
     return message;
   }
-  const text = typeof detail === "string" ? detail : JSON.stringify(detail);
+  const text = typeof value === "string" ? value : JSON.stringify(value);
   return `${message} ${text.length > MAX_EXPLANATION ? `${text.slice(0, MAX_EXPLANATION)} [cut at ${MAX_EXPLANATION} characters]` : text}`;
 }
 
@@ -76,7 +121,8 @@ function compileGate(document: StepfileDocument, services: GateServices, step: S
   if ("predicate" in gate) {
     const predicate = expandResults(gate.predicate) as JsonObject;
     const explain = gate.explain === undefined ? undefined : expandResults(gate.explain) as JsonObject;
-    return async (context) => verdict(gate.id, evaluatePredicate(predicate, context) ? null : explained(gate.message, explain, context));
+    const detail: Detail | null = explain === undefined ? automaticDetail(predicate) : (context) => evaluateExpression(explain, context);
+    return async (context) => verdict(gate.id, evaluatePredicate(predicate, context) ? null : explained(gate.message, detail, context));
   }
   if ("approve" in gate) {
     return async (context) => {
