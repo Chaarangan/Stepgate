@@ -10,7 +10,7 @@ import type { Json, StepfileDocument, Step } from "./types.ts";
 export type GateInput = {
   document: StepfileDocument;
   step: Step;
-  context: PredicateContext & { output: Json };
+  context: PredicateContext & { output: Json; calls: NonNullable<PredicateContext["calls"]> };
   ajv: Ajv2020;
   http: HttpContext;
   verifierCredential: (toolName: string) => Omit<CredentialBinding, "place"> | null;

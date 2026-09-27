@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { JsonObject } from "../src/engine/types.ts";
-import { API_KEY, MCP_TOKEN } from "./fixtures.ts";
+import { VERSION } from "../src/version.ts";
+import { API_KEY, BASIC_CREDENTIAL, MCP_TOKEN } from "./fixtures.ts";
 import { GOOD_STOCK, GOOD_SUMMARY, resultText, startHarness, use, type Harness, type Setup } from "./harness.ts";
 
 let harness: Harness | undefined;
@@ -111,6 +112,143 @@ describe("gates", () => {
   });
 });
 
+describe("evidence", () => {
+  const countMatchesCatalogue = (runbook: JsonObject) => {
+    (steps(runbook)[0] as JsonObject).gates = [{
+      id: "count-from-catalogue",
+      message: "count must be the stock level the catalogue returned",
+      predicate: { in: [{ var: "output.count" }, { map: [{ filter: [{ var: "calls" }, { "==": [{ var: "tool" }, "getItem"] }] }, { var: "result.stock" }] }] },
+    }];
+  };
+
+  it("rejects a value no tool returned, and accepts the one the API gave", async () => {
+    const { call, sampled } = await start({
+      edit: countMatchesCatalogue,
+      turns: [
+        use("e1", "getItem", { id: "K-1" }),
+        use("e2", "submit", { name: "Blue kettle", count: 5, supplier: "Acme" }),
+        GOOD_STOCK,
+        GOOD_SUMMARY,
+      ],
+    });
+
+    const result = await call({ item: "K-1" });
+
+    expect(result.isError).toBeFalsy();
+    expect(JSON.stringify(sampled[2]?.messages.at(-1))).toContain("count must be the stock level the catalogue returned");
+  });
+
+  it("cannot pass an evidence gate without calling the tool", async () => {
+    const { call } = await start({ edit: countMatchesCatalogue, turns: [GOOD_STOCK, GOOD_STOCK] });
+
+    const result = await call({ item: "K-1" });
+
+    expect(resultText(result)).toMatch(/^GateFailed: step stock failed gates: count-from-catalogue/);
+  });
+
+  it("gives gates a text result as text", async () => {
+    const { call } = await start({
+      edit: (runbook) => void ((steps(runbook)[0] as JsonObject).gates = [{
+        id: "city-from-lookup",
+        message: "supplier city must come from the lookup",
+        predicate: { in: ["Leeds", { reduce: [{ var: "calls" }, { cat: [{ var: "accumulator" }, { var: "current.result" }] }, ""] }] },
+      }]),
+      turns: STOCK_WITH_TOOLS,
+    });
+
+    expect((await call({ item: "K-1" })).isError).toBeFalsy();
+  });
+});
+
+describe("operator settings", () => {
+  const catalogueFromSetting = (stepfile: JsonObject) => {
+    stepfile.settings = { "catalogue-port": { description: "Port of the catalogue API.", pattern: "^[0-9]{2,5}$" } };
+    const openapi = ((stepfile.tools as JsonObject).catalogue as JsonObject).openapi as JsonObject;
+    openapi.server = "http://127.0.0.1:{catalogue-port}";
+    openapi.url = "http://127.0.0.1:{catalogue-port}/openapi.json";
+    ((stepfile.credentials as JsonObject).catalogue as JsonObject).hosts = ["127.0.0.1:{catalogue-port}"];
+  };
+
+  it("fills a {setting} in tool and credential hosts from the operator's value", async () => {
+    const { call, api } = await start({ edit: catalogueFromSetting, settings: ({ cataloguePort }) => ({ "catalogue-port": cataloguePort }), turns: STOCK_WITH_TOOLS });
+
+    const result = await call({ item: "K-1" });
+
+    expect(result.isError).toBeFalsy();
+    expect(api.received.find((request) => request.path === "/items/K-1")?.headers["x-api-key"]).toBe(API_KEY);
+  });
+
+  it("fails preflight when a setting is missing, or its value could change the host", async () => {
+    const missing = await start({ edit: catalogueFromSetting, turns: [] });
+    expect(resultText(await missing.call({ item: "K-1" }))).toContain("PreflightFailed: preflight failed for setting catalogue-port");
+    await missing.close();
+    harness = undefined;
+
+    const hostile = await start({ edit: catalogueFromSetting, settings: () => ({ "catalogue-port": "80@evil.example" }), turns: [] });
+    const text = resultText(await hostile.call({ item: "K-1" }));
+    expect(text).toContain("PreflightFailed: preflight failed for setting catalogue-port");
+    expect(text).toContain("does not match ^[0-9]{2,5}$");
+    expect(hostile.sampled).toHaveLength(0);
+  });
+});
+
+describe("credential kinds and parameters", () => {
+  const withBasicTool = (kind: string) => (stepfile: JsonObject, addresses: { catalogue: string }) => {
+    const catalogue = (stepfile.tools as JsonObject).catalogue as JsonObject;
+    (stepfile.tools as JsonObject)["catalogue-basic"] = { openapi: catalogue.openapi as JsonObject, credential: "catalogue-basic", exposes: ["getBasicItem"] };
+    (stepfile.credentials as JsonObject)["catalogue-basic"] = { kind, hosts: [new URL(addresses.catalogue).host], description: "Reads the catalogue with HTTP Basic." };
+    (steps(stepfile)[0] as JsonObject).tools = ["getBasicItem"];
+  };
+
+  it("sends a basic credential as HTTP Basic", async () => {
+    const { call, api, records } = await start({
+      edit: withBasicTool("basic"),
+      credentials: { catalogue: API_KEY, suppliers: MCP_TOKEN, "catalogue-basic": BASIC_CREDENTIAL },
+      turns: [use("b1", "getBasicItem", { id: "K-1" }), GOOD_STOCK, GOOD_SUMMARY],
+    });
+
+    await call({ item: "K-1" });
+
+    expect(api.received.find((request) => request.path === "/basic-items/K-1")?.headers.authorization).toBe(`Basic ${Buffer.from(BASIC_CREDENTIAL).toString("base64")}`);
+    expect(records.find((record) => record.type === "tool_call")).toMatchObject({ operation: "getBasicItem", status: 200 });
+  });
+
+  it("refuses a basic credential that is not user:secret", async () => {
+    const { call } = await start({ edit: withBasicTool("basic"), credentials: { catalogue: API_KEY, suppliers: MCP_TOKEN, "catalogue-basic": "just-a-token" }, turns: [] });
+
+    expect(resultText(await call({ item: "K-1" }))).toContain("PreflightFailed: preflight failed for credential catalogue-basic: a basic credential must be user:secret");
+  });
+
+  it("sends a parameter with one allowed value itself and hides it from the model", async () => {
+    const { call, api, sampled } = await start({
+      edit: (stepfile) => {
+        ((stepfile.tools as JsonObject).catalogue as JsonObject).exposes = ["getItem", "getFlaky", "getRevoked", "getFormattedItem"];
+        (steps(stepfile)[0] as JsonObject).tools = ["getFormattedItem"];
+      },
+      turns: [use("f1", "getFormattedItem", { id: "K-1" }), GOOD_STOCK, GOOD_SUMMARY],
+    });
+
+    await call({ item: "K-1" });
+
+    expect(api.received.map((request) => request.path)).toContain("/formatted/K-1?format=json");
+    const tool = sampled[0]?.tools?.find((item) => item.name === "getFormattedItem");
+    expect(Object.keys((tool?.inputSchema as { properties: JsonObject }).properties)).toEqual(["id"]);
+  });
+
+  it("compares strings case-insensitively with lower", async () => {
+    const { call } = await start({
+      edit: (stepfile) => void ((steps(stepfile)[0] as JsonObject).gates = [{
+        id: "supplier-is-acme",
+        message: "supplier must be Acme",
+        predicate: { "==": [{ lower: { var: "output.supplier" } }, { lower: "ACME" }] },
+      }]),
+      turns: [GOOD_STOCK, GOOD_SUMMARY],
+    });
+
+    expect((await call({ item: "K-1" })).isError).toBeFalsy();
+  });
+});
+
 describe("control flow", () => {
   it("skips a step whose when predicate is not true, without asking the model", async () => {
     const { call, sampled, records } = await start({
@@ -165,6 +303,16 @@ describe("tool calls", () => {
     await call({ item: "K-1" });
 
     expect(api.received.map((request) => request.path)).toContain("/items/..%2F..%2Fx%40evil.example%2Fsteal");
+  });
+
+  it("identifies itself to APIs with a stepgate user agent", async () => {
+    const { call, api, mcp } = await start({ turns: STOCK_WITH_TOOLS });
+
+    await call({ item: "K-1" });
+
+    const agents = [...api.received, ...mcp.received].map((request) => request.headers["user-agent"]);
+    expect(agents.length).toBeGreaterThan(0);
+    expect(new Set(agents)).toEqual(new Set([`stepgate/${VERSION} (+https://github.com/Chaarangan/stepgate)`]));
   });
 
   it("cuts a tool result to the limit, marks the cut for the model, and records the original length", async () => {

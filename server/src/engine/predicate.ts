@@ -2,7 +2,7 @@ import jsonLogic from "json-logic-js";
 import { isDeepStrictEqual } from "node:util";
 import type { Json, JsonObject } from "./types.ts";
 
-// The five operators docs/stepfile.md adds to standard JSONLogic. json-logic-js keeps
+// The operators docs/stepfile.md adds to standard JSONLogic. json-logic-js keeps
 // operators in module state, so they are registered once when this module loads.
 jsonLogic.add_operation("length", (value: unknown) =>
   Array.isArray(value) ? value.length : typeof value === "string" ? [...value].length : null,
@@ -21,6 +21,10 @@ jsonLogic.add_operation("host", (value: unknown) => {
   }
   return new URL(value).host.toLowerCase() || null;
 });
+jsonLogic.add_operation("lower", (value: unknown) => (typeof value === "string" ? value.toLowerCase() : null));
+jsonLogic.add_operation("flatten", (value: unknown) =>
+  Array.isArray(value) ? value.flatMap((item: unknown) => (Array.isArray(item) ? item : [item])) : null,
+);
 jsonLogic.add_operation("match_all", (value: unknown, pattern: unknown) => {
   if (typeof value !== "string" || typeof pattern !== "string") {
     return null;
@@ -28,10 +32,14 @@ jsonLogic.add_operation("match_all", (value: unknown, pattern: unknown) => {
   return [...value.matchAll(new RegExp(pattern, "gu"))].map((match) => match[1] ?? match[0]);
 });
 
+/** One tool call a step made, as gates see it: the full result, parsed as JSON where it is JSON. */
+export type EvidenceCall = { tool: string; arguments: JsonObject; result: Json; is_error: boolean };
+
 export type PredicateContext = {
   inputs: JsonObject;
   steps: Record<string, JsonObject>;
   output?: Json;
+  calls?: EvidenceCall[];
 };
 
 /** True only when the rule evaluates to exactly `true`, as docs/stepfile.md specifies. */

@@ -35,6 +35,16 @@ export class CredentialUnavailable extends StepgateError {
   }
 }
 
+/** Raised when a setting the stepfile declares has no value in Stepgate's environment. */
+export class SettingUnavailable extends StepgateError {
+  override name = "SettingUnavailable";
+  readonly setting: string;
+  constructor(setting: string, reason: string) {
+    super(`setting ${setting} unavailable: ${reason}`);
+    this.setting = setting;
+  }
+}
+
 /** An OAuth grant was revoked. Never retried. */
 export class InvalidGrant extends StepgateError {
   override name = "InvalidGrant";

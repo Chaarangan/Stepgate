@@ -52,6 +52,9 @@ export async function guardedFetch(
   let lastError: unknown;
   for (let attempt = 1; attempt <= ATTEMPTS; attempt += 1) {
     const headers = new Headers(init.headers);
+    if (!headers.has("user-agent")) {
+      headers.set("user-agent", context.runContext.userAgent);
+    }
     const target = new URL(url);
     if (credential !== null) {
       credential.place(await context.runContext.credentials(credential.name, credential.declaration), headers, target);

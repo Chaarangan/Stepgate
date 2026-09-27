@@ -5,6 +5,7 @@ import { canonicalHash } from "./identity.ts";
 import { createValidator } from "./json-schema.ts";
 import { placeholderPaths } from "./placeholders.ts";
 import { varPaths } from "./predicate.ts";
+import { settingNames } from "./settings.ts";
 import type { Stepfile, StepfileDocument, ToolDeclaration } from "./types.ts";
 
 // server/schema/ sits two levels above both src/engine/ and dist/engine/, and ships in the package.
@@ -23,9 +24,13 @@ export function toolUrl(tool: ToolDeclaration): string {
   return url;
 }
 
-/** The host every request to this tool goes to. */
+/** The host every request to this tool goes to; before settings are resolved it may hold {name} placeholders. */
 export function declaredToolHost(tool: ToolDeclaration): string {
-  return new URL(toolUrl(tool)).host;
+  const authority = /^[a-z]+:\/\/([^/?#]+)/.exec(toolUrl(tool))?.[1];
+  if (authority === undefined) {
+    throw new TypeError(`tool url ${toolUrl(tool)} has no host; the schema should have rejected it`);
+  }
+  return authority.toLowerCase();
 }
 
 function parseText(text: string): unknown {
@@ -64,10 +69,33 @@ function checkCrossFieldRules(document: StepfileDocument): ValidationIssue[] {
         if (!credential.hosts.includes(host)) {
           issues.push({ path: `/tools/${toolName}/credential`, message: `host ${host} is not in credential ${tool.credential}'s hosts` });
         }
-        if (tool.mcp !== undefined && credential.kind === "api_key") {
-          issues.push({ path: `/tools/${toolName}/credential`, message: "an MCP server takes a bearer or oauth2 credential, not api_key" });
+        if (tool.mcp !== undefined && (credential.kind === "api_key" || credential.kind === "basic")) {
+          issues.push({ path: `/tools/${toolName}/credential`, message: `an MCP server takes a bearer or oauth2 credential, not ${credential.kind}` });
         }
       }
+    }
+  }
+
+  const declaredSettings = new Set(Object.keys(document.settings ?? {}));
+  const usedSettings = new Set<string>();
+  const templated: Array<[string, string]> = [
+    ...Object.entries(tools).flatMap(([toolName, tool]): Array<[string, string]> => [
+      [`/tools/${toolName}`, toolUrl(tool)],
+      ...(tool.openapi?.url === undefined ? [] : [[`/tools/${toolName}/openapi/url`, tool.openapi.url] as [string, string]]),
+    ]),
+    ...Object.entries(credentials).flatMap(([name, credential]) => credential.hosts.map((host): [string, string] => [`/credentials/${name}/hosts`, host])),
+  ];
+  for (const [path, text] of templated) {
+    for (const name of settingNames(text)) {
+      usedSettings.add(name);
+      if (!declaredSettings.has(name)) {
+        issues.push({ path, message: `{${name}} is not a declared setting` });
+      }
+    }
+  }
+  for (const name of declaredSettings) {
+    if (!usedSettings.has(name)) {
+      issues.push({ path: `/settings/${name}`, message: `setting ${name} is declared but no tool URL or credential host uses it` });
     }
   }
 
@@ -106,8 +134,8 @@ function checkCrossFieldRules(document: StepfileDocument): ValidationIssue[] {
         issues.push({ path, message: `${reference} does not name an earlier step` });
       }
     }
-    if (step.when !== undefined && varPaths(step.when).some((reference) => reference.split(".")[0] === "output")) {
-      issues.push({ path: `${path}/when`, message: "when is evaluated before the step runs, so it cannot read output" });
+    if (step.when !== undefined && varPaths(step.when).some((reference) => ["output", "calls"].includes(reference.split(".")[0] ?? ""))) {
+      issues.push({ path: `${path}/when`, message: "when is evaluated before the step runs, so it cannot read output or calls" });
     }
 
     seenSteps.add(step.id);

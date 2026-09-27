@@ -16,11 +16,12 @@ import { compileToolSchema, createToolSchemaValidators, createValidator, describ
 import { createLedger, type AppendRecord } from "./ledger.ts";
 import { declaredToolHost } from "./load.ts";
 import { renderInstructions } from "./placeholders.ts";
-import { evaluatePredicate } from "./predicate.ts";
+import { evaluatePredicate, type EvidenceCall } from "./predicate.ts";
+import { resolveSettings } from "./settings.ts";
 import { prepareMcpTool } from "./tools/mcp.ts";
 import { prepareOpenApiTool } from "./tools/openapi.ts";
 import type { ToolResult } from "./tools/tool-result.ts";
-import type { RunContext, JsonObject, Message, RunResult, Stepfile, Step, ToolCall, ToolDefinition } from "./types.ts";
+import type { Json, RunContext, JsonObject, Message, RunResult, Stepfile, Step, ToolCall, ToolDefinition } from "./types.ts";
 
 const SYSTEM_PROMPT = [
   "You are carrying out one step of a procedure.",
@@ -56,7 +57,10 @@ function credentialFor(stepfile: Stepfile, toolName: string): Omit<CredentialBin
 async function checkCredentials(stepfile: Stepfile, runContext: RunContext): Promise<void> {
   for (const [name, declaration] of Object.entries(stepfile.document.credentials ?? {})) {
     try {
-      await runContext.credentials(name, declaration);
+      const value = await runContext.credentials(name, declaration);
+      if (declaration.kind === "basic" && !value.includes(":")) {
+        throw new PreflightFailed(`credential ${name}`, "a basic credential must be user:secret, for example you@example.com:api-token");
+      }
     } catch (error) {
       if (error instanceof CredentialUnavailable || error instanceof InvalidGrant) {
         throw new PreflightFailed(`credential ${name}`, error.message, { cause: error });
@@ -137,9 +141,19 @@ function truncate(content: string, limit: number): string {
     : `${content.slice(0, limit)}\n[truncated: the result was ${content.length} characters; only the first ${limit} are shown]`;
 }
 
-async function callTool(prepared: PreparedTool, call: ToolCall, stepId: string, append: AppendRecord, limit: number): Promise<ToolResult> {
+function parseResult(content: string): Json {
+  try {
+    return JSON.parse(content) as Json;
+  } catch {
+    // Not JSON: gates see the text itself, which is what the tool returned.
+    return content;
+  }
+}
+
+/** Runs one tool call. `evidence` is what gates see; it is null when the call never reached the tool. */
+async function callTool(prepared: PreparedTool, call: ToolCall, stepId: string, append: AppendRecord, limit: number): Promise<{ shown: ToolResult; evidence: EvidenceCall | null }> {
   if (!isObject(call.arguments) || !prepared.validateArgs(call.arguments)) {
-    return { content: `Invalid arguments for ${call.name}: ${describeErrors(prepared.validateArgs.errors) || "arguments must be an object"}`, isError: true, status: null };
+    return { shown: { content: `Invalid arguments for ${call.name}: ${describeErrors(prepared.validateArgs.errors) || "arguments must be an object"}`, isError: true, status: null }, evidence: null };
   }
   const started = performance.now();
   const result = await prepared.call(call.arguments);
@@ -155,7 +169,10 @@ async function callTool(prepared: PreparedTool, call: ToolCall, stepId: string, 
     response: { sha256: textHash(result.content), length: result.content.length },
     truncated_to: result.content.length > limit ? limit : null,
   });
-  return { ...result, content: truncate(result.content, limit) };
+  return {
+    shown: { ...result, content: truncate(result.content, limit) },
+    evidence: { tool: call.name, arguments: call.arguments, result: parseResult(result.content), is_error: result.isError },
+  };
 }
 
 type StepContext = {
@@ -181,6 +198,7 @@ async function runStep(context: StepContext): Promise<JsonObject> {
   const messages: Message[] = [{ role: "user", text: instructions }];
   const retries = step.retries ?? 0;
   let attempt = 1;
+  let calls: EvidenceCall[] = [];
   const ajv = createValidator();
 
   await append("step_started", { step: step.id });
@@ -211,10 +229,13 @@ async function runStep(context: StepContext): Promise<JsonObject> {
         if (prepared === undefined) {
           await append("tool_refused", { step: step.id, operation: call.name });
         }
-        const result = prepared === undefined
-          ? { content: `${call.name} is not available in this step.`, isError: true, status: null }
+        const { shown, evidence } = prepared === undefined
+          ? { shown: { content: `${call.name} is not available in this step.`, isError: true, status: null }, evidence: null }
           : await callTool(prepared, call, step.id, append, runContext.limits.toolResultChars);
-        messages.push({ role: "tool", toolCallId: call.id, content: result.content, isError: result.isError });
+        if (evidence !== null) {
+          calls = [...calls, evidence];
+        }
+        messages.push({ role: "tool", toolCallId: call.id, content: shown.content, isError: shown.isError });
         continue;
       }
       if (submitted) {
@@ -227,7 +248,7 @@ async function runStep(context: StepContext): Promise<JsonObject> {
       const failures = await evaluateGates({
         document: context.stepfile.document,
         step,
-        context: { inputs: context.inputs, steps: context.outputs, output: (output ?? null) as JsonObject },
+        context: { inputs: context.inputs, steps: context.outputs, output: (output ?? null) as JsonObject, calls },
         ajv,
         http: context.http,
         verifierCredential: (toolName) => credentialFor(context.stepfile, toolName),
@@ -253,14 +274,14 @@ async function runStep(context: StepContext): Promise<JsonObject> {
 }
 
 /** Preflights, then runs every step in order, asking the context's model for one turn at a time. */
-export async function run(stepfile: Stepfile, inputs: JsonObject, runContext: RunContext): Promise<RunResult> {
+export async function run(written: Stepfile, inputs: JsonObject, runContext: RunContext): Promise<RunResult> {
   const append = createLedger(runContext.ledger);
-  const tools = stepfile.document.tools ?? {};
-  const http: HttpContext = { runContext, allowedHosts: new Set(Object.values(tools).map(declaredToolHost)), append };
-
-  await append("run_started", { run: randomUUID(), stepfile: stepfile.document.id, identity: stepfile.identity, inputs: canonicalHash(inputs) });
+  await append("run_started", { run: randomUUID(), stepfile: written.document.id, identity: written.identity, inputs: canonicalHash(inputs) });
   let prepared: Prepared | undefined;
   try {
+    // Settings are filled in first, so the host allowlist below only ever holds concrete hosts.
+    const stepfile: Stepfile = { ...written, document: await resolveSettings(written.document, runContext) };
+    const http: HttpContext = { runContext, allowedHosts: new Set(Object.values(stepfile.document.tools ?? {}).map(declaredToolHost)), append };
     prepared = await preflight(stepfile, inputs, runContext, http);
     const outputs: Record<string, JsonObject> = {};
     for (const step of stepfile.document.steps) {
@@ -271,7 +292,7 @@ export async function run(stepfile: Stepfile, inputs: JsonObject, runContext: Ru
       outputs[step.id] = await runStep({ stepfile, step, inputs, outputs, tools: prepared.tools, runContext, http, append });
     }
     await append("run_finished", { outcome: "passed" });
-    return { identity: stepfile.identity, outputs };
+    return { identity: written.identity, outputs };
   } catch (error) {
     await append("run_failed", { error: error instanceof Error ? error.name : "unknown" });
     throw error;

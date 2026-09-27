@@ -2,7 +2,9 @@ export type Json = null | boolean | number | string | Json[] | { [key: string]: 
 export type JsonObject = { [key: string]: Json };
 export type JsonSchema = JsonObject;
 
-export type CredentialKind = "api_key" | "bearer" | "oauth2";
+export type CredentialKind = "api_key" | "bearer" | "oauth2" | "basic";
+
+export type SettingDeclaration = { description: string; pattern?: string };
 
 export type CredentialDeclaration = {
   kind: CredentialKind;
@@ -43,6 +45,7 @@ export type StepfileDocument = {
   title?: string;
   description?: string;
   inputs: JsonSchema;
+  settings?: Record<string, SettingDeclaration>;
   credentials?: Record<string, CredentialDeclaration>;
   tools?: Record<string, ToolDeclaration>;
   steps: Step[];
@@ -78,9 +81,13 @@ export type LedgerRecord = { seq: number; type: string; at: string; prev: string
 export type RunContext = {
   model: (request: ModelRequest) => Promise<ModelReply>;
   credentials: (name: string, declaration: CredentialDeclaration) => Promise<string>;
+  /** The operator's value for a setting, such as a site name; raises SettingUnavailable when unset. */
+  settings: (name: string, declaration: SettingDeclaration) => Promise<string>;
   ledger: (record: LedgerRecord) => void | Promise<void>;
   /** Budgets that depend on the model's context: turns per step, and the longest tool result passed to it. */
   limits: { turnsPerStep: number; toolResultChars: number };
+  /** Sent on every outgoing request that does not set its own. */
+  userAgent: string;
 };
 
 export type RunResult = {

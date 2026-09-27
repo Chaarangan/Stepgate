@@ -10,6 +10,7 @@ import type { CredentialDeclaration, RunContext } from "../src/engine/types.ts";
 
 export const API_KEY = "api-key-5f1c9d";
 export const MCP_TOKEN = "mcp-token-7a2e4b";
+export const BASIC_CREDENTIAL = "user@example.com:basic-token-3c9f";
 
 export type ReceivedRequest = { method: string; path: string; headers: IncomingMessage["headers"]; body: string };
 
@@ -59,6 +60,12 @@ export async function startApi(flakyFailures: number): Promise<Fixture> {
       send(response, 200, output.count >= 3 ? { pass: true } : { pass: false, message: `count ${output.count} is below 3` });
       return;
     }
+    const basic = /^\/basic-items\/([^/?]+)$/.exec(path);
+    if (basic !== null) {
+      const ok = request.headers.authorization === `Basic ${Buffer.from(BASIC_CREDENTIAL).toString("base64")}`;
+      send(response, ok ? 200 : 401, ok ? { id: decodeURIComponent(basic[1] ?? ""), name: "Blue kettle", stock: 4 } : { error: "unauthorised" });
+      return;
+    }
     if (request.headers["x-api-key"] !== API_KEY) {
       send(response, 401, { error: "unauthorised" });
       return;
@@ -70,6 +77,11 @@ export async function startApi(flakyFailures: number): Promise<Fixture> {
     if (path === "/flaky") {
       flakyCalls += 1;
       send(response, flakyCalls <= flakyFailures ? 503 : 200, flakyCalls <= flakyFailures ? { error: "busy" } : { ok: true });
+      return;
+    }
+    const formatted = /^\/formatted\/([^/?]+)\?format=json$/.exec(path);
+    if (formatted !== null) {
+      send(response, 200, { id: decodeURIComponent(formatted[1] ?? ""), name: "Blue kettle", stock: 4 });
       return;
     }
     const match = /^\/items\/([^/?]+)$/.exec(path);

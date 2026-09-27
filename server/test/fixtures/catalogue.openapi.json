@@ -47,6 +47,59 @@
           }
         ]
       }
+    },
+    "/basic-items/{id}": {
+      "get": {
+        "operationId": "getBasicItem",
+        "summary": "Fetch one catalogue item with HTTP Basic credentials.",
+        "security": [
+          {
+            "basic": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/formatted/{id}": {
+      "get": {
+        "operationId": "getFormattedItem",
+        "summary": "Fetch one catalogue item; the format must be json.",
+        "security": [
+          {
+            "key": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "json"
+              ]
+            }
+          }
+        ]
+      }
     }
   },
   "components": {
@@ -55,6 +108,10 @@
         "type": "apiKey",
         "in": "header",
         "name": "X-Api-Key"
+      },
+      "basic": {
+        "type": "http",
+        "scheme": "basic"
       }
     }
   }

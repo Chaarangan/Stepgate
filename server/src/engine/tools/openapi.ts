@@ -81,10 +81,21 @@ function findOperations(document: JsonObject, toolName: string): Map<string, Ope
   return operations;
 }
 
+/** The value of a parameter that allows exactly one value (`const` or a one-item `enum`), which is sent without asking the model. */
+function constantValue(schema: JsonSchema): Json | undefined {
+  if ("const" in schema) {
+    return schema.const;
+  }
+  return Array.isArray(schema.enum) && schema.enum.length === 1 ? schema.enum[0] : undefined;
+}
+
 function toDefinition(operation: Operation): ToolDefinition {
   const properties: JsonObject = {};
   const required: string[] = [];
   for (const parameter of operation.parameters) {
+    if (constantValue(parameter.schema) !== undefined) {
+      continue;
+    }
     properties[parameter.name] = parameter.schema;
     if (parameter.required) {
       required.push(parameter.name);
@@ -117,6 +128,9 @@ function placement(document: JsonObject, operation: Operation, credential: Crede
     if (scheme.in === "header") {
       return (secret, headers) => headers.set(name, secret);
     }
+  }
+  if (credential.kind === "basic") {
+    return (secret, headers) => headers.set("Authorization", `Basic ${Buffer.from(secret, "utf8").toString("base64")}`);
   }
   if (credential.kind === "api_key" && !isObject(scheme)) {
     throw new PreflightFailed(`tool ${toolName}`, `operation ${operation.operationId} declares no security scheme saying where an api_key goes`);
@@ -185,7 +199,7 @@ export async function prepareOpenApiTool(
       const headers = new Headers({ accept: "application/json" });
       const query = new URLSearchParams();
       for (const parameter of operation.parameters) {
-        const value = args[parameter.name];
+        const value = constantValue(parameter.schema) ?? args[parameter.name];
         if (value === undefined) {
           continue;
         }

@@ -42,6 +42,16 @@
         }
       ]
     },
+    "settings": {
+      "description": "Values the operator supplies at run time, such as a customer's site name, usable as {name} in tool hosts.",
+      "type": "object",
+      "propertyNames": {
+        "$ref": "#/$defs/identifier"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/setting"
+      }
+    },
     "credentials": {
       "type": "object",
       "propertyNames": {
@@ -83,7 +93,7 @@
     },
     "host": {
       "type": "string",
-      "pattern": "^[a-z0-9.-]+(:[0-9]+)?$"
+      "pattern": "^([a-z0-9.-]|\\{[a-z][a-z0-9-]*\\})+(:([0-9]+|\\{[a-z][a-z0-9-]*\\}))?$"
     },
     "sha256": {
       "type": "string",
@@ -102,7 +112,8 @@
           "enum": [
             "api_key",
             "bearer",
-            "oauth2"
+            "oauth2",
+            "basic"
           ]
         },
         "scopes": {
@@ -388,14 +399,32 @@
       "maxProperties": 1
     },
     "url": {
-      "description": "HTTPS, or plain HTTP to a loopback address for local development.",
+      "description": "HTTPS, or plain HTTP to a loopback address for local development. The host and port may use {setting} placeholders.",
       "type": "string",
-      "pattern": "^(https://[^\\s{}]+|http://(localhost|127\\.0\\.0\\.1|\\[::1\\])(:[0-9]+)?(/[^\\s{}]*)?)$"
+      "pattern": "^(https://([a-z0-9.:\\[\\]-]|\\{[a-z][a-z0-9-]*\\})+(/[^\\s{}]*)?|http://(localhost|127\\.0\\.0\\.1|\\[::1\\])(:([0-9]+|\\{[a-z][a-z0-9-]*\\}))?(/[^\\s{}]*)?)$"
     },
     "toolName": {
       "description": "Accepted as a tool name by both the Anthropic and OpenAI APIs.",
       "type": "string",
       "pattern": "^[a-zA-Z0-9_-]{1,64}$"
+    },
+    "setting": {
+      "type": "object",
+      "required": [
+        "description"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "type": "string",
+          "minLength": 1
+        },
+        "pattern": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Regular expression the value must match. Defaults to a single DNS label."
+        }
+      }
     }
   }
 }

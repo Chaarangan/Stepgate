@@ -15,16 +15,19 @@ import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
 import { createServer, type IncomingMessage } from "node:http";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
-import { CredentialUnavailable } from "./engine/errors.ts";
+import { CredentialUnavailable, SettingUnavailable } from "./engine/errors.ts";
+import { settingVariable } from "./engine/settings.ts";
 import { load } from "./engine/load.ts";
 import { catalogDirectory, catalogFile, listCatalog } from "./catalog.ts";
 import { createStepgateServer, type StepgateServerOptions } from "./server.ts";
+import { userAgent } from "./version.ts";
 import type { LedgerRecord } from "./engine/types.ts";
 
 const HELP = `usage: stepgate [options] <stepfile.yaml | catalog name>...
        stepgate --list
 
   --list                     show the stepfiles in the bundled catalog
+  --contact <email>          your contact email, sent in the User-Agent (SEC EDGAR and USAJOBS require one)
   --http <port>              serve Streamable HTTP on 127.0.0.1:<port>/mcp instead of stdio
   --ledger-dir <dir>         write one ledger file per run there; otherwise records go to stderr
   --turns-per-step <n>       most model turns one step may take (30)
@@ -43,12 +46,19 @@ const { values, positionals } = parseArgs({
     "sampling-timeout-ms": { type: "string", default: "600000" },
     help: { type: "boolean" },
     list: { type: "boolean" },
+    contact: { type: "string" },
   },
 });
 
 if (values.list === true) {
-  for (const { id, stepfile } of listCatalog(catalogDirectory())) {
-    console.log(`${id}: ${(stepfile.document.description ?? stepfile.document.title ?? "").replace(/\s+/g, " ").trim()}`);
+  let domain: string | undefined;
+  for (const entry of listCatalog(catalogDirectory())) {
+    if (entry.domain !== domain) {
+      console.log(`${domain === undefined ? "" : "\n"}${entry.domain}`);
+      domain = entry.domain;
+    }
+    const summary = (entry.stepfile.document.description ?? entry.stepfile.document.title ?? "").replace(/\s+/g, " ").trim();
+    console.log(`  ${entry.id}: ${summary}`);
   }
   process.exit(0);
 }
@@ -56,6 +66,16 @@ if (values.list === true) {
 if (values.help === true || positionals.length === 0) {
   console.error(HELP);
   process.exit(values.help === true ? 0 : 2);
+}
+
+function contactEmail(value: string | undefined): string | null {
+  if (value === undefined) {
+    return null;
+  }
+  if (!/^[^\s@()]+@[^\s@()]+\.[^\s@()]+$/.test(value)) {
+    throw new Error(`--contact must be an email address, got ${value}`);
+  }
+  return value;
 }
 
 function positiveInteger(flag: string, text: string): number {
@@ -86,6 +106,14 @@ const options: StepgateServerOptions = {
     }
     return value;
   },
+  settings: async (name) => {
+    const variable = settingVariable(name);
+    const value = process.env[variable];
+    if (value === undefined || value === "") {
+      throw new SettingUnavailable(name, `set ${variable} in the server's environment`);
+    }
+    return value;
+  },
   ledger: (call: { stepfile: string; call: string }, record: LedgerRecord) => {
     const line = `${JSON.stringify({ stepfile: call.stepfile, ...record })}\n`;
     if (ledgerDir === undefined) {
@@ -100,6 +128,7 @@ const options: StepgateServerOptions = {
   },
   maxTokens: positiveInteger("max-tokens", values["max-tokens"]),
   samplingTimeoutMs: positiveInteger("sampling-timeout-ms", values["sampling-timeout-ms"]),
+  userAgent: userAgent(contactEmail(values.contact)),
 };
 
 async function readJson(request: IncomingMessage): Promise<unknown> {

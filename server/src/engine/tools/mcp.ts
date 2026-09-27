@@ -4,6 +4,7 @@ import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { PreflightFailed, StepgateError, ToolCallFailed } from "../errors.ts";
 import { guardedFetch, type CredentialBinding, type HttpContext } from "../http.ts";
 import { canonicalHash } from "../identity.ts";
+import { VERSION } from "../../version.ts";
 import type { JsonObject, ToolDeclaration, ToolDefinition } from "../types.ts";
 import type { ToolResult } from "./tool-result.ts";
 
@@ -42,7 +43,7 @@ export async function prepareMcpTool(
   const transport = new StreamableHTTPClientTransport(new URL(url), {
     fetch: (input, init) => guardedFetch(context, `mcp ${toolName}`, new URL(input), init ?? {}, binding),
   });
-  const client = new Client({ name: "stepgate", version: "0.0.0" });
+  const client = new Client({ name: "stepgate", version: VERSION });
   try {
     // The MCP SDK's own types disagree under exactOptionalPropertyTypes; the runtime object is a Transport.
     await client.connect(transport as Transport);

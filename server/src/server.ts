@@ -12,10 +12,12 @@ import type { RequestHandlerExtra } from "@modelcontextprotocol/sdk/shared/proto
 import { randomUUID } from "node:crypto";
 import { StepgateError } from "./engine/errors.ts";
 import { run } from "./engine/run.ts";
+import { VERSION } from "./version.ts";
 import type { RunContext, JsonObject, LedgerRecord, Message, ModelReply, ModelRequest, Stepfile } from "./engine/types.ts";
 
 export type StepgateServerOptions = {
   credentials: RunContext["credentials"];
+  settings: RunContext["settings"];
   /** Receives every ledger record, tagged with the stepfile and the tool call it belongs to. */
   ledger: (call: { stepfile: string; call: string }, record: LedgerRecord) => void | Promise<void>;
   limits: RunContext["limits"];
@@ -23,6 +25,7 @@ export type StepgateServerOptions = {
   maxTokens: number;
   /** How long one sampling request may take before it fails, in milliseconds. */
   samplingTimeoutMs: number;
+  userAgent: string;
 };
 
 type Extra = RequestHandlerExtra<ServerRequest, ServerNotification>;
@@ -93,7 +96,7 @@ function failure(message: string): CallToolResult {
  */
 export function createStepgateServer(stepfiles: Stepfile[], options: StepgateServerOptions): Server {
   const byId = new Map(stepfiles.map((stepfile) => [stepfile.document.id, stepfile]));
-  const server = new Server({ name: "stepgate", version: "0.1.0" }, { capabilities: { tools: {} } });
+  const server = new Server({ name: "stepgate", version: VERSION }, { capabilities: { tools: {} } });
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: stepfiles.map(({ document }) => ({
@@ -117,7 +120,9 @@ export function createStepgateServer(stepfiles: Stepfile[], options: StepgateSer
     const runContext: RunContext = {
       model: samplingModel(server, extra, options),
       credentials: options.credentials,
+      settings: options.settings,
       limits: options.limits,
+      userAgent: options.userAgent,
       ledger: async (record) => {
         await options.ledger(call, record);
         if (progressToken !== undefined) {
