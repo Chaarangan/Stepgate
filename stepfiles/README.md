@@ -25,6 +25,7 @@ A catalog entry must:
 - live in `stepfiles/<domain>/<id>/`, as `<id>.stepfile.yaml` plus a `README.md`, with the folder name equal to the stepfile's `id`, and an `id` no other domain uses;
 - call only public `https` APIs and MCP servers, and declare every credential with a clear `description`;
 - give every step gates that check real properties of the output, not just its shape;
+- write only from a mechanical step, after an agent step with an `approve` gate, using only inputs, settings and earlier steps' outputs, so what reaches an API is what a person approved. An operation counts as a write unless it is an OpenAPI GET, HEAD or OPTIONS, or its `exposes` entry declares `effect: read`; declare that only where the API's documentation says the operation changes nothing;
 - contain no secrets, personal data, or anything tied to one model or provider.
 
 `npm run check` enforces the structural rules, and CI runs it on every pull request. Not sure what to build? [Suggest an idea](https://github.com/Chaarangan/stepgate/issues/new?template=stepfile_idea.yml), or pick one someone else suggested.
