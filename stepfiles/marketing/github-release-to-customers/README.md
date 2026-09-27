@@ -1,8 +1,8 @@
 # github-release-to-customers
 
-Takes a GitHub release tag and the tag before it, collects the pull requests merged between the two, writes customer-facing release notes that cite each change by pull request number, finds the HubSpot contacts matching a property filter, and returns an email addressed to you with the notes and the recipient list. Every pull request number, title and merge time is checked against GitHub, every contact id and email against HubSpot, and the email's recipients against the contacts found. It sends no email and creates no draft (see [Writes](#writes)).
+Takes a GitHub release tag and the tag before it, collects the pull requests merged between the two, writes customer-facing release notes that cite each change by pull request number, finds the HubSpot contacts matching a property filter, and creates a Gmail draft addressed to you with the notes and the recipient list. Every pull request number, title and merge time is checked against GitHub, every contact id and email against HubSpot, the email's recipients against the contacts found, and the draft Gmail stores against the checked email. It creates a draft and never sends (see [Writes](#writes)).
 
-Status: validated against the vendors' documented APIs (GitHub REST API version 2026-03-10, HubSpot CRM objects API version 2026-09) and offline gate tests built from real GitHub responses and HubSpot's documented examples, but not yet run live against a HubSpot account.
+Status: validated against the vendors' documented APIs (GitHub REST API version 2026-03-10, HubSpot CRM objects API version 2026-09, Gmail API v1) and offline gate tests built from real GitHub responses and HubSpot's and Google's documented examples, but not yet run live against a HubSpot account or a Gmail mailbox.
 
 ## Steps
 
@@ -11,6 +11,9 @@ Status: validated against the vendors' documented APIs (GitHub REST API version 
 3. **notes**: sorts each pull request into customer-facing items or excluded internal work and writes the notes. Gates check every pull request is sorted exactly once, item titles are GitHub's, and the notes mention the tag, cite every item as `#number` and cite no excluded or unknown number.
 4. **audience**: searches HubSpot contacts with one `EQ` filter, 50 a page, following `paging.next.after`. Gates check every call used exactly the given property and value, every contact's id, email and names are copied from a result (emails compared case-insensitively), contacts without an email are listed separately, and the two lists together match the search's `total`.
 5. **email**: prepares the email. Gates check it is addressed to `operator_email`, its recipients are exactly the contacts' addresses, its subject and body name the tag, and its body cites every note item, no other pull request number, and lists every recipient.
+6. **plan**: writes the raw RFC 2822 message: `To`, `Subject`, `MIME-Version: 1.0`, `Content-Type: text/plain; charset=UTF-8` and `Content-Transfer-Encoding: 8bit`, an empty line, then the body, every line ending in CRLF. Gates check the message is exactly that, built from the checked `to`, `subject` and `body`; that the header block is exactly those five lines, so no `Cc`, `Bcc` or other header can be added; and that the `To` and `Subject` headers equal the checked values and hold no line break.
+7. **draft**: calls `createDraft`, Gmail's `drafts.create` media upload. Gates check there was exactly one call, it succeeded, its body is the planned message byte for byte, and the draft id and message id submitted are the `id` and `message.id` of the Draft Gmail returned.
+8. **report**: states the draft id. Gates check the ids are the created draft's and the summary cites the draft id.
 
 ## Inputs
 
@@ -29,14 +32,15 @@ Status: validated against the vendors' documented APIs (GitHub REST API version 
 |---|---|---|---|
 | `github` | `GITHUB_API_KEY` | A GitHub personal access token, sent as `Authorization: Bearer` | Fine-grained: read-only Contents and Pull requests on the repository. Classic: `repo` for a private repository, no scope for a public one |
 | `hubspot` | `HUBSPOT_API_KEY` | A HubSpot private app access token, sent as `Authorization: Bearer` | The `crm.objects.contacts.read` scope |
+| `gmail` | `GMAIL_API_KEY` | A Google OAuth 2.0 access token for the mailbox that should hold the draft, sent as `Authorization: Bearer` | The `https://www.googleapis.com/auth/gmail.compose` scope |
 
-GitHub's `Accept: application/vnd.github+json` and `X-GitHub-Api-Version: 2026-03-10` headers are fixed in the stepfile and sent on every call. HubSpot now lists private apps as legacy apps; they remain supported.
+GitHub's `Accept: application/vnd.github+json` and `X-GitHub-Api-Version: 2026-03-10` headers are fixed in the stepfile and sent on every call. HubSpot now lists private apps as legacy apps; they remain supported. Google access tokens expire after about an hour and Stepgate does not refresh them, so fetch a fresh one before each run.
 
 ## Writes
 
-None. The last step's output, `outputs.email`, holds `to`, `subject`, `recipients` and a plain-text `body` for you to review, paste into your mail client, and send.
+One Gmail draft, never sent. The draft step posts the raw message to `https://gmail.googleapis.com/upload/gmail/v1/users/me/drafts?uploadType=media` with `Content-Type: message/rfc822`, so the model writes plain text and nothing is base64-encoded. The stepfile exposes no send operation. The draft is addressed to `operator_email` only; the customer addresses are listed in its body for you to review and send from your mail client.
 
-A Gmail draft would have been the natural target, but the Gmail API's `drafts.create` requires `message.raw`, the whole RFC 2822 message encoded as base64url, and its only alternative is a media upload with a `message/rfc822` content type. Stepgate sends request bodies only as JSON, and asking a model to base64-encode a message would produce drafts that fail or read wrongly, so this stepfile stops at the finished email. Gmail would also need an OAuth 2.0 access token with the `https://www.googleapis.com/auth/gmail.compose` scope, and such a token expires after about an hour.
+The message has no `From` header. The Gmail API pages this was checked against do not say whether a draft needs one or what Gmail fills in (their examples set one), so check the sender when you open the draft. A subject with non-ASCII characters is sent as UTF-8 rather than RFC 2047 encoded words, which has not been tried against Gmail.
 
 ## Run it
 
@@ -48,7 +52,8 @@ A Gmail draft would have been the natural target, but the Gmail API's `drafts.cr
       "args": ["-y", "stepgate", "github-release-to-customers"],
       "env": {
         "GITHUB_API_KEY": "github_pat_...",
-        "HUBSPOT_API_KEY": "pat-na1-..."
+        "HUBSPOT_API_KEY": "pat-na1-...",
+        "GMAIL_API_KEY": "ya29...."
       }
     }
   }
@@ -69,6 +74,6 @@ Then call the `github-release-to-customers` tool with:
 }
 ```
 
-The notes are in `outputs.notes.notes_markdown` and the email in `outputs.email`. A run takes at most 200 recipients; narrow the filter if more contacts match.
+The notes are in `outputs.notes.notes_markdown`, the email in `outputs.email`, the raw message in `outputs.plan.raw` and the draft id in `outputs.draft.draft_id`. A run takes at most 200 recipients; narrow the filter if more contacts match.
 
 The window assumes both releases were tagged on the same line of history and that pull requests are merged, not rebased without a merge record. GitHub's search items carry each pull request's full description, so the model is told to page three at a time and to fetch an item alone when a page is cut off at `--tool-result-chars`; a release with many pull requests means many search calls, and GitHub allows 30 authenticated search requests a minute.

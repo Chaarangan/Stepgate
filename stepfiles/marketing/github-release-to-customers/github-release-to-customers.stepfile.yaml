@@ -1,11 +1,11 @@
 # yaml-language-server: $schema=../../../server/schema/stepfile.schema.json
 stepgate: "1"
 id: github-release-to-customers
-title: Customer release notes from a GitHub release, addressed to HubSpot contacts
+title: Customer release notes from a GitHub release, drafted in Gmail for HubSpot contacts
 description: >
   Collects the pull requests merged between two GitHub releases, writes customer-facing release notes
-  that cite them by number, finds the HubSpot contacts matching a property filter, and returns a
-  ready-to-send email to the operator with the notes and the recipient list. Sends nothing.
+  that cite them by number, finds the HubSpot contacts matching a property filter, and creates a Gmail
+  draft to the operator with the notes and the recipient list. Creates a draft; never sends.
 
 inputs:
   type: object
@@ -36,6 +36,13 @@ credentials:
     description: >
       A HubSpot private app access token with the crm.objects.contacts.read scope. Reads contact ids,
       emails and names. Never writes.
+  gmail:
+    kind: oauth2
+    scopes: ["https://www.googleapis.com/auth/gmail.compose"]
+    hosts: [gmail.googleapis.com]
+    description: >
+      A Google OAuth 2.0 access token with the gmail.compose scope. Creates one draft in the operator's
+      mailbox; the stepfile exposes no send operation. Access tokens expire after about an hour.
 
 tools:
   github:
@@ -152,6 +159,41 @@ tools:
                 "200": { description: "total, results and paging" }
     credential: hubspot
     exposes: [searchContacts]
+
+  gmail:
+    openapi:
+      server: https://gmail.googleapis.com
+      document:
+        openapi: 3.1.0
+        info: { title: Gmail API v1 (trimmed to the drafts.create media upload), version: v1 }
+        components:
+          securitySchemes:
+            google:
+              type: oauth2
+              flows:
+                authorizationCode:
+                  authorizationUrl: https://accounts.google.com/o/oauth2/auth
+                  tokenUrl: https://oauth2.googleapis.com/token
+                  scopes: { "https://www.googleapis.com/auth/gmail.compose": Manage drafts and send emails }
+        security: [{ google: ["https://www.googleapis.com/auth/gmail.compose"] }]
+        paths:
+          /upload/gmail/v1/users/me/drafts:
+            post:
+              operationId: createDraft
+              summary: >
+                Create a Gmail draft (never sent) from a raw RFC 2822 message, given as body in plain text
+                with CRLF line endings. Returns the Draft: id (the draft id) and message.id.
+              parameters:
+                - { name: uploadType, in: query, required: true, schema: { enum: [media] } }
+              requestBody:
+                required: true
+                content:
+                  message/rfc822:
+                    schema: { type: string }
+              responses:
+                "200": { description: "The Draft: id and message (id, threadId, labelIds)" }
+    credential: gmail
+    exposes: [createDraft]
 
 steps:
   - id: releases
@@ -549,6 +591,145 @@ steps:
                     - if: [{ in: [{ var: current }, { var: accumulator }] }, { var: accumulator }, ""]
                     - var: output.body
                 - ""
+    retries: 2
+
+  - id: plan
+    instructions: |
+      Write the raw RFC 2822 message for a Gmail draft of this email. Nothing is sent.
+
+      To: {{steps.email.to}}
+      Subject: {{steps.email.subject}}
+      Body:
+      {{steps.email.body}}
+
+      Submit raw: these header lines, in this order, then an empty line, then every line of the body
+      unchanged, in order:
+        To: {{steps.email.to}}
+        Subject: {{steps.email.subject}}
+        MIME-Version: 1.0
+        Content-Type: text/plain; charset=UTF-8
+        Content-Transfer-Encoding: 8bit
+      End every line with CRLF (\r\n in JSON), including the header lines, the empty line and the last
+      body line. Add no other header, no Cc and no Bcc.
+    produces:
+      type: object
+      required: [raw]
+      additionalProperties: false
+      properties:
+        raw: { type: string, minLength: 1, maxLength: 40000 }
+    gates:
+      # The body is split into lines (LF or CRLF) and each is re-joined with CRLF after the fixed headers.
+      - id: raw-built-from-email
+        message: >
+          raw must be exactly the five headers as instructed, an empty line, and the email body, every line
+          ending in CRLF.
+        predicate:
+          "==":
+            - var: output.raw
+            - reduce:
+                - match_all: [{ var: steps.email.body }, "([^\\r\\n]*)\\r?\\n|[^\\r\\n]+$"]
+                - cat: [{ var: accumulator }, { var: current }, "\r\n"]
+                - cat:
+                    - "To: "
+                    - { var: steps.email.to }
+                    - "\r\nSubject: "
+                    - { var: steps.email.subject }
+                    - "\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8\r\nContent-Transfer-Encoding: 8bit\r\n\r\n"
+      - id: headers-only-expected
+        message: >
+          The header block must be exactly five lines, To, Subject, MIME-Version, Content-Type and
+          Content-Transfer-Encoding, with no Cc or Bcc, followed by an empty line.
+        predicate:
+          and:
+            - "==":
+                - reduce:
+                    - match_all:
+                        - &header-block
+                          cat: ["\r\n", { get: [{ match_all: [{ var: output.raw }, "^([\\s\\S]*?)\\r\\n\\r\\n"] }, 0] }]
+                        - "\\r\\n([^:\\r\\n]*):"
+                    - cat: [{ var: accumulator }, "|", { lower: { var: current } }]
+                    - ""
+                - "|to|subject|mime-version|content-type|content-transfer-encoding"
+            - "==": [{ length: { match_all: [*header-block, "\\r\\n"] } }, 5]
+      - id: to-and-subject-gated
+        message: >
+          The To header must be the email's gated to address and the Subject header its gated subject, each
+          on one line.
+        predicate:
+          and:
+            - "==": [{ length: { match_all: [{ cat: [{ var: steps.email.to }, { var: steps.email.subject }] }, "[\\r\\n]"] } }, 0]
+            - "==":
+                - get: [{ match_all: [{ var: output.raw }, "^To: ([^\\r\\n]*)\\r\\n"] }, 0]
+                - var: steps.email.to
+            - "==":
+                - get: [{ match_all: [{ get: [{ match_all: [{ var: output.raw }, "^([\\s\\S]*?)\\r\\n\\r\\n"] }, 0] }, "\\r\\nSubject: ([^\\r\\n]*)"] }, 0]
+                - var: steps.email.subject
+    retries: 2
+
+  - id: draft
+    tools: [createDraft]
+    instructions: |
+      Create the Gmail draft. Call createDraft exactly once with body set to this raw message, character
+      for character, keeping every CRLF (\r\n) line ending. It creates a draft and sends nothing.
+
+      {{steps.plan.raw}}
+
+      Submit draft_id, the id of the Draft the call returned, and message_id, its message.id, copied
+      exactly.
+    produces:
+      type: object
+      required: [draft_id, message_id]
+      additionalProperties: false
+      properties:
+        draft_id: { type: string, minLength: 1 }
+        message_id: { type: string, minLength: 1 }
+    gates:
+      - id: exactly-the-planned-draft
+        message: >
+          Make exactly one createDraft call, whose body is the planned raw message byte for byte, and it
+          must succeed.
+        predicate:
+          and:
+            - "==": [{ length: { filter: [{ var: calls }, { "==": [{ var: tool }, createDraft] }] } }, 1]
+            - subset:
+                - map:
+                    - filter: [{ var: calls }, { and: [{ "==": [{ var: tool }, createDraft] }, { "!": { var: is_error } }] }]
+                    - var: arguments.body
+                - [{ var: steps.plan.raw }]
+            - "==": [{ length: { filter: [{ var: calls }, { and: [{ "==": [{ var: tool }, createDraft] }, { "!": { var: is_error } }] }] } }, 1]
+      - id: ids-from-gmail
+        message: draft_id and message_id must be the id and message.id of the Draft that createDraft returned.
+        predicate:
+          in:
+            - cat: [{ var: output.draft_id }, "|", { var: output.message_id }]
+            - map:
+                - filter: [{ var: calls }, { and: [{ "==": [{ var: tool }, createDraft] }, { "!": { var: is_error } }] }]
+                - cat: [{ var: result.id }, "|", { var: result.message.id }]
+    retries: 2
+
+  - id: report
+    instructions: |
+      Report the Gmail draft just created for release {{inputs.tag}}: draft id {{steps.draft.draft_id}},
+      addressed to {{steps.email.to}}, subject "{{steps.email.subject}}". It has not been sent.
+
+      Submit draft_id and message_id ({{steps.draft.message_id}}) as given, and summary: one or two
+      sentences for the operator that cite the draft id and say it is a draft to review and send.
+    produces:
+      type: object
+      required: [draft_id, message_id, summary]
+      additionalProperties: false
+      properties:
+        draft_id: { type: string }
+        message_id: { type: string }
+        summary: { type: string, minLength: 1, maxLength: 600 }
+    gates:
+      - id: cites-the-draft
+        message: draft_id and message_id must be the created draft's, and summary must cite the draft id.
+        predicate:
+          and:
+            - "==": [{ var: output.draft_id }, { var: steps.draft.draft_id }]
+            - "==": [{ var: output.message_id }, { var: steps.draft.message_id }]
+            - in: [{ var: steps.draft.draft_id }, { var: output.summary }]
     retries: 2
 
 $defs:
