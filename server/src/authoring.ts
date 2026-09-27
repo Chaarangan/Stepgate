@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
-import { parse as parseYaml } from "yaml";
+import { parseDocument } from "yaml";
 import { catalogDirectory, catalogFile, listCatalog } from "./catalog.ts";
 import { CredentialUnavailable, StepfileInvalid, ToolCallFailed, UrlNotPublic } from "./engine/errors.ts";
 import { guardedFetch, type HttpContext } from "./engine/http.ts";
@@ -107,13 +107,9 @@ export function draftProblems(stepfile: Stepfile, policy: DraftPolicy): string[]
 
 /** Validates a draft: its issues, or its id, identity and steps and whether stepgate_try accepts it. */
 export function validateDraft(text: string, policy: DraftPolicy): { valid: boolean; report: string } {
-  let parsed: unknown = null;
-  try {
-    parsed = parseYaml(text, { version: "1.2" });
-  } catch {
-    // load below reports the parse error with its position.
-  }
-  const left = markers(parsed);
+  // A draft that does not parse has no markers to list; load reports its parse error below.
+  const parsed = parseDocument(text, { version: "1.2" });
+  const left = parsed.errors.length > 0 ? [] : markers(parsed.toJS());
   if (left.length > 0) {
     return { valid: false, report: `The stepfile still has parts to write. Replace every marker, then validate again:\n${left.map((marker) => `- ${marker.path}: ${marker.text}`).join("\n")}` };
   }

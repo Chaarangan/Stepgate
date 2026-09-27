@@ -16,6 +16,14 @@ export class StepfileInvalid extends StepgateError {
 }
 
 /** A precondition checked before step 1 did not hold, so no step ran. */
+/** A procedure given to stepgate_outline cannot be read as markdown with optional YAML frontmatter. */
+export class ProcedureInvalid extends StepgateError {
+  override name = "ProcedureInvalid";
+  constructor(reason: string) {
+    super(`the procedure cannot be outlined: ${reason}`);
+  }
+}
+
 /** A stepfile's file could not be read, as when --watch finds it removed. */
 export class StepfileUnreadable extends StepgateError {
   override name = "StepfileUnreadable";

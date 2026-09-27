@@ -2,7 +2,7 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { CallToolRequestSchema, ListToolsRequestSchema, type CallToolResult, type Tool } from "@modelcontextprotocol/sdk/types.js";
 import { draftProblems, examples, guide, inspectApi, validateDraft, type DraftPolicy } from "./authoring.ts";
 import { outlineProcedure } from "./outline.ts";
-import { DraftRefused, RunNotActive, StepgateError, ToolCallFailed } from "./engine/errors.ts";
+import { DraftRefused, ProcedureInvalid, RunNotActive, StepgateError, ToolCallFailed } from "./engine/errors.ts";
 import { load } from "./engine/load.ts";
 import type { Progress, StepView } from "./engine/run.ts";
 import { createRuns } from "./engine/runs.ts";
@@ -223,10 +223,15 @@ export function createStepgateServer(served: Served, options: StepgateServerOpti
 
   const authoring: Record<string, (args: JsonObject) => Promise<{ report: string; isError: boolean }>> = {
     stepgate_guide: async () => ({ report: guide(), isError: false }),
-    stepgate_outline: async (args) => ({
-      report: `A skeleton stepfile for this procedure. Replace every TODO marker: declare the inputs, give each step a produces schema and gates that check its output against calls, and add the tools it needs. Then call stepgate_validate.\n\n\`\`\`yaml\n${outlineProcedure(typeof args.procedure === "string" ? args.procedure : "").trim()}\n\`\`\``,
-      isError: false,
-    }),
+    stepgate_outline: async (args) => {
+      if (typeof args.procedure !== "string" || args.procedure.trim() === "") {
+        throw new ProcedureInvalid("procedure must be the SKILL.md or SOP text");
+      }
+      return {
+        report: `A skeleton stepfile for this procedure. Replace every TODO marker: declare the inputs, give each step a produces schema and gates that check its output against calls, and add the tools it needs. Then call stepgate_validate.\n\n\`\`\`yaml\n${outlineProcedure(args.procedure).trim()}\n\`\`\``,
+        isError: false,
+      };
+    },
     stepgate_examples: async (args) => ({ report: examples(typeof args.name === "string" ? args.name : undefined), isError: false }),
     stepgate_validate: async (args) => {
       const { valid, report } = validateDraft(typeof args.stepfile === "string" ? args.stepfile : "", options.drafts);

@@ -1,4 +1,5 @@
-import { parse as parseYaml, stringify } from "yaml";
+import { parseDocument, stringify } from "yaml";
+import { ProcedureInvalid } from "./engine/errors.ts";
 import type { Json, JsonObject } from "./engine/types.ts";
 
 const NO_RULE = "TODO(gate): the procedure states no rule for this step; check a real property of its output";
@@ -16,17 +17,56 @@ function frontmatter(text: string): { fields: JsonObject; body: string } {
   if (match === null) {
     return { fields: {}, body: text };
   }
-  const fields = parseYaml(match[1] ?? "") as Json;
-  return { fields: fields !== null && typeof fields === "object" && !Array.isArray(fields) ? fields : {}, body: text.slice(match[0].length) };
+  const document = parseDocument(match[1] ?? "");
+  if (document.errors.length > 0) {
+    throw new ProcedureInvalid(`its frontmatter is not YAML: ${document.errors.map((error) => error.message).join("; ")}`);
+  }
+  const fields = document.toJS() as Json;
+  if (fields === null || typeof fields !== "object" || Array.isArray(fields)) {
+    throw new ProcedureInvalid("its frontmatter is not a YAML mapping of fields such as name and description");
+  }
+  return { fields, body: text.slice(match[0].length) };
 }
 
-/** Second-level headings when there are any, otherwise top-level numbered items, otherwise the whole body. */
+/** Each line, marked when it sits inside a fenced code block, where no heading or list item starts. */
+function fenced(body: string): Array<{ line: string; code: boolean }> {
+  let open = false;
+  return body.split(/\r?\n/).map((line) => {
+    const fence = /^\s*(```|~~~)/.test(line);
+    const code = open || fence;
+    if (fence) {
+      open = !open;
+    }
+    return { line, code };
+  });
+}
+
+/**
+ * Two or more top-level numbered items, as a skill's steps usually are; otherwise second-level headings, as an SOP's
+ * phases are; otherwise the whole body. An item continues over its indented lines.
+ */
 function sections(body: string): Section[] {
-  const lines = body.split(/\r?\n/);
-  if (lines.some((line) => line.startsWith("## "))) {
+  const lines = fenced(body);
+  const items: string[][] = [];
+  let inItem = false;
+  for (const { line, code } of lines) {
+    const item = code ? null : /^\d+[.)]\s+(.*)$/.exec(line);
+    if (item !== null) {
+      items.push([item[1] ?? ""]);
+      inItem = true;
+    } else if (inItem && /^\s+\S/.test(line)) {
+      items.at(-1)?.push(line.trim());
+    } else if (line.trim() !== "") {
+      inItem = false;
+    }
+  }
+  if (items.length >= 2) {
+    return items.map((item, index) => ({ id: `step-${index + 1}`, text: item.join(" ").trim() }));
+  }
+  if (lines.some(({ line, code }) => !code && line.startsWith("## "))) {
     const found: Array<{ title: string; lines: string[] }> = [];
-    for (const line of lines) {
-      if (line.startsWith("## ")) {
+    for (const { line, code } of lines) {
+      if (!code && line.startsWith("## ")) {
         found.push({ title: line.slice(3).trim(), lines: [] });
       } else {
         found.at(-1)?.lines.push(line);
@@ -34,19 +74,7 @@ function sections(body: string): Section[] {
     }
     return found.map(({ title, lines: text }, index) => ({ id: slug(title, `step-${index + 1}`), text: text.join("\n").trim() || title }));
   }
-  const items: string[][] = [];
-  for (const line of lines) {
-    const item = /^\d+[.)]\s+(.*)$/.exec(line);
-    if (item !== null) {
-      items.push([item[1] ?? ""]);
-    } else if (items.length > 0 && line.trim() !== "" && !line.startsWith("#")) {
-      items.at(-1)?.push(line.trim());
-    }
-  }
-  if (items.length > 0) {
-    return items.map((item, index) => ({ id: `step-${index + 1}`, text: item.join(" ").trim() }));
-  }
-  return [{ id: "step-1", text: lines.filter((line) => !line.startsWith("# ")).join("\n").trim() }];
+  return [{ id: "step-1", text: lines.filter(({ line, code }) => code || !line.startsWith("# ")).map(({ line }) => line).join("\n").trim() }];
 }
 
 /** The sentences that state a rule: RFC 2119 words in capitals, or "must" and "never" in any case. */

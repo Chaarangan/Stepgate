@@ -249,6 +249,27 @@ describe("outlining a procedure", () => {
     expect(skeleton.steps[2]?.gates).toEqual(["TODO(gate): The review MUST link the incident ticket."]);
   });
 
+  it("uses a skill's numbered steps under a heading, and ignores lines inside code fences", async () => {
+    await start();
+    const procedure = `# Deploy\n\n## Steps\n\n1. Build the image.\n2. Push it. You MUST tag it with the commit.\n\n\`\`\`sh\n## not a heading\n3. not a step\n\`\`\`\n`;
+
+    const skeleton = parseYaml(extractYaml(resultText(await use("stepgate_outline", { procedure })))) as { steps: Array<{ id: string; instructions: string }> };
+
+    expect(skeleton.steps.map((step) => [step.id, step.instructions])).toEqual([["step-1", "Build the image."], ["step-2", "Push it. You MUST tag it with the commit."]]);
+  });
+
+  it("refuses a procedure whose frontmatter is not a mapping, or that is missing", async () => {
+    await start();
+
+    const scalar = await use("stepgate_outline", { procedure: "---\njust a line\n---\n1. Do it.\n2. Check it.\n" });
+    const missing = await use("stepgate_outline", {});
+
+    expect(scalar.isError).toBe(true);
+    expect(resultText(scalar)).toMatch(/^ProcedureInvalid: .*frontmatter/);
+    expect(missing.isError).toBe(true);
+    expect(resultText(missing)).toMatch(/^ProcedureInvalid: .*procedure/);
+  });
+
   it("validates a skeleton by listing every TODO marker still to write, by path", async () => {
     await start();
     const skeleton = extractYaml(resultText(await use("stepgate_outline", { procedure: SOP })));
