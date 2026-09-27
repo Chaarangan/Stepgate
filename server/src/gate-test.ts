@@ -4,7 +4,7 @@ import { compileStepGates, type GateVerdict } from "./engine/gates.ts";
 import type { HttpContext } from "./engine/http.ts";
 import { createValidator, describeErrors } from "./engine/json-schema.ts";
 import type { EvidenceCall } from "./engine/predicate.ts";
-import type { Json, JsonObject, Stepfile } from "./engine/types.ts";
+import type { Approvals, Json, JsonObject, Stepfile } from "./engine/types.ts";
 
 /** One step of a case: the calls it made, what it submitted, and whether every gate should pass or which should fail. */
 export type CaseStep = { step: string; calls: EvidenceCall[]; output: Json; expect: "pass" | { fail: string[] } };
@@ -105,9 +105,16 @@ const OFFLINE: HttpContext = {
   limits: { requestTimeoutMs: 1, responseBytes: 1 },
 };
 
+const NO_PEOPLE: Approvals = {
+  available: false,
+  ask: async (request) => {
+    throw new TypeError(`approve gate ${request.gate} reached an offline test, which skips approve gates`);
+  },
+};
+
 /**
  * Runs each case's steps through the stepfile's own gates with the recorded calls, no network and no model.
- * A step's output joins `steps` for later ones when it is expected to pass. Verifier gates are skipped and named.
+ * A step's output joins `steps` for later ones when it is expected to pass. Verifier and approve gates are skipped and named.
  */
 export async function testGates(stepfile: Stepfile, cases: GateCase[]): Promise<CaseReport[]> {
   const ajv = createValidator();
@@ -119,9 +126,9 @@ export async function testGates(stepfile: Stepfile, cases: GateCase[]): Promise<
       if (step === undefined) {
         throw new TypeError(`step ${caseStep.step} vanished after parseCases checked it`);
       }
-      const offline = step.gates.filter((gate) => !("http" in gate));
-      const skipped = step.gates.filter((gate) => "http" in gate).map((gate) => gate.id);
-      const verdicts = await compileStepGates(stepfile.document, OFFLINE, { ...step, gates: offline }, ajv)
+      const offline = step.gates.filter((gate) => !("http" in gate) && !("approve" in gate));
+      const skipped = step.gates.filter((gate) => "http" in gate || "approve" in gate).map((gate) => gate.id);
+      const verdicts = await compileStepGates(stepfile.document, { http: OFFLINE, approvals: NO_PEOPLE }, { ...step, gates: offline }, ajv)
         .check({ inputs: item.inputs, steps: accepted, output: caseStep.output, calls: caseStep.calls });
       const failed = verdicts.filter((verdict) => !verdict.passed);
       const expected = caseStep.expect === "pass" ? [] : [...caseStep.expect.fail].sort();

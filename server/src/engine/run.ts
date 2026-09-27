@@ -64,6 +64,9 @@ async function preflight(stepfile: Stepfile, inputs: JsonObject, runContext: Run
     throw new PreflightFailed("inputs", describeErrors(validateInputs.errors));
   }
   await checkCredentials(stepfile, runContext);
+  if (!runContext.approvals.available && stepfile.document.steps.some((step) => step.gates.some((gate) => "approve" in gate))) {
+    throw new PreflightFailed("approval", "the stepfile has approve gates, which ask a person through MCP elicitation, and this client does not support elicitation");
+  }
   const toolSchemas = createToolSchemaValidators();
 
   const tools = new Map<string, StepOperation>();
@@ -218,7 +221,7 @@ export async function startRun(written: Stepfile, inputs: JsonObject, runContext
     const http: HttpContext = { allowedHosts: new Set(Object.values(stepfile.document.tools ?? {}).map(declaredToolHost)), append, userAgent: runContext.userAgent, credentials: runContext.credentials, limits: runContext.limits };
     prepared = await preflight(stepfile, inputs, runContext, http);
     const ajv = createValidator();
-    const gates = new Map<string, StepGates>(stepfile.document.steps.map((step) => [step.id, compileStepGates(stepfile.document, http, step, ajv)]));
+    const gates = new Map<string, StepGates>(stepfile.document.steps.map((step) => [step.id, compileStepGates(stepfile.document, { http, approvals: runContext.approvals }, step, ajv)]));
     return { stepfile, tools: prepared.tools, gates };
   });
   const steps = session.stepfile.document.steps;

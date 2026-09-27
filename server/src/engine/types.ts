@@ -28,7 +28,8 @@ export type ToolDeclaration = {
 export type Gate =
   | { id: string; schema: JsonSchema }
   | { id: string; predicate: JsonObject; message: string; explain?: JsonObject }
-  | { id: string; http: { tool: string } };
+  | { id: string; http: { tool: string } }
+  | { id: string; approve: { message: string } };
 
 export type Step = {
   id: string;
@@ -77,8 +78,18 @@ export type CredentialSource = {
   rejected: (name: string, declaration: CredentialDeclaration) => Promise<boolean>;
 };
 
+/** What an approve gate asks a person: the gate's message, with the output shown beneath it. */
+export type ApprovalRequest = { stepfile: string; step: string; gate: string; message: string; output: Json };
+
+/** A person's decision on approve gates, reached through the client; `available` is false when the client cannot ask one. */
+export type Approvals = {
+  available: boolean;
+  ask: (request: ApprovalRequest) => Promise<{ approved: boolean; reason: string | null }>;
+};
+
 /** What a run needs from Stepgate: credentials, settings, a ledger sink and limits. */
 export type RunContext = {
+  approvals: Approvals;
   credentials: CredentialSource;
   /** The operator's value for a setting, such as a site name; raises SettingUnavailable when unset. */
   settings: (name: string, declaration: SettingDeclaration) => Promise<string>;

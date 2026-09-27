@@ -1,7 +1,7 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
-import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { ElicitRequestSchema, type CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { readFileSync } from "node:fs";
 import { parse as parseYaml } from "yaml";
 import type { DraftPolicy } from "../src/authoring.ts";
@@ -40,6 +40,8 @@ export type Setup = {
   /** What the client does after starting the run, in order, until the run finishes or fails. */
   actions: Action[];
   credentials?: Record<string, string>;
+  /** How the person answers each approve gate, in order; when absent the client declares no elicitation support. */
+  approvals?: Array<{ action: "accept" | "decline" | "cancel"; reason?: string }>;
   /** Replaces `credentials` with a real source, such as the operator's environment adapter. */
   credentialSource?: CredentialSource;
   settings?: (addresses: { cataloguePort: string }) => Record<string, string>;
@@ -54,6 +56,8 @@ export type Harness = {
   client: Client;
   /** Starts a run with these inputs, plays the actions, and returns the last response. */
   call: (args: JsonObject) => Promise<CallToolResult>;
+  /** The message of every approval the client was asked for. */
+  asked: string[];
   /** Every response the client received, starting with the run's first step. */
   seen: CallToolResult[];
   records: LedgerRecord[];
@@ -89,7 +93,19 @@ export async function startHarness(setup: Setup): Promise<Harness> {
     userAgent: userAgent(null),
     drafts: setup.drafts?.({ catalogueHost: api.host }) ?? { urlAllowed: loopbackOrPublic, credentials: new Map(), settings: new Set() },
   });
-  const client = new Client({ name: "platform", version: "1.0.0" });
+  const client = new Client({ name: "platform", version: "1.0.0" }, { capabilities: setup.approvals === undefined ? {} : { elicitation: { form: {} } } });
+  const answers = [...(setup.approvals ?? [])];
+  const asked: string[] = [];
+  if (setup.approvals !== undefined) {
+    client.setRequestHandler(ElicitRequestSchema, async (request) => {
+      asked.push(request.params.message);
+      const answer = answers.shift();
+      if (answer === undefined) {
+        throw new Error("the test scripted no more approval answers");
+      }
+      return answer.reason === undefined ? { action: answer.action } : { action: answer.action, content: { reason: answer.reason } };
+    });
+  }
   const seen: CallToolResult[] = [];
   const respond = async (name: string, args: JsonObject) => {
     const result = (await client.callTool({ name, arguments: args })) as CallToolResult;
@@ -116,6 +132,7 @@ export async function startHarness(setup: Setup): Promise<Harness> {
       return result;
     },
     seen,
+    asked,
     records,
     api,
     mcp,

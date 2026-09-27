@@ -4,7 +4,7 @@ import { guardedFetch, readText, type HttpContext } from "./http.ts";
 import { compileWithDefs, describeErrors } from "./json-schema.ts";
 import { credentialOf, toolUrl } from "./load.ts";
 import { evaluateExpression, evaluatePredicate, type PredicateContext } from "./predicate.ts";
-import type { Gate, Json, JsonObject, Step, StepfileDocument } from "./types.ts";
+import type { Approvals, Gate, Json, JsonObject, Step, StepfileDocument } from "./types.ts";
 
 const MAX_EXPLANATION = 2_000;
 
@@ -65,7 +65,7 @@ function explained(message: string, explain: JsonObject | undefined, context: Ga
   return `${message} ${text.length > MAX_EXPLANATION ? `${text.slice(0, MAX_EXPLANATION)} [cut at ${MAX_EXPLANATION} characters]` : text}`;
 }
 
-function compileGate(document: StepfileDocument, http: HttpContext, step: Step, gate: Gate, ajv: Ajv2020): (context: GateContext) => Promise<GateVerdict> {
+function compileGate(document: StepfileDocument, services: GateServices, step: Step, gate: Gate, ajv: Ajv2020): (context: GateContext) => Promise<GateVerdict> {
   const defs = document.$defs ?? {};
   if ("schema" in gate) {
     const validate: ValidateFunction = compileWithDefs(ajv, gate.schema, defs);
@@ -74,13 +74,22 @@ function compileGate(document: StepfileDocument, http: HttpContext, step: Step, 
   if ("predicate" in gate) {
     return async (context) => verdict(gate.id, evaluatePredicate(gate.predicate, context) ? null : explained(gate.message, gate.explain, context));
   }
-  return async (context) => verdict(gate.id, await askVerifier(document, http, step, gate.id, gate.http.tool, context));
+  if ("approve" in gate) {
+    return async (context) => {
+      const { approved, reason } = await services.approvals.ask({ stepfile: document.id, step: step.id, gate: gate.id, message: gate.approve.message, output: context.output });
+      return verdict(gate.id, approved ? null : `a person declined to approve this output${reason === null ? "" : `: ${reason}`}`);
+    };
+  }
+  return async (context) => verdict(gate.id, await askVerifier(document, services.http, step, gate.id, gate.http.tool, context));
 }
 
+/** What gates reach outside the process: verifiers over HTTP, and people through the client. */
+export type GateServices = { http: HttpContext; approvals: Approvals };
+
 /** Compiles the step's output schema and gates against the document's settings-resolved tools. */
-export function compileStepGates(document: StepfileDocument, http: HttpContext, step: Step, ajv: Ajv2020): StepGates {
+export function compileStepGates(document: StepfileDocument, services: GateServices, step: Step, ajv: Ajv2020): StepGates {
   const validateOutput = compileWithDefs(ajv, step.produces, document.$defs ?? {});
-  const gates = step.gates.map((gate) => compileGate(document, http, step, gate, ajv));
+  const gates = step.gates.map((gate) => compileGate(document, services, step, gate, ajv));
   return {
     check: async (context) => {
       if (!validateOutput(context.output)) {

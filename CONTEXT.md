@@ -13,7 +13,7 @@ One unit of a stepfile: instructions, the tools it may call, the output it must 
 _Avoid_: task, node, stage
 
 **Gate**:
-A mechanical check on a step's submitted output that decides whether the step passed. Never judged by a model.
+A mechanical check on a step's submitted output, or a person's approval of it, that decides whether the step passed. Never judged by a model.
 _Avoid_: guardrail, validator, check, assertion
 
 **Output**:

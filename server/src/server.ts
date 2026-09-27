@@ -1,13 +1,13 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { CallToolRequestSchema, ListToolsRequestSchema, type CallToolResult, type Tool } from "@modelcontextprotocol/sdk/types.js";
 import { draftProblems, examples, guide, inspectApi, validateDraft, type DraftPolicy } from "./authoring.ts";
-import { DraftRefused, RunNotActive, StepgateError } from "./engine/errors.ts";
+import { DraftRefused, RunNotActive, StepgateError, ToolCallFailed } from "./engine/errors.ts";
 import { load } from "./engine/load.ts";
 import type { Progress, StepView } from "./engine/run.ts";
 import { createRuns } from "./engine/runs.ts";
 import type { LedgerSink } from "./engine/ledger.ts";
 import { VERSION } from "./version.ts";
-import type { Json, JsonObject, RunContext, Stepfile } from "./engine/types.ts";
+import type { Approvals, Json, JsonObject, RunContext, Stepfile } from "./engine/types.ts";
 
 export type StepgateServerOptions = {
   credentials: RunContext["credentials"];
@@ -165,6 +165,24 @@ export function createStepgateServer(stepfiles: Stepfile[], options: StepgateSer
   const byId = new Map(stepfiles.map((stepfile) => [stepfile.document.id, stepfile]));
   const server = new Server({ name: "stepgate", version: VERSION }, { capabilities: { tools: {} }, instructions: INSTRUCTIONS });
   const runs = createRuns(options.runIdleMs);
+
+  // An approve gate is answered by a person through the client's form elicitation, given as long as a run may idle.
+  const askPerson: Approvals["ask"] = async (request) => {
+    const shown = JSON.stringify(request.output, null, 2);
+    const output = shown.length > options.limits.toolResultChars ? `${shown.slice(0, options.limits.toolResultChars)}\n[cut at ${options.limits.toolResultChars} characters]` : shown;
+    let answer: Awaited<ReturnType<Server["elicitInput"]>>;
+    try {
+      answer = await server.elicitInput({
+        mode: "form",
+        message: `${request.message}\n\nStep ${request.step} of ${request.stepfile} submitted:\n${output}`,
+        requestedSchema: { type: "object", properties: { reason: { type: "string", title: "Reason", description: "If you decline, what should change." } } },
+      }, { timeout: options.runIdleMs });
+    } catch (error) {
+      throw new ToolCallFailed(`approval ${request.gate}`, null, `the client did not return a decision: ${(error as Error).message}`, { cause: error });
+    }
+    const reason = typeof answer.content?.reason === "string" && answer.content.reason.trim() !== "" ? answer.content.reason.trim() : null;
+    return answer.action === "accept" ? { approved: true, reason } : { approved: false, reason: reason ?? (answer.action === "cancel" ? "the request was dismissed" : null) };
+  };
   server.onclose = () => void runs.abandonAll();
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
@@ -182,7 +200,8 @@ export function createStepgateServer(stepfiles: Stepfile[], options: StepgateSer
   }));
 
   const started = async (stepfile: Stepfile, inputs: JsonObject): Promise<CallToolResult> => {
-    const { run, progress } = await runs.start(stepfile, inputs, options);
+    const approvals: Approvals = { available: server.getClientCapabilities()?.elicitation?.form !== undefined, ask: askPerson };
+    const { run, progress } = await runs.start(stepfile, inputs, { ...options, approvals });
     return progressResult(run, progress);
   };
 

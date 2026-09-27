@@ -110,6 +110,45 @@ describe("gates", () => {
   });
 });
 
+describe("approve gates", () => {
+  const approving = (stepfile: JsonObject) => {
+    const summary = steps(stepfile)[1] as JsonObject;
+    summary.gates = [{ id: "reviewed", approve: { message: "Send this summary to the customer?" } }];
+    summary.retries = 1;
+  };
+
+  it("asks a person through elicitation and continues when they approve", async () => {
+    const { call, asked, records } = await start({ edit: approving, approvals: [{ action: "accept" }], actions: [GOOD_STOCK, GOOD_SUMMARY] });
+
+    const result = await call({ item: "K-1" });
+
+    expect(stateOf(result)).toMatchObject({ state: "finished" });
+    expect(asked).toHaveLength(1);
+    expect(asked[0]).toMatch(/^Send this summary to the customer\?\n\nStep summary of stock-check submitted:\n[\s\S]*Blue kettle has 4 in stock/);
+    expect(records).toContainEqual(expect.objectContaining({ type: "gate", gate: "reviewed", verdict: "pass" }));
+  });
+
+  it("returns a person's reason for declining to the client as the gate's diagnosis", async () => {
+    const { call, seen } = await start({
+      edit: approving,
+      approvals: [{ action: "decline", reason: "Mention the supplier." }, { action: "accept" }],
+      actions: [GOOD_STOCK, GOOD_SUMMARY, submit({ summary: "Blue kettle has 4 in stock, from Acme." })],
+    });
+
+    const result = await call({ item: "K-1" });
+
+    expect(textOf(seen[2])).toContain("- reviewed: a person declined to approve this output: Mention the supplier.");
+    expect(stateOf(result)).toMatchObject({ state: "finished", outputs: { summary: { summary: "Blue kettle has 4 in stock, from Acme." } } });
+  });
+
+  it("fails preflight when the client cannot ask a person", async () => {
+    const { call, seen } = await start({ edit: approving, actions: [] });
+
+    expect(resultText(await call({ item: "K-1" }))).toContain("PreflightFailed: preflight failed for approval: the stepfile has approve gates");
+    expect(stepViews(seen)).toEqual([]);
+  });
+});
+
 describe("verifier outages", () => {
   it("stops the run with ToolCallFailed when a verifier answers with something other than JSON", async () => {
     const { call, records } = await start({

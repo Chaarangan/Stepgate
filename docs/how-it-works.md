@@ -67,7 +67,7 @@ Limits depend on the client and its model, so they are command-line options rath
 | Error | Meaning |
 |---|---|
 | `StepfileInvalid` | The file failed the schema or a load-time rule; carries each issue's path |
-| `PreflightFailed` | A check before step 1 failed; names the `item` (`inputs`, `setting <name>`, `credential <name>` or `tool <name>`) |
+| `PreflightFailed` | A check before step 1 failed; names the `item` (`inputs`, `setting <name>`, `credential <name>`, `tool <name>`, or `approval` when the client cannot ask a person) |
 | `CredentialUnavailable` | A credential is not set in the environment |
 | `SettingUnavailable` | A setting is not set in the environment; reported through `PreflightFailed` as `setting <name>` |
 | `InvalidGrant` | An OAuth grant was revoked; never retried |

@@ -374,6 +374,11 @@
           "required": [
             "http"
           ]
+        },
+        {
+          "required": [
+            "approve"
+          ]
         }
       ],
       "additionalProperties": false,
@@ -406,6 +411,21 @@
         "explain": {
           "$ref": "#/$defs/predicate",
           "description": "A JSONLogic expression evaluated only when the predicate fails; its result, such as the items that broke the rule, is added to the diagnosis."
+        },
+        "approve": {
+          "type": "object",
+          "description": "Asks a person, through the client's MCP elicitation, to approve the output; declining fails the gate with their reason.",
+          "required": [
+            "message"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "message": {
+              "type": "string",
+              "minLength": 1,
+              "description": "What the person is asked to approve; the output is shown beneath it."
+            }
+          }
         }
       },
       "dependentRequired": {

@@ -126,7 +126,7 @@ Steps run in file order. There is no branching, looping or parallel block; `when
 
 ## Gates
 
-A gate is a mechanical check on the submitted output. Every gate blocks; there are no advisory gates and no gates judged by a model.
+A gate is a mechanical check on the submitted output, or a person's approval of it. Every gate blocks; there are no advisory gates and no gates judged by a model.
 
 Gates see `{ inputs, steps, output, calls }`: the run's inputs, each earlier step's accepted output under `steps.<id>`, the submission being checked as `output`, and `calls`, every tool call this step has made. The output is validated against `produces` first; a mismatch fails like a gate.
 
@@ -206,6 +206,15 @@ steps:
         http: { tool: checker }
 ```
 
+**`approve`** asks a person. Stepgate sends the client an MCP [elicitation](https://modelcontextprotocol.io/specification/2025-06-18/client/elicitation) with the gate's `message` and the submitted output beneath it; the gate passes when the person accepts, and fails with their reason, which the model sees, when they decline. Put it on the step before anything irreversible, such as sending the email a draft step prepared. A run whose stepfile has an `approve` gate fails preflight on a client that does not support elicitation.
+
+```yaml
+- id: reviewed
+  approve: { message: Send this email to the customer list? }
+```
+
+It is still mechanical: a person decides, never a model. How long Stepgate waits for the answer is `--run-idle-ms`.
+
 ## Testing gates offline
 
 `stepgate --test <stepfile> [<cases.yaml>]` runs a stepfile's gates over recorded calls and outputs, with no model and no network, and exits 1 when a verdict differs from what the case expects. The cases default to `<id>.cases.yaml` beside the stepfile, and the catalog's CI runs every entry's cases.
@@ -224,7 +233,7 @@ cases:
         expect: { fail: [docs-match-searches] }   # or: pass
 ```
 
-Steps run in the order listed, and a step expected to `pass` becomes `steps.<id>` for the ones after it. `http` gates need their verifier, so they are skipped and named in the report. [media/book-list-verification](../stepfiles/media/book-list-verification/) has a complete cases file.
+Steps run in the order listed, and a step expected to `pass` becomes `steps.<id>` for the ones after it. `http` gates need their verifier and `approve` gates a person, so both are skipped and named in the report. [media/book-list-verification](../stepfiles/media/book-list-verification/) has a complete cases file.
 
 ## When a gate fails
 
