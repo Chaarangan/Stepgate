@@ -266,8 +266,7 @@
               {
                 "type": "object",
                 "required": [
-                  "name",
-                  "schema_sha256"
+                  "name"
                 ],
                 "additionalProperties": false,
                 "properties": {
@@ -276,8 +275,13 @@
                   },
                   "schema_sha256": {
                     "$ref": "#/$defs/sha256"
+                  },
+                  "select": {
+                    "$ref": "#/$defs/predicate",
+                    "description": "A JSONLogic expression over the operation's result; the client sees only what it returns, while gates still see the full result."
                   }
-                }
+                },
+                "minProperties": 2
               }
             ]
           }

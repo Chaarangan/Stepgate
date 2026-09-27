@@ -76,7 +76,7 @@ async function prepareMcpTool(
         throw new PreflightFailed(`tool ${toolName}`, `server does not offer ${name}; it offers ${[...available.keys()].join(", ")}`);
       }
       const inputSchema = tool.inputSchema as JsonObject;
-      if (typeof entry !== "string" && canonicalHash(inputSchema) !== entry.schema_sha256) {
+      if (typeof entry !== "string" && entry.schema_sha256 !== undefined && canonicalHash(inputSchema) !== entry.schema_sha256) {
         throw new PreflightFailed(`tool ${toolName}`, `${name} input schema is ${canonicalHash(inputSchema)}, expected ${entry.schema_sha256}`);
       }
       return { name, description: tool.description ?? name, inputSchema };

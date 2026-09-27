@@ -16,7 +16,7 @@ import { compileToolSchema, createToolSchemaValidators, createValidator, describ
 import { createLedger, type AppendRecord } from "./ledger.ts";
 import { credentialOf, declaredToolHost } from "./load.ts";
 import { renderInstructions } from "./placeholders.ts";
-import { evaluatePredicate, type EvidenceCall } from "./predicate.ts";
+import { evaluateExpression, evaluatePredicate, type EvidenceCall } from "./predicate.ts";
 import { resolveSettings } from "./settings.ts";
 import { kindOf } from "./tools/kinds.ts";
 import type { ToolResult } from "./tools/tool.ts";
@@ -28,6 +28,8 @@ type StepOperation = {
   toolName: string;
   host: string;
   credential: string | null;
+  /** What the client is shown of the result, when the stepfile narrows it; gates always see the whole result. */
+  select: JsonObject | null;
   call: (args: JsonObject) => Promise<ToolResult>;
 };
 
@@ -89,8 +91,10 @@ async function preflight(stepfile: Stepfile, inputs: JsonObject, runContext: Run
         } catch (error) {
           throw new PreflightFailed(`tool ${toolName}`, `input schema of ${definition.name} does not compile: ${(error as Error).message}`);
         }
+        const exposed = (declaration.exposes ?? []).find((entry) => typeof entry !== "string" && entry.name === definition.name);
         tools.set(definition.name, {
           definition,
+          select: typeof exposed === "object" ? exposed.select ?? null : null,
           validateArgs,
           toolName,
           host: declaredToolHost(declaration),
@@ -129,6 +133,8 @@ async function callTool(prepared: StepOperation, operation: string, args: Json |
   }
   const started = performance.now();
   const result = await prepared.call(args);
+  // An error result is shown whole, so the client can see what went wrong.
+  const shown = prepared.select === null || result.isError ? result.content : JSON.stringify(evaluateExpression(prepared.select, parseResult(result.content)));
   await append("tool_call", {
     step: stepId,
     tool: prepared.toolName,
@@ -139,11 +145,13 @@ async function callTool(prepared: StepOperation, operation: string, args: Json |
     duration_ms: Math.round(performance.now() - started),
     credential: prepared.credential,
     response: { sha256: textHash(result.content), length: result.content.length },
-    truncated_to: result.content.length > limit ? limit : null,
+    shown: { length: shown.length, selected: prepared.select !== null && !result.isError },
+    truncated_to: shown.length > limit ? limit : null,
   });
+  const parsed = parseResult(result.content);
   return {
-    shown: { ...result, content: truncate(result.content, limit) },
-    evidence: { tool: operation, arguments: args, result: parseResult(result.content), is_error: result.isError },
+    shown: { ...result, content: truncate(shown, limit) },
+    evidence: { tool: operation, arguments: args, result: parsed, is_error: result.isError },
   };
 }
 

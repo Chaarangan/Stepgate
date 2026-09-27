@@ -90,7 +90,7 @@ Every run writes a hash-chained ledger. Each record carries `run`, `stepfile`, `
 |---|---|
 | `run_started` | the stepfile's identity and a hash of the inputs |
 | `step_started`, `step_skipped`, `step_passed` | the step and attempt |
-| `tool_call` | tool, operation, host, status, duration, and the credential's name |
+| `tool_call` | tool, operation, host, status, duration, the credential's name, a hash and length of the response, and the length the client was shown after any `select` |
 | `tool_refused` | an operation the step does not allow, which the client tried to call |
 | `submit` | the step, attempt, and a hash and length of the output |
 | `gate` | the gate, its verdict and a hash of its diagnosis; an output that breaks `produces` is a failed gate named `produces` |

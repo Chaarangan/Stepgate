@@ -66,6 +66,17 @@ function checkCrossFieldRules(document: StepfileDocument): ValidationIssue[] {
         issues.push({ path: `/tools/${toolName}/exposes`, message: `${name} is already exposed by tool ${owner}` });
       }
       exposedOwners.set(name, toolName);
+      if (typeof entry !== "string" && entry.schema_sha256 !== undefined && tool.mcp === undefined) {
+        issues.push({ path: `/tools/${toolName}/exposes`, message: `${name}: schema_sha256 pins an MCP tool's schema; an OpenAPI operation is pinned by the document's sha256` });
+      }
+      if (typeof entry !== "string" && entry.select !== undefined) {
+        for (const pattern of matchAllPatterns(entry.select)) {
+          const problem = patternProblem(pattern);
+          if (problem !== null) {
+            issues.push({ path: `/tools/${toolName}/exposes`, message: `${name}: ${problem}` });
+          }
+        }
+      }
     }
 
     if (tool.credential !== undefined) {

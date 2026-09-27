@@ -204,6 +204,22 @@ describe("evidence", () => {
     expect(textOf(seen[2])).toContain('- suppliers-from-lookup: every supplier must be one the lookup returned; these were not: ["Globex","Initech"]');
   });
 
+  it("shows the client only what select keeps, while gates still check the whole result", async () => {
+    const { call, seen, records } = await start({
+      edit: (stepfile) => {
+        countMatchesCatalogue(stepfile);
+        ((stepfile.tools as JsonObject).catalogue as JsonObject).exposes = [{ name: "getItem", select: { cat: ["stock: ", { var: "stock" }] } }, "getFlaky", "getRevoked"];
+      },
+      actions: [use("getItem", { id: "K-1" }), GOOD_STOCK, GOOD_SUMMARY],
+    });
+
+    const result = await call({ item: "K-1" });
+
+    expect(textOf(seen[1])).toBe('"stock: 4"');
+    expect(result.isError).toBeFalsy();
+    expect(records.find((record) => record.type === "tool_call")).toMatchObject({ shown: { length: 10, selected: true } });
+  });
+
   it("cannot pass an evidence gate without calling the tool", async () => {
     const { call } = await start({ edit: countMatchesCatalogue, actions: [GOOD_STOCK, GOOD_STOCK] });
 

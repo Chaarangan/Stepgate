@@ -60,6 +60,14 @@ tools:
 
 Exposed names match `^[a-zA-Z0-9_-]{1,64}$`, which the major model APIs accept as tool names. A tool binds at most one credential. An MCP tool takes a `bearer` or `oauth2` credential, sent as an `Authorization: Bearer` header. An OpenAPI tool places its credential where the operation's security scheme says, and always as HTTP Basic for a `basic` credential.
 
+An `exposes` entry may also be an object with a `select`: a JSONLogic expression over the operation's result (parsed as JSON where it is JSON), whose value is all the client is shown. Gates still see the whole result in `calls`, so a large response can be narrowed to the fields a step needs without the model losing evidence to truncation or the gates losing what the API returned. An error result is shown whole.
+
+```yaml
+exposes:
+  - name: searchBooks
+    select: { map: [{ var: docs }, { cat: [{ var: key }, " ", { var: title }] }] }
+```
+
 An OpenAPI parameter whose schema allows exactly one value (`const`, or an `enum` with one entry) is sent with that value on every call and is not shown to the model. Use it for fixed headers and query values an API requires, such as `format: json`.
 
 An array query parameter is sent the way OpenAPI specifies by default, repeating the name (`tag=red&tag=blue`); with `explode: false` it is sent comma-separated (`fields=name,stock`). A request body is sent as JSON when the operation accepts `application/json`. Otherwise, for a `text/*` or `message/*` content type, the model supplies the body as a plain string and Stepgate sends it with that content type, which is how a raw email reaches Gmail's `message/rfc822` upload without any encoding by the model.
