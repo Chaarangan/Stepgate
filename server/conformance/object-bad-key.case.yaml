@@ -1,0 +1,24 @@
+name: object gives null for a pair whose key is not a string, so a gate fails rather than the run
+stepfile:
+  stepgate: "1"
+  id: shapes
+  inputs: { type: object, properties: {} }
+  steps:
+    - id: label
+      instructions: Submit a label.
+      produces: { type: object, required: [label], properties: { label: {} } }
+      gates:
+        - id: shaped
+          message: the label must make an object key
+          predicate: { "!=": [{ object: [[{ var: output.label }, 1]] }, null] }
+      retries: 1
+inputs: {}
+actions:
+  - submit: { label: 5 }
+  - submit: { label: stock }
+expect:
+  replies:
+    - { state: running, step: label }
+    - { state: running, failures: [shaped] }
+    - { state: finished }
+  ledger: [run_started, step_started, submit, gate, submit, gate, step_passed, run_finished]

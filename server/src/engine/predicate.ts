@@ -61,12 +61,9 @@ register("join", (left: unknown, right: unknown, leftPath: unknown, rightPath: u
   }));
 });
 // `object` builds an object from [key, value] pairs, because JSONLogic keeps an object literal as data, unevaluated.
-register("object", (...pairs: unknown[]) => Object.fromEntries(pairs.map((pair) => {
-  if (!Array.isArray(pair) || pair.length !== 2 || typeof pair[0] !== "string") {
-    throw new TypeError(`object takes [key, value] pairs with a string key; got ${JSON.stringify(pair)}`);
-  }
-  return pair as [string, unknown];
-})));
+register("object", (...pairs: unknown[]) =>
+  pairs.every((pair) => Array.isArray(pair) && pair.length === 2 && typeof pair[0] === "string") ? Object.fromEntries(pairs as Array<[string, unknown]>) : null,
+);
 register("lower", (value: unknown) => (typeof value === "string" ? value.toLowerCase() : null));
 register("flatten", (value: unknown) =>
   Array.isArray(value) ? value.flatMap((item: unknown) => (Array.isArray(item) ? item : [item])) : null,
@@ -94,6 +91,10 @@ export function expressionProblems(rule: Json): string[] {
     return [];
   }
   const keys = Object.keys(rule);
+  // An empty object is data by any reading, such as the start of a reduce, so it is not a mistake to report.
+  if (keys.length === 0) {
+    return [];
+  }
   if (keys.length !== 1) {
     return [`an expression holds an object with keys ${keys.join(", ")}, which JSONLogic keeps as data; build it with object`];
   }

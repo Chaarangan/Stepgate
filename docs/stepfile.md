@@ -32,7 +32,7 @@ Unknown fields are rejected. Beyond the schema, Stepgate checks these rules when
 8. Every `derive` key is a property of the step's `produces`.
 9. Every `var` path under `let.` names an entry of the step's `let`, one before it when read from `let` itself, and `when` reads no `let`.
 10. Every `results` takes a literal operation name and optional path, and appears only in an agent step's gates, `let` and `derive`, never in `when`, `select` or `do`.
-11. Every expression is made of one-key objects naming a JSONLogic or Stepgate operator. An object with other keys would be kept as data unevaluated, so it is refused; build it with `object`, or in a template write it as it is.
+11. Every expression is made of one-key objects naming a JSONLogic or Stepgate operator, and empty objects. An object with other keys would be kept as data unevaluated, so it is refused; build it with `object`, or in a template write it as it is.
 
 ## Tools
 
@@ -272,7 +272,7 @@ Besides the standard JSONLogic operators, thirteen more are available:
 | Operator | Arguments | Result |
 |---|---|---|
 | `results` | operation, optional path | The values at `path` (the whole result without one) of every call this step made to the operation that did not fail, flattened one level |
-| `object` | `[key, value]` pairs | An object with those keys and values, each value evaluated; the only way to build one inside `map`, since JSONLogic keeps an object literal as data |
+| `object` | `[key, value]` pairs | An object with those keys and values, each value evaluated, or `null` if a key is not a string; the only way to build one inside `map`, since JSONLogic keeps an object literal as data |
 | `length` | array or string | Number of elements, or of Unicode code points |
 | `unique` | array | Distinct elements by JSON equality, in first-seen order |
 | `subset` | array `a`, array `b` | `true` if every element of `a` is in `b` |

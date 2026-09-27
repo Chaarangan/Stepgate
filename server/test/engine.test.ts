@@ -141,6 +141,13 @@ describe("load", () => {
     expect(messages).toContain("/steps/0/gates/unknown contains is not a JSONLogic or Stepgate operator");
   });
 
+  it("accepts an empty object inside an expression, such as the start of a reduce", () => {
+    const document = parseYaml(readFileSync(MARKET_RESEARCH, "utf8")) as { steps: Array<{ gates: JsonObject[] }> };
+    (document.steps[0] as { gates: JsonObject[] }).gates.push({ id: "reduced", message: "m", predicate: { "!=": [{ reduce: [{ var: "output.sources" }, { var: "accumulator" }, {}] }, null] } });
+
+    expect(load(JSON.stringify(document)).document.id).toBe("market-research");
+  });
+
   it("requires every {placeholder} to be a declared setting, and every setting to be used", () => {
     const document = parseYaml(readFileSync(MARKET_RESEARCH, "utf8")) as { settings?: unknown; tools: { tavily: { mcp: { url: string } } } };
     document.tools.tavily.mcp.url = "https://{region}.mcp.tavily.com/mcp/";
