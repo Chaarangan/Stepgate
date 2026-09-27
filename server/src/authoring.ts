@@ -3,11 +3,11 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { existsSync, readFileSync } from "node:fs";
 import { parse as parseYaml } from "yaml";
-import { catalogDirectory, catalogFile, isPublicHost, listCatalog } from "./catalog.ts";
-import { ApiDocumentInvalid, CredentialUnavailable, SettingUnavailable, StepfileInvalid, StepgateError, ToolCallFailed, UrlNotPublic } from "./engine/errors.ts";
+import { catalogDirectory, catalogFile, listCatalog } from "./catalog.ts";
+import { ApiDocumentInvalid, CredentialUnavailable, StepfileInvalid, StepgateError, ToolCallFailed, UrlNotPublic } from "./engine/errors.ts";
 import { guardedFetch, type HttpContext } from "./engine/http.ts";
 import { canonicalHash, textHash } from "./engine/identity.ts";
-import { declaredToolHost, load, toolUrl } from "./engine/load.ts";
+import { load, toolUrl } from "./engine/load.ts";
 import { inlineLocalRefs, RefNotInlinable } from "./engine/json-schema.ts";
 import { findOperations, toDefinition } from "./engine/tools/openapi.ts";
 import type { Json, JsonObject, Stepfile } from "./engine/types.ts";
@@ -59,8 +59,11 @@ export function examples(name: string | undefined): string {
   return `${lines.length} catalog stepfiles. Call stepgate_examples with a name to read one.\n\n${lines.join("\n")}`;
 }
 
+/** What the operator lets drafts and inspection reach: public https in production, loopback too in tests. */
+export type DraftPolicy = { urlAllowed: (url: string) => boolean };
+
 /** Every rule a draft breaks for stepgate_try; empty when it may run. */
-export function draftProblems(stepfile: Stepfile, loopbackAllowed: boolean): string[] {
+export function draftProblems(stepfile: Stepfile, policy: DraftPolicy): string[] {
   const { document } = stepfile;
   const problems: string[] = [];
   const credentials = Object.keys(document.credentials ?? {});
@@ -72,17 +75,17 @@ export function draftProblems(stepfile: Stepfile, loopbackAllowed: boolean): str
     problems.push(`it declares settings (${settings.join(", ")}), which come from the operator's environment; save it and add it to the server's configuration to try it`);
   }
   for (const [toolName, tool] of Object.entries(document.tools ?? {})) {
-    const url = toolUrl(tool);
-    const local = loopbackAllowed && /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/.test(url);
-    if (!local && (!url.startsWith("https://") || !isPublicHost(declaredToolHost(tool)))) {
-      problems.push(`tool ${toolName} must use a public https URL, not ${url}`);
+    for (const url of [toolUrl(tool), ...(tool.openapi?.url === undefined ? [] : [tool.openapi.url])]) {
+      if (!policy.urlAllowed(url)) {
+        problems.push(`tool ${toolName} must use a public https URL, not ${url}`);
+      }
     }
   }
   return problems;
 }
 
 /** Validates a draft: its issues, or its id, identity and steps and whether stepgate_try accepts it. */
-export function validateDraft(text: string, loopbackAllowed: boolean): { valid: boolean; report: string } {
+export function validateDraft(text: string, policy: DraftPolicy): { valid: boolean; report: string } {
   let stepfile: Stepfile;
   try {
     stepfile = load(text);
@@ -93,7 +96,7 @@ export function validateDraft(text: string, loopbackAllowed: boolean): { valid: 
     throw error;
   }
   const { document, identity } = stepfile;
-  const problems = draftProblems(stepfile, loopbackAllowed);
+  const problems = draftProblems(stepfile, policy);
   const trying = problems.length === 0 ? "stepgate_try can run it." : `stepgate_try will refuse it:\n${problems.map((problem) => `- ${problem}`).join("\n")}`;
   return { valid: true, report: `The stepfile is valid.\nid: ${document.id}\nidentity: ${identity}\nsteps: ${document.steps.map((step) => step.id).join(", ")}\n\n${trying}` };
 }
@@ -101,21 +104,13 @@ export function validateDraft(text: string, loopbackAllowed: boolean): { valid: 
 export type InspectRequest = { kind: "openapi" | "mcp"; url: string; search: string | undefined; operations: string[] | undefined };
 
 function inspectionContext(url: URL, userAgent: string): HttpContext {
-  const refuse = async (name: string): Promise<string> => {
-    throw new CredentialUnavailable(name, "inspection sends no credentials");
-  };
   return {
-    runContext: {
-      credentials: refuse,
-      settings: async (name) => {
-        throw new SettingUnavailable(name, "inspection reads no settings");
-      },
-      ledger: () => undefined,
-      limits: { callsPerStep: 1, toolResultChars: 1 },
-      userAgent,
-    },
     allowedHosts: new Set([url.host]),
     append: async () => undefined,
+    userAgent,
+    credentials: async (name) => {
+      throw new CredentialUnavailable(name, "inspection sends no credentials");
+    },
   };
 }
 
@@ -242,17 +237,11 @@ async function inspectMcp(url: URL, context: HttpContext, request: InspectReques
 }
 
 /** Fetches an API description without credentials and reports what a stepfile needs to declare it. */
-export async function inspectApi(request: InspectRequest, userAgent: string, loopbackAllowed: boolean): Promise<string> {
-  let url: URL;
-  try {
-    url = new URL(request.url);
-  } catch {
+export async function inspectApi(request: InspectRequest, userAgent: string, policy: DraftPolicy): Promise<string> {
+  if (!policy.urlAllowed(request.url)) {
     throw new UrlNotPublic(request.url);
   }
-  const local = loopbackAllowed && url.protocol === "http:" && /^(localhost|127\.0\.0\.1)$/.test(url.hostname);
-  if (!local && (url.protocol !== "https:" || !isPublicHost(url.host))) {
-    throw new UrlNotPublic(request.url);
-  }
+  const url = new URL(request.url);
   const context = inspectionContext(url, userAgent);
   return request.kind === "openapi" ? inspectOpenApi(url, context, request) : inspectMcp(url, context, request);
 }

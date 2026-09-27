@@ -15,11 +15,36 @@ export type CredentialBinding = {
   place: (secret: string, headers: Headers, url: URL) => void;
 };
 
+/** What one outbound request needs: the hosts it may reach, where retries are recorded, and the operator's identity and secrets. */
 export type HttpContext = {
-  runContext: RunContext;
   allowedHosts: ReadonlySet<string>;
   append: AppendRecord;
+  userAgent: string;
+  credentials: RunContext["credentials"];
 };
+
+const PRIVATE_IPV4 = /^(0|10|127)\.|^169\.254\.|^172\.(1[6-9]|2\d|3[01])\.|^192\.168\.|^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./;
+
+/**
+ * True for an https URL whose host has a dot and is not a loopback, private, shared or link-local address or a
+ * local-only name. It reads the name only; a public name that resolves to a private address still passes.
+ */
+export function isPublicHttpsUrl(url: string): boolean {
+  if (!URL.canParse(url)) {
+    return false;
+  }
+  const { protocol, hostname } = new URL(url);
+  const host = hostname.toLowerCase();
+  if (protocol !== "https:" || host.startsWith("[") || !host.includes(".") || /\.(local|localhost|internal)$/.test(host)) {
+    return false;
+  }
+  return !(/^\d+\.\d+\.\d+\.\d+$/.test(host) && PRIVATE_IPV4.test(host));
+}
+
+/** True for a plain http URL on a loopback address, which only tests let drafts and inspection reach. */
+export function isLoopbackHttpUrl(url: string): boolean {
+  return URL.canParse(url) && new URL(url).protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(new URL(url).hostname);
+}
 
 /** How long the response asks the caller to wait, from Retry-After or GitHub-style rate-limit headers. */
 function requestedWaitMs(response: Response): number | null {
@@ -71,11 +96,11 @@ export async function guardedFetch(
   for (let attempt = 1; attempt <= ATTEMPTS; attempt += 1) {
     const headers = new Headers(init.headers);
     if (!headers.has("user-agent")) {
-      headers.set("user-agent", context.runContext.userAgent);
+      headers.set("user-agent", context.userAgent);
     }
     const target = new URL(url);
     if (credential !== null) {
-      credential.place(await context.runContext.credentials(credential.name, credential.declaration), headers, target);
+      credential.place(await context.credentials(credential.name, credential.declaration), headers, target);
     }
     let waitMs = FIRST_BACKOFF_MS * 2 ** (attempt - 1);
     try {

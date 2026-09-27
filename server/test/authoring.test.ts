@@ -1,6 +1,7 @@
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it } from "vitest";
+import { isPublicHttpsUrl } from "../src/engine/http.ts";
 import { load } from "../src/engine/load.ts";
 import { resultText, startHarness, stateOf, type Harness, type Setup } from "./harness.ts";
 
@@ -125,7 +126,7 @@ describe("authoring tools", () => {
   });
 
   it("refuses to inspect or try anything on a loopback address outside tests, before contacting it", async () => {
-    const { api } = await start({ draftsMayUseLoopback: false });
+    const { api } = await start({ drafts: { urlAllowed: isPublicHttpsUrl } });
     const localDraft = GREETING.replace("steps:", `tools:\n  local:\n    openapi: { server: "${api.origin}", url: "${api.origin}/openapi.json", sha256: "${PINNED_DIGEST}" }\n    exposes: [getItem]\nsteps:`);
 
     const inspected = resultText(await use("stepgate_inspect_api", { kind: "openapi", url: `${api.origin}/openapi.json` }));

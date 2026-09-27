@@ -16,6 +16,7 @@ import { createServer, type IncomingMessage } from "node:http";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { CredentialUnavailable, SettingUnavailable } from "./engine/errors.ts";
+import { isPublicHttpsUrl } from "./engine/http.ts";
 import { settingVariable } from "./engine/settings.ts";
 import { load } from "./engine/load.ts";
 import { catalogDirectory, catalogFile, listCatalog } from "./catalog.ts";
@@ -128,7 +129,7 @@ const options: StepgateServerOptions = {
   },
   runIdleMs: positiveInteger("run-idle-ms", values["run-idle-ms"]),
   userAgent: userAgent(contactEmail(values.contact)),
-  draftsMayUseLoopback: false,
+  drafts: { urlAllowed: isPublicHttpsUrl },
 };
 
 function served(): string {

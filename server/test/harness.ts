@@ -4,7 +4,9 @@ import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { readFileSync } from "node:fs";
 import { parse as parseYaml } from "yaml";
+import type { DraftPolicy } from "../src/authoring.ts";
 import { SettingUnavailable } from "../src/engine/errors.ts";
+import { isLoopbackHttpUrl, isPublicHttpsUrl } from "../src/engine/http.ts";
 import { load } from "../src/engine/load.ts";
 import type { RunContext, JsonObject, LedgerRecord } from "../src/engine/types.ts";
 import { createStepgateServer } from "../src/server.ts";
@@ -40,7 +42,8 @@ export type Setup = {
   limits?: RunContext["limits"];
   flakyFailures?: number;
   runIdleMs?: number;
-  draftsMayUseLoopback?: boolean;
+  /** Defaults to letting drafts reach the loopback fixture servers as well as public https. */
+  drafts?: DraftPolicy;
 };
 
 export type Harness = {
@@ -80,7 +83,7 @@ export async function startHarness(setup: Setup): Promise<Harness> {
     limits: setup.limits ?? { callsPerStep: 8, toolResultChars: 10_000 },
     runIdleMs: setup.runIdleMs ?? 60_000,
     userAgent: userAgent(null),
-    draftsMayUseLoopback: setup.draftsMayUseLoopback ?? true,
+    drafts: setup.drafts ?? { urlAllowed: (url) => isPublicHttpsUrl(url) || isLoopbackHttpUrl(url) },
   });
   const client = new Client({ name: "platform", version: "1.0.0" });
   const seen: CallToolResult[] = [];

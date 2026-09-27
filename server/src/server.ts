@@ -1,7 +1,7 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { CallToolRequestSchema, ListToolsRequestSchema, type CallToolResult, type Tool } from "@modelcontextprotocol/sdk/types.js";
 import { randomUUID } from "node:crypto";
-import { draftProblems, examples, guide, inspectApi, validateDraft } from "./authoring.ts";
+import { draftProblems, examples, guide, inspectApi, validateDraft, type DraftPolicy } from "./authoring.ts";
 import { DraftRefused, RunNotActive, StepgateError } from "./engine/errors.ts";
 import { load } from "./engine/load.ts";
 import { startRun, type Progress, type Run, type StepView } from "./engine/run.ts";
@@ -17,8 +17,7 @@ export type StepgateServerOptions = {
   /** How long a run may wait for the client's next call before it is abandoned, in milliseconds. */
   runIdleMs: number;
   userAgent: string;
-  /** Lets drafts and inspection reach http://localhost; only tests set it, against local fixture servers. */
-  draftsMayUseLoopback: boolean;
+  drafts: DraftPolicy;
 };
 
 const CALL = "stepgate_call";
@@ -234,7 +233,7 @@ export function createStepgateServer(stepfiles: Stepfile[], options: StepgateSer
     stepgate_guide: async () => ({ report: guide(), isError: false }),
     stepgate_examples: async (args) => ({ report: examples(typeof args.name === "string" ? args.name : undefined), isError: false }),
     stepgate_validate: async (args) => {
-      const { valid, report } = validateDraft(typeof args.stepfile === "string" ? args.stepfile : "", options.draftsMayUseLoopback);
+      const { valid, report } = validateDraft(typeof args.stepfile === "string" ? args.stepfile : "", options.drafts);
       return { report, isError: !valid };
     },
     stepgate_inspect_api: async (args) => ({
@@ -243,7 +242,7 @@ export function createStepgateServer(stepfiles: Stepfile[], options: StepgateSer
         url: typeof args.url === "string" ? args.url : "",
         search: typeof args.search === "string" ? args.search : undefined,
         operations: Array.isArray(args.operations) ? args.operations.map(String) : undefined,
-      }, options.userAgent, options.draftsMayUseLoopback),
+      }, options.userAgent, options.drafts),
       isError: false,
     }),
   };
@@ -276,7 +275,7 @@ export function createStepgateServer(stepfiles: Stepfile[], options: StepgateSer
       }
       if (request.params.name === TRY) {
         const draft = load(typeof args.stepfile === "string" ? args.stepfile : "");
-        const problems = draftProblems(draft, options.draftsMayUseLoopback);
+        const problems = draftProblems(draft, options.drafts);
         if (problems.length > 0) {
           throw new DraftRefused(problems);
         }
