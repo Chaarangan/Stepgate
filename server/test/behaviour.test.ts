@@ -662,3 +662,66 @@ describe("preflight", () => {
     expect(records.map((record) => record.type)).toEqual(["run_started", "run_failed"]);
   });
 });
+
+describe("mechanical steps", () => {
+  /** Turns the stock step into one Stepgate performs, reading the item from the catalogue. */
+  function mechanicalStock(output: JsonObject): (stepfile: JsonObject) => void {
+    return (stepfile) => {
+      const stock = steps(stepfile)[0] as JsonObject;
+      for (const field of ["instructions", "tools", "retries"]) {
+        delete stock[field];
+      }
+      stock.do = { calls: [{ id: "item", operation: "getItem", arguments: { id: { var: "inputs.item" } } }], output };
+    };
+  }
+
+  it("records that Stepgate made a mechanical step's call, and the client its own calls", async () => {
+    const { call, records } = await start({
+      edit: mechanicalStock({ name: { var: "responses.item.name" }, count: { var: "responses.item.stock" }, supplier: "Acme" }),
+      actions: [GOOD_SUMMARY],
+    });
+
+    const result = await call({ item: "K-1" });
+
+    expect(stateOf(result).state).toBe("finished");
+    expect(records.filter((record) => record.type === "tool_call")).toEqual([expect.objectContaining({ step: "stock", caller: "stepgate", call: "item", operation: "getItem" })]);
+  });
+
+  it("records the client as the caller of its own stepgate_call", async () => {
+    const { call, records } = await start({ actions: STOCK_WITH_TOOLS });
+
+    await call({ item: "K-1" });
+
+    const callers = records.filter((record) => record.type === "tool_call").map((record) => [record.caller, record.call]);
+    expect(callers).toEqual([["client", undefined], ["client", undefined]]);
+  });
+
+  it("stops the run with GateFailed naming produces when a mechanical step's output breaks it", async () => {
+    const { call } = await start({
+      edit: mechanicalStock({ name: { var: "responses.item.name" }, count: "four", supplier: "Acme" }),
+      actions: [],
+    });
+
+    const result = await call({ item: "K-1" });
+
+    expect(stateOf(result)).toMatchObject({ state: "failed", error: "GateFailed" });
+    expect(textOf(result)).toMatch(/produces: .*count/);
+  });
+});
+
+describe("automatic diagnoses", () => {
+  it("cuts what a predicate adds to its message at 2,000 characters", async () => {
+    const many = Array.from({ length: 400 }, (_, index) => `missing-item-${index}`);
+    const { call } = await start({
+      edit: (stepfile) => {
+        (steps(stepfile)[0] as JsonObject).gates = [{ id: "all-known", message: "every item must be known", predicate: { subset: [many, []] } }];
+      },
+      actions: [GOOD_STOCK],
+    });
+
+    const result = await call({ item: "K-1" });
+
+    expect(textOf(result)).toContain("every item must be known [\"missing-item-0\"");
+    expect(textOf(result)).toContain("[cut at 2000 characters]");
+  });
+});

@@ -118,6 +118,9 @@ describe("load", () => {
       "/steps/0/do/calls/2 call id one is not unique in the step",
       "/steps/0/do results reads an agent step's calls; a mechanical step reads responses.<call id>",
     ]));
+
+    first.do = { output: { later: { var: "steps.report.summary" } } };
+    expect(issuesOf(() => load(JSON.stringify(document)))).toContain("/steps/0 steps.report.summary does not name an earlier step");
   });
 
   it("refuses a when condition that reads let, which is evaluated only on submission", () => {
