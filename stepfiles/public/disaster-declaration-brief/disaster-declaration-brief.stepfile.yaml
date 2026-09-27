@@ -23,44 +23,42 @@ tools:
         openapi: 3.1.0
         info: { title: OpenFEMA FEMA Web Disaster Declarations (trimmed), version: "1" }
         paths:
-          # OpenFEMA only honours the OData names with the "$" prefix, which model
-          # APIs reject as tool argument names, so the query is fixed in the path
-          # template and the model fills plain path parameters.
-          "/FemaWebDisasterDeclarations?$filter=stateCode eq '{state}' and declarationDate ge '{start_date}' and declarationDate le '{end_date}T23:59:59.999Z'&$select=disasterNumber,declarationDate,disasterName,declarationType,incidentType,ihProgramDeclared,iaProgramDeclared,paProgramDeclared,hmProgramDeclared&$orderby=declarationDate,disasterNumber&$top=50&$skip={skip}&$inlinecount=allpages":
+          # The OData query is fixed in the path template, so a call fills only the state and dates.
+          "/FemaWebDisasterDeclarations?$filter=stateCode eq '{state}' and declarationDate ge '{start_date}' and declarationDate le '{end_date}T23:59:59.999Z'&$select=disasterNumber,declarationDate,disasterName,declarationType,incidentType,ihProgramDeclared,iaProgramDeclared,paProgramDeclared,hmProgramDeclared&$orderby=declarationDate,disasterNumber&$top=1000&$skip=0&$inlinecount=allpages":
             get:
               operationId: listDeclarations
               summary: >
-                One page of up to 50 FEMA disaster declarations for a state, declared
-                between start_date and end_date inclusive, oldest first.
-                metadata.count is the total across all pages; raise skip by 50 to
-                fetch the next page.
+                Up to 1,000 FEMA disaster declarations for a state, declared between
+                start_date and end_date inclusive, oldest first. metadata.count is
+                the total that match.
               parameters:
                 - { name: state, in: path, required: true, schema: { type: string, pattern: "^[A-Z]{2}$" } }
                 - { name: start_date, in: path, required: true, schema: { type: string, pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" } }
                 - { name: end_date, in: path, required: true, schema: { type: string, pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" } }
-                - { name: skip, in: path, required: true, schema: { type: integer, minimum: 0, multipleOf: 50 } }
     exposes: [listDeclarations]
 
 steps:
   - id: declarations
-    tools: [listDeclarations]
-    instructions: |
-      List the federal disaster declarations for {{inputs.state}} declared
-      from {{inputs.start_date}} to {{inputs.end_date}}. Call
-      listDeclarations with state {{inputs.state}}, start_date
-      {{inputs.start_date}}, end_date {{inputs.end_date}} and skip 0. If
-      metadata.count is above 50, call again with skip 50, 100 and so on
-      until every declaration is fetched. Use the same state and dates on
-      every call.
-
-      Submit total_count as metadata.count, and one entry per declaration
-      with values copied exactly from the API: disaster_number
-      (disasterNumber), declaration_date (the first ten characters of
-      declarationDate, YYYY-MM-DD), title (disasterName), declaration_type
-      (declarationType), incident_type (incidentType), and the four program
-      flags ih_program, ia_program, pa_program and hm_program
-      (ihProgramDeclared, iaProgramDeclared, paProgramDeclared,
-      hmProgramDeclared). Include every declaration once. Add none.
+    do:
+      calls:
+        - id: list
+          operation: listDeclarations
+          arguments: { state: { var: inputs.state }, start_date: { var: inputs.start_date }, end_date: { var: inputs.end_date } }
+      output:
+        total_count: { var: responses.list.metadata.count }
+        declarations:
+          map:
+            - { var: responses.list.FemaWebDisasterDeclarations }
+            - object:
+                - [disaster_number, { var: disasterNumber }]
+                - [declaration_date, { substr: [{ var: declarationDate }, 0, 10] }]
+                - [title, { var: disasterName }]
+                - [declaration_type, { var: declarationType }]
+                - [incident_type, { var: incidentType }]
+                - [ih_program, { var: ihProgramDeclared }]
+                - [ia_program, { var: iaProgramDeclared }]
+                - [pa_program, { var: paProgramDeclared }]
+                - [hm_program, { var: hmProgramDeclared }]
     produces:
       type: object
       required: [total_count, declarations]
@@ -86,74 +84,42 @@ steps:
         message: The input start_date must not be after end_date.
         predicate:
           "<=": [{ var: inputs.start_date }, { var: inputs.end_date }]
-      - id: queried-the-inputs
-        message: >
-          Call listDeclarations at least once, successfully, and only with the
-          input state, start_date and end_date.
+      - id: every-declaration-fetched
+        message: The range holds more declarations than one call returns (1,000); narrow it.
         predicate:
-          and:
-            - ">":
-                - length:
-                    filter:
-                      - { var: calls }
-                      - and: [{ "==": [{ var: tool }, listDeclarations] }, { "!": { var: is_error } }]
-                - 0
-            - subset:
-                - map:
-                    - filter: [{ var: calls }, { "==": [{ var: tool }, listDeclarations] }]
-                    - [{ var: arguments.state }, { var: arguments.start_date }, { var: arguments.end_date }]
-                - - [{ var: inputs.state }, { var: inputs.start_date }, { var: inputs.end_date }]
-      - id: declarations-from-api
-        message: >
-          Every declaration (number, date, title, type, incident type and the
-          four program flags) must be a row a listDeclarations call returned,
-          copied exactly, with declaration_date as the first ten characters of
-          declarationDate.
-        predicate:
-          subset:
-            - map:
-                - { var: output.declarations }
-                - [{ var: disaster_number }, { var: declaration_date }, { var: title }, { var: declaration_type }, { var: incident_type }, { var: ih_program }, { var: ia_program }, { var: pa_program }, { var: hm_program }]
-            - flatten:
-                map:
-                  - filter: [{ var: calls }, { "==": [{ var: tool }, listDeclarations] }]
-                  - map:
-                      - { var: result.FemaWebDisasterDeclarations }
-                      - [{ var: disasterNumber }, { substr: [{ var: declarationDate }, 0, 10] }, { var: disasterName }, { var: declarationType }, { var: incidentType }, { var: ihProgramDeclared }, { var: iaProgramDeclared }, { var: paProgramDeclared }, { var: hmProgramDeclared }]
-      - id: total-from-api
-        message: total_count must be metadata.count from a successful listDeclarations call.
-        predicate:
-          in:
-            - { var: output.total_count }
-            - map:
-                - filter:
-                    - { var: calls }
-                    - and: [{ "==": [{ var: tool }, listDeclarations] }, { "!": { var: is_error } }]
-                - { var: result.metadata.count }
-      # With rows proven real, equal counts of distinct numbers means none was skipped.
-      - id: every-declaration-once
-        message: List every declaration exactly once; the number of distinct disaster numbers must equal total_count.
-        predicate:
-          and:
-            - "==": [{ length: { var: output.declarations } }, { var: output.total_count }]
-            - "==":
-                - { length: { unique: { map: [{ var: output.declarations }, { var: disaster_number }] } } }
-                - { var: output.total_count }
-    retries: 2
+          "==": [{ length: { var: output.declarations } }, { var: output.total_count }]
 
   - id: summary
-    instructions: |
-      Declarations for {{inputs.state}}, {{inputs.start_date}} to {{inputs.end_date}}:
-      {{steps.declarations.declarations}}
-
-      Group them by incident_type: one group per distinct incident_type,
-      spelled exactly as above, with count and the disaster_numbers in that
-      group. Every declaration belongs to exactly one group.
-
-      For each assistance program, list the disaster_numbers whose flag is
-      true, and the count: individual_and_households (ih_program),
-      individual_assistance (ia_program), public_assistance (pa_program) and
-      hazard_mitigation (hm_program). Use an empty list and 0 where none.
+    do:
+      output:
+        # Each declaration is added to its group through a join with it, since a map body cannot see outer data.
+        by_incident_type:
+          map:
+            - reduce:
+                - { var: steps.declarations.declarations }
+                - map:
+                    - join: [{ var: accumulator }, [{ var: current }], incident_type, incident_type]
+                    - object:
+                        - [incident_type, { var: left.incident_type }]
+                        - - disaster_numbers
+                          - if: [{ var: right }, { merge: [{ var: left.disaster_numbers }, [{ var: right.disaster_number }]] }, { var: left.disaster_numbers }]
+                - map:
+                    - unique: { map: [{ var: steps.declarations.declarations }, { var: incident_type }] }
+                    - object: [[incident_type, { var: "" }], [disaster_numbers, []]]
+            - object: [[incident_type, { var: incident_type }], [count, { length: { var: disaster_numbers } }], [disaster_numbers, { var: disaster_numbers }]]
+        programs:
+          individual_and_households:
+            count: { length: { filter: [{ var: steps.declarations.declarations }, { var: ih_program }] } }
+            disaster_numbers: { map: [{ filter: [{ var: steps.declarations.declarations }, { var: ih_program }] }, { var: disaster_number }] }
+          individual_assistance:
+            count: { length: { filter: [{ var: steps.declarations.declarations }, { var: ia_program }] } }
+            disaster_numbers: { map: [{ filter: [{ var: steps.declarations.declarations }, { var: ia_program }] }, { var: disaster_number }] }
+          public_assistance:
+            count: { length: { filter: [{ var: steps.declarations.declarations }, { var: pa_program }] } }
+            disaster_numbers: { map: [{ filter: [{ var: steps.declarations.declarations }, { var: pa_program }] }, { var: disaster_number }] }
+          hazard_mitigation:
+            count: { length: { filter: [{ var: steps.declarations.declarations }, { var: hm_program }] } }
+            disaster_numbers: { map: [{ filter: [{ var: steps.declarations.declarations }, { var: hm_program }] }, { var: disaster_number }] }
     produces:
       type: object
       required: [by_incident_type, programs]
@@ -175,61 +141,6 @@ steps:
             individual_assistance: { $ref: "#/$defs/program" }
             public_assistance: { $ref: "#/$defs/program" }
             hazard_mitigation: { $ref: "#/$defs/program" }
-    gates:
-      - id: groups-cover-every-declaration-once
-        message: Every disaster number must appear in exactly one incident-type group, and no other number may appear.
-        predicate:
-          and:
-            - "==":
-                - { length: { flatten: { map: [{ var: output.by_incident_type }, { var: disaster_numbers }] } } }
-                - { length: { var: steps.declarations.declarations } }
-            - "==":
-                - { length: { unique: { flatten: { map: [{ var: output.by_incident_type }, { var: disaster_numbers }] } } } }
-                - { length: { var: steps.declarations.declarations } }
-            - subset:
-                - { flatten: { map: [{ var: output.by_incident_type }, { var: disaster_numbers }] } }
-                - { map: [{ var: steps.declarations.declarations }, { var: disaster_number }] }
-      - id: group-counts-match
-        message: Each group's count must equal the number of disaster_numbers it lists, and incident types must not repeat.
-        predicate:
-          and:
-            - none: [{ var: output.by_incident_type }, { "!=": [{ var: count }, { length: { var: disaster_numbers } }] }]
-            - "==":
-                - { length: { unique: { map: [{ var: output.by_incident_type }, { var: incident_type }] } } }
-                - { length: { var: output.by_incident_type } }
-      # The inner reduce starts from [incident_type], so each member can be paired
-      # with its group's type despite JSONLogic scoping; the bare type is also allowed.
-      - id: groups-match-incident-types
-        message: Each disaster number must sit in the group named by its own incident_type from the declarations step.
-        predicate:
-          subset:
-            - flatten:
-                map:
-                  - { var: output.by_incident_type }
-                  - reduce:
-                      - { var: disaster_numbers }
-                      - merge: [{ var: accumulator }, [{ cat: [{ var: accumulator.0 }, "#", { var: current }] }]]
-                      - [{ var: incident_type }]
-            - merge:
-                - map: [{ var: steps.declarations.declarations }, { cat: [{ var: incident_type }, "#", { var: disaster_number }] }]
-                - map: [{ var: steps.declarations.declarations }, { var: incident_type }]
-      - id: programs-match-flags
-        message: Each program must list exactly the disaster numbers whose flag is true, and count them.
-        predicate:
-          and:
-            - subset: [{ var: output.programs.individual_and_households.disaster_numbers }, { map: [{ filter: [{ var: steps.declarations.declarations }, { var: ih_program }] }, { var: disaster_number }] }]
-            - subset: [{ map: [{ filter: [{ var: steps.declarations.declarations }, { var: ih_program }] }, { var: disaster_number }] }, { var: output.programs.individual_and_households.disaster_numbers }]
-            - "==": [{ var: output.programs.individual_and_households.count }, { length: { filter: [{ var: steps.declarations.declarations }, { var: ih_program }] } }]
-            - subset: [{ var: output.programs.individual_assistance.disaster_numbers }, { map: [{ filter: [{ var: steps.declarations.declarations }, { var: ia_program }] }, { var: disaster_number }] }]
-            - subset: [{ map: [{ filter: [{ var: steps.declarations.declarations }, { var: ia_program }] }, { var: disaster_number }] }, { var: output.programs.individual_assistance.disaster_numbers }]
-            - "==": [{ var: output.programs.individual_assistance.count }, { length: { filter: [{ var: steps.declarations.declarations }, { var: ia_program }] } }]
-            - subset: [{ var: output.programs.public_assistance.disaster_numbers }, { map: [{ filter: [{ var: steps.declarations.declarations }, { var: pa_program }] }, { var: disaster_number }] }]
-            - subset: [{ map: [{ filter: [{ var: steps.declarations.declarations }, { var: pa_program }] }, { var: disaster_number }] }, { var: output.programs.public_assistance.disaster_numbers }]
-            - "==": [{ var: output.programs.public_assistance.count }, { length: { filter: [{ var: steps.declarations.declarations }, { var: pa_program }] } }]
-            - subset: [{ var: output.programs.hazard_mitigation.disaster_numbers }, { map: [{ filter: [{ var: steps.declarations.declarations }, { var: hm_program }] }, { var: disaster_number }] }]
-            - subset: [{ map: [{ filter: [{ var: steps.declarations.declarations }, { var: hm_program }] }, { var: disaster_number }] }, { var: output.programs.hazard_mitigation.disaster_numbers }]
-            - "==": [{ var: output.programs.hazard_mitigation.count }, { length: { filter: [{ var: steps.declarations.declarations }, { var: hm_program }] } }]
-    retries: 2
 
   - id: brief
     instructions: |
@@ -258,6 +169,17 @@ steps:
       required: [markdown]
       properties:
         markdown: { type: string, maxLength: 16000 }
+    let:
+      cited: { match_all: [{ var: output.markdown }, "\\[FEMA-(\\d+)\\]"] }
+      listed: { map: [{ var: steps.declarations.declarations }, { cat: ["", { var: disaster_number }] }] }
+      stated: { match_all: [{ var: output.markdown }, "\\*\\*([^*\\n]+\\*\\*: \\d+)"] }
+      expected:
+        merge:
+          - map: [{ var: steps.summary.by_incident_type }, { cat: [{ var: incident_type }, "**: ", { var: count }] }]
+          - - { cat: ["Individuals and Households**: ", { var: steps.summary.programs.individual_and_households.count }] }
+            - { cat: ["Individual Assistance**: ", { var: steps.summary.programs.individual_assistance.count }] }
+            - { cat: ["Public Assistance**: ", { var: steps.summary.programs.public_assistance.count }] }
+            - { cat: ["Hazard Mitigation**: ", { var: steps.summary.programs.hazard_mitigation.count }] }
     gates:
       - id: sections-in-order
         schema:
@@ -268,12 +190,8 @@ steps:
         message: Cite every declaration as [FEMA-<number>] at least once, and cite no number the declarations step did not list.
         predicate:
           and:
-            - subset:
-                - { match_all: [{ var: output.markdown }, "\\[FEMA-(\\d+)\\]"] }
-                - { map: [{ var: steps.declarations.declarations }, { cat: ["", { var: disaster_number }] }] }
-            - subset:
-                - { map: [{ var: steps.declarations.declarations }, { cat: ["", { var: disaster_number }] }] }
-                - { match_all: [{ var: output.markdown }, "\\[FEMA-(\\d+)\\]"] }
+            - subset: [{ var: let.cited }, { var: let.listed }]
+            - subset: [{ var: let.listed }, { var: let.cited }]
       - id: counts-match-summary
         message: >
           Every "**Label**: N" line must state a count from the summary step,
@@ -282,16 +200,8 @@ steps:
           and Hazard Mitigation.
         predicate:
           and:
-            - subset:
-                - &stated { match_all: [{ var: output.markdown }, "\\*\\*([^*\\n]+\\*\\*: \\d+)"] }
-                - &expected
-                  merge:
-                    - map: [{ var: steps.summary.by_incident_type }, { cat: [{ var: incident_type }, "**: ", { var: count }] }]
-                    - - { cat: ["Individuals and Households**: ", { var: steps.summary.programs.individual_and_households.count }] }
-                      - { cat: ["Individual Assistance**: ", { var: steps.summary.programs.individual_assistance.count }] }
-                      - { cat: ["Public Assistance**: ", { var: steps.summary.programs.public_assistance.count }] }
-                      - { cat: ["Hazard Mitigation**: ", { var: steps.summary.programs.hazard_mitigation.count }] }
-            - subset: [*expected, *stated]
+            - subset: [{ var: let.stated }, { var: let.expected }]
+            - subset: [{ var: let.expected }, { var: let.stated }]
     retries: 2
 
 $defs:
