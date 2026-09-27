@@ -1,7 +1,10 @@
-import { readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { parse as parseYaml } from "yaml";
-import { verifyLedger } from "../src/engine/ledger.ts";
+import { directorySink } from "../src/engine/ledger.ts";
 import { load } from "../src/engine/load.ts";
 import { evaluatePredicate } from "../src/engine/predicate.ts";
 import type { Json } from "../src/engine/types.ts";
@@ -78,14 +81,28 @@ describe("version", () => {
 });
 
 describe("ledger", () => {
-  it("emits a chain that verifies, and fails verification after an edit", async () => {
+  it("writes files that stepgate --verify accepts, and rejects after an edit", async () => {
     harness = await startHarness({ actions: [GOOD_STOCK, GOOD_SUMMARY] });
-
     await harness.call({ item: "K-1" });
+    const directory = mkdtempSync(join(tmpdir(), "stepgate-ledger-"));
+    const sink = directorySink(directory);
+    for (const record of harness.records) {
+      await sink(record);
+    }
+    const [file] = readdirSync(directory);
+    const path = join(directory, file ?? "");
+    const verify = () => spawnSync("node", ["src/cli.ts", "--verify", path], { cwd: new URL("../", import.meta.url), encoding: "utf8", timeout: 10_000 });
 
-    const { records } = harness;
-    expect(verifyLedger(records)).toBe(true);
-    const edited = records.map((record) => (record.type === "gate" ? { ...record, verdict: "fail" } : record));
-    expect(verifyLedger(edited)).toBe(false);
+    const intact = verify();
+    writeFileSync(path, readFileSync(path, "utf8").replace('"verdict":"pass"', '"verdict":"fail"'));
+    const edited = verify();
+    rmSync(directory, { recursive: true, force: true });
+
+    expect(file).toMatch(/^stock-check-[0-9a-f-]+\.jsonl$/);
+    expect(harness.records.every((record) => record.stepfile === "stock-check" && record.run === harness?.records[0]?.run)).toBe(true);
+    expect(intact.status).toBe(0);
+    expect(intact.stdout).toMatch(/: intact, \d+ records/);
+    expect(edited.status).toBe(1);
+    expect(edited.stdout).toMatch(/: broken at seq \d+: prev does not match/);
   });
 });

@@ -79,7 +79,7 @@ export async function startHarness(setup: Setup): Promise<Harness> {
       }
       return value;
     },
-    ledger: (_call, record) => void records.push(record),
+    ledger: (record) => void records.push(record),
     limits: { callsPerStep: 8, toolResultChars: 10_000, requestTimeoutMs: 5_000, responseBytes: 1_000_000, ...setup.limits },
     runIdleMs: setup.runIdleMs ?? 60_000,
     userAgent: userAgent(null),

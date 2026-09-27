@@ -1,19 +1,19 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { randomUUID } from "node:crypto";
 import { CallToolRequestSchema, ListToolsRequestSchema, type CallToolResult, type Tool } from "@modelcontextprotocol/sdk/types.js";
 import { draftProblems, examples, guide, inspectApi, validateDraft, type DraftPolicy } from "./authoring.ts";
 import { DraftRefused, RunNotActive, StepgateError } from "./engine/errors.ts";
 import { load } from "./engine/load.ts";
 import type { Progress, StepView } from "./engine/run.ts";
 import { createRuns } from "./engine/runs.ts";
+import type { LedgerSink } from "./engine/ledger.ts";
 import { VERSION } from "./version.ts";
-import type { Json, JsonObject, LedgerRecord, RunContext, Stepfile } from "./engine/types.ts";
+import type { Json, JsonObject, RunContext, Stepfile } from "./engine/types.ts";
 
 export type StepgateServerOptions = {
   credentials: RunContext["credentials"];
   settings: RunContext["settings"];
-  /** Receives every ledger record, tagged with the stepfile and the run it belongs to. */
-  ledger: (run: { stepfile: string; call: string }, record: LedgerRecord) => void | Promise<void>;
+  /** Receives every ledger record; each carries the run and stepfile it belongs to. */
+  ledger: LedgerSink;
   limits: RunContext["limits"];
   /** How long a run may wait for the client's next call before it is abandoned, in milliseconds. */
   runIdleMs: number;
@@ -182,8 +182,7 @@ export function createStepgateServer(stepfiles: Stepfile[], options: StepgateSer
   }));
 
   const started = async (stepfile: Stepfile, inputs: JsonObject): Promise<CallToolResult> => {
-    const call = randomUUID();
-    const { run, progress } = await runs.start(stepfile, inputs, { ...options, ledger: (record) => options.ledger({ stepfile: stepfile.document.id, call }, record) });
+    const { run, progress } = await runs.start(stepfile, inputs, options);
     return progressResult(run, progress);
   };
 

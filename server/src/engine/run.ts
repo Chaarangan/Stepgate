@@ -182,7 +182,7 @@ type Current = {
 /** Preflights and opens step 1; the client then drives each step with `call` and `submit`. */
 export async function startRun(written: Stepfile, inputs: JsonObject, runContext: RunContext): Promise<{ run: Run; progress: Progress }> {
   const id = randomUUID();
-  const append = createLedger(runContext.ledger);
+  const append = createLedger(runContext.ledger, { run: id, stepfile: written.document.id });
   let prepared: Prepared | undefined;
   let ended = false;
   const end = async (type: string, fields: JsonObject) => {
@@ -212,7 +212,7 @@ export async function startRun(written: Stepfile, inputs: JsonObject, runContext
   };
 
   const session = await guarded(async () => {
-    await append("run_started", { run: id, stepfile: written.document.id, identity: written.identity, inputs: canonicalHash(inputs) });
+    await append("run_started", { identity: written.identity, inputs: canonicalHash(inputs) });
     // Settings are filled in first, so the host allowlist below only ever holds concrete hosts.
     const stepfile: Stepfile = { ...written, document: await resolveSettings(written.document, runContext) };
     const http: HttpContext = { allowedHosts: new Set(Object.values(stepfile.document.tools ?? {}).map(declaredToolHost)), append, userAgent: runContext.userAgent, credentials: runContext.credentials, limits: runContext.limits };

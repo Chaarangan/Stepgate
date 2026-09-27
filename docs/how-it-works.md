@@ -56,7 +56,7 @@ Limits depend on the client and its model, so they are command-line options rath
 | `--run-idle-ms` | 1800000 | How long a run waits for the client's next call before it is abandoned |
 | `--request-timeout-ms` | 60000 | How long one outgoing request may take, body included; an MCP server's event stream has no deadline |
 | `--response-bytes` | 10485760 | Largest response Stepgate reads from a tool, verifier or OpenAPI document (`ResponseTooLarge`) |
-| `--ledger-dir` | none | Write one ledger file per run here; otherwise records go to standard error |
+| `--ledger-dir` | none | Write one ledger file per run here, as `<stepfile>-<run>.jsonl`; otherwise records go to standard error |
 | `--contact` | none | Your contact email, sent in the User-Agent; SEC EDGAR and USAJOBS require one |
 
 ## Errors
@@ -81,7 +81,7 @@ Limits depend on the client and its model, so they are command-line options rath
 
 ## The ledger
 
-Every run writes a hash-chained ledger. Each record carries `seq`, `type`, `at` (an RFC 3339 time) and `prev`, the hash of the previous record, so editing any record breaks the chain.
+Every run writes a hash-chained ledger. Each record carries `run`, `stepfile`, `seq`, `type`, `at` (an RFC 3339 time) and `prev`, the SHA-256 of the previous record's RFC 8785 canonical form, so editing any record breaks the chain. Records are stored exactly as they were hashed: with `--ledger-dir` as one `<stepfile>-<run>.jsonl` file per run, otherwise as JSON lines on standard error. `stepgate --verify <file>...` checks each file and exits 1 naming the first `seq` that does not follow.
 
 | Record | Carries |
 |---|---|

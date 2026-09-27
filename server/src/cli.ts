@@ -11,14 +11,14 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { randomUUID } from "node:crypto";
-import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { createServer, type IncomingMessage } from "node:http";
-import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { CredentialUnavailable, SettingUnavailable } from "./engine/errors.ts";
 import { isPublicHttpsUrl } from "./engine/http.ts";
 import { settingVariable } from "./engine/settings.ts";
 import { oneLine } from "./engine/tools/tool.ts";
+import { directorySink, firstBreak, streamSink } from "./engine/ledger.ts";
 import { load } from "./engine/load.ts";
 import { catalogDirectory, catalogFile, listCatalog } from "./catalog.ts";
 import { createStepgateServer, type StepgateServerOptions } from "./server.ts";
@@ -27,10 +27,12 @@ import type { LedgerRecord } from "./engine/types.ts";
 
 const HELP = `usage: stepgate [options] [<stepfile.yaml | catalog name>...]
        stepgate --list
+       stepgate --verify <ledger.jsonl>...
 
 With no stepfiles it serves only the tools for writing new ones.
 
   --list                     show the stepfiles in the bundled catalog
+  --verify                   check that each ledger file's hash chain is intact; exits 1 if one is broken
   --contact <email>          your contact email, sent in the User-Agent (SEC EDGAR and USAJOBS require one)
   --http <port>              serve Streamable HTTP on 127.0.0.1:<port>/mcp instead of stdio
   --ledger-dir <dir>         write one ledger file per run there; otherwise records go to stderr
@@ -52,6 +54,7 @@ const { values, positionals } = parseArgs({
     "response-bytes": { type: "string", default: "10485760" },
     help: { type: "boolean" },
     list: { type: "boolean" },
+    verify: { type: "boolean" },
     contact: { type: "string" },
   },
 });
@@ -67,6 +70,17 @@ if (values.list === true) {
     console.log(`  ${entry.id}: ${summary}`);
   }
   process.exit(0);
+}
+
+if (values.verify === true) {
+  let broken = false;
+  for (const file of positionals) {
+    const records = readFileSync(file, "utf8").split("\n").filter((line) => line.trim() !== "").map((line) => JSON.parse(line) as LedgerRecord);
+    const found = firstBreak(records);
+    broken ||= found !== null;
+    console.log(found === null ? `${file}: intact, ${records.length} records` : `${file}: broken at seq ${found.seq}: ${found.reason}`);
+  }
+  process.exit(broken ? 1 : 0);
 }
 
 if (values.help === true) {
@@ -99,9 +113,6 @@ function stepfilePath(argument: string): URL | string {
 // Loading every file first means a bad stepfile stops the server at start, not at first call.
 const stepfiles = positionals.map((argument) => load(readFileSync(stepfilePath(argument), "utf8")));
 const ledgerDir = values["ledger-dir"];
-if (ledgerDir !== undefined) {
-  mkdirSync(ledgerDir, { recursive: true });
-}
 
 const options: StepgateServerOptions = {
   credentials: async (name) => {
@@ -120,14 +131,7 @@ const options: StepgateServerOptions = {
     }
     return value;
   },
-  ledger: (call: { stepfile: string; call: string }, record: LedgerRecord) => {
-    const line = `${JSON.stringify({ stepfile: call.stepfile, ...record })}\n`;
-    if (ledgerDir === undefined) {
-      process.stderr.write(line);
-    } else {
-      appendFileSync(join(ledgerDir, `${call.stepfile}-${call.call}.jsonl`), line);
-    }
-  },
+  ledger: ledgerDir === undefined ? streamSink(process.stderr) : directorySink(ledgerDir),
   limits: {
     callsPerStep: positiveInteger("calls-per-step", values["calls-per-step"]),
     toolResultChars: positiveInteger("tool-result-chars", values["tool-result-chars"]),
