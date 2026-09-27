@@ -184,7 +184,7 @@ For a `subset` rule, `difference` over the same two arrays makes a good `explain
             - map: [{ var: result.docs }, { var: key }]
 ```
 
-Besides the standard JSONLogic operators, ten more are available:
+Besides the standard JSONLogic operators, eleven more are available:
 
 | Operator | Arguments | Result |
 |---|---|---|
@@ -192,6 +192,7 @@ Besides the standard JSONLogic operators, ten more are available:
 | `unique` | array | Distinct elements by JSON equality, in first-seen order |
 | `subset` | array `a`, array `b` | `true` if every element of `a` is in `b` |
 | `difference` | array `a`, array `b` | The elements of `a` that are not in `b`, in order |
+| `keys` | object | Its own keys, in order; `null` if not an object. APIs that omit empty fields, such as Airtable, make this the list of filled fields |
 | `lower` | string | The string in lowercase, for case-insensitive comparisons |
 | `get` | object or array, key | The value under one key, read literally; use it for keys that contain dots, such as email addresses, which `var` cannot reach |
 | `join` | array `left`, array `right`, path `l`, path `r` | Each item of `left` as `{ left, right }`, where `right` is the first item of `right` whose value at `r` equals the left item's value at `l`, or `null` |

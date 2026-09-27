@@ -20,6 +20,10 @@ jsonLogic.add_operation("subset", (a: unknown, b: unknown) =>
 jsonLogic.add_operation("difference", (a: unknown, b: unknown) =>
   Array.isArray(a) && Array.isArray(b) ? a.filter((item) => !b.some((other) => isDeepStrictEqual(other, item))) : null,
 );
+// `keys` lists an object's own keys, so a rule can ask which fields an API response left out, as Airtable omits empty ones.
+jsonLogic.add_operation("keys", (value: unknown) =>
+  value !== null && typeof value === "object" && !Array.isArray(value) ? Object.keys(value) : null,
+);
 jsonLogic.add_operation("host", (value: unknown) => {
   if (typeof value !== "string" || !URL.canParse(value)) {
     return null;
