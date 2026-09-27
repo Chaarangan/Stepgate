@@ -1,0 +1,45 @@
+name: an operation the step does not list, or arguments that break its schema, are refused without a request
+api:
+  routes:
+    - method: GET
+      path: /items/K-1
+      answers: [{ status: 200, json: { id: K-1 } }]
+stepfile:
+  stepgate: "1"
+  id: guarded
+  inputs: { type: object, properties: {} }
+  tools:
+    catalogue:
+      openapi:
+        server: "${api.origin}"
+        document:
+          openapi: 3.1.0
+          info: { title: Catalogue, version: "1" }
+          paths:
+            /items/{id}:
+              get:
+                operationId: getItem
+                parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+            /other: { get: { operationId: getOther } }
+      exposes: [getItem, getOther]
+  steps:
+    - id: fetch
+      tools: [getItem]
+      instructions: Fetch K-1.
+      produces: { type: object }
+      gates: [{ id: any, schema: { type: object } }]
+inputs: {}
+actions:
+  - call: getOther
+    arguments: {}
+  - call: getItem
+    arguments: { id: 7 }
+  - submit: {}
+expect:
+  replies:
+    - { state: running, step: fetch }
+    - { state: running, is_error: true, contain: getOther is not available in this step. }
+    - { state: running, is_error: true, contain: Invalid arguments for getItem }
+    - { state: finished }
+  ledger: [run_started, step_started, tool_refused, submit, gate, step_passed, run_finished]
+  requests: []

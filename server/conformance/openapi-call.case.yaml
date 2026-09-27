@@ -1,0 +1,55 @@
+name: an OpenAPI operation is called with its credential where the scheme says, and gates see the result as evidence
+api:
+  routes:
+    - method: GET
+      path: /items/K-1
+      key: { header: X-Api-Key, value: key-1 }
+      answers: [{ status: 200, json: { id: K-1, stock: 4 } }]
+credentials: { catalogue: key-1 }
+stepfile:
+  stepgate: "1"
+  id: stock
+  inputs: { type: object, properties: {} }
+  credentials:
+    catalogue: { kind: api_key, hosts: ["${api.host}"], description: Reads the catalogue. }
+  tools:
+    catalogue:
+      openapi:
+        server: "${api.origin}"
+        document:
+          openapi: 3.1.0
+          info: { title: Catalogue, version: "1" }
+          paths:
+            /items/{id}:
+              get:
+                operationId: getItem
+                security: [{ key: [] }]
+                parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+          components: { securitySchemes: { key: { type: apiKey, in: header, name: X-Api-Key } } }
+      credential: catalogue
+      exposes: [getItem]
+  steps:
+    - id: stock
+      tools: [getItem]
+      instructions: Find the stock of K-1.
+      produces: { type: object, required: [stock], properties: { stock: { type: integer } } }
+      gates:
+        - id: from-catalogue
+          message: stock must be what getItem returned
+          predicate: { in: [{ var: output.stock }, { map: [{ var: calls }, { var: result.stock }] }] }
+      retries: 1
+inputs: {}
+actions:
+  - submit: { stock: 5 }
+  - call: getItem
+    arguments: { id: K-1 }
+  - submit: { stock: 4 }
+expect:
+  replies:
+    - { state: running, step: stock }
+    - { state: running, failures: [from-catalogue] }
+    - { state: running, is_error: false, contain: '"stock":4' }
+    - { state: finished }
+  ledger: [run_started, step_started, submit, gate, tool_call, submit, gate, step_passed, run_finished]
+  requests:
+    - { method: GET, path: /items/K-1, headers: { x-api-key: key-1 } }

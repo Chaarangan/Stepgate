@@ -1,0 +1,40 @@
+name: an MCP tool is called with its bearer credential and its text result reaches gates as text
+mcp:
+  token: token-1
+  tools:
+    - name: lookup
+      description: Look up a supplier.
+      inputSchema: { type: object, required: [query], properties: { query: { type: string } } }
+      text: "Supplier Acme: based in Leeds"
+credentials: { suppliers: token-1 }
+stepfile:
+  stepgate: "1"
+  id: supplier
+  inputs: { type: object, properties: {} }
+  credentials:
+    suppliers: { kind: bearer, hosts: ["${mcp.host}"], description: Looks up suppliers. }
+  tools:
+    suppliers:
+      mcp: { url: "${mcp.origin}/mcp" }
+      credential: suppliers
+      exposes: [lookup]
+  steps:
+    - id: city
+      tools: [lookup]
+      instructions: Find where Acme is based.
+      produces: { type: object, required: [city], properties: { city: { type: string } } }
+      gates:
+        - id: from-lookup
+          message: the city must come from the lookup
+          predicate: { in: [{ var: output.city }, { reduce: [{ var: calls }, { cat: [{ var: accumulator }, { var: current.result }] }, ""] }] }
+inputs: {}
+actions:
+  - call: lookup
+    arguments: { query: Acme }
+  - submit: { city: Leeds }
+expect:
+  replies:
+    - { state: running, step: city }
+    - { state: running, is_error: false, contain: based in Leeds }
+    - { state: finished }
+  ledger: [run_started, step_started, tool_call, submit, gate, step_passed, run_finished]
