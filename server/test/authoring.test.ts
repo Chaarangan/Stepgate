@@ -1,6 +1,7 @@
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it } from "vitest";
+import { parse as parseYaml } from "yaml";
 import { isPublicHttpsUrl } from "../src/engine/http.ts";
 import { load } from "../src/engine/load.ts";
 import { API_KEY } from "./fixtures.ts";
@@ -198,3 +199,73 @@ steps:
     expect(resultText(widened)).toContain(`credential catalogue lists api.example.com, but the operator granted it only for ${api.host}`);
   });
 });
+
+const SKILL = `---
+name: release-notes
+description: Write release notes from the pull requests merged since the last tag.
+---
+# Release notes
+
+1. List the pull requests merged since the last tag. You MUST include every one.
+2. Group them by label. Never invent a label.
+3. Write the notes in Markdown.
+`;
+
+const SOP = `# Incident review
+
+## Collect the timeline
+Pull every alert for the incident window. The timeline SHALL list each alert once.
+
+## Find the cause
+Name the change that caused it.
+
+## Write the review
+Summarise the impact. The review MUST link the incident ticket.
+`;
+
+describe("outlining a procedure", () => {
+  it("turns a SKILL.md into one step per numbered item, with each rule it states as a gate to write", async () => {
+    await start();
+
+    const skeleton = parseYaml(extractYaml(resultText(await use("stepgate_outline", { procedure: SKILL })))) as { id: string; description: string; steps: Array<{ id: string; instructions: string; gates: string[] }> };
+
+    expect(skeleton).toMatchObject({ id: "release-notes", description: "Write release notes from the pull requests merged since the last tag." });
+    expect(skeleton.steps.map((step) => [step.id, step.gates])).toEqual([
+      ["step-1", ["TODO(gate): You MUST include every one."]],
+      ["step-2", ["TODO(gate): Never invent a label."]],
+      ["step-3", ["TODO(gate): the procedure states no rule for this step; check a real property of its output"]],
+    ]);
+    expect(skeleton.steps[0]?.instructions).toBe("List the pull requests merged since the last tag. You MUST include every one.");
+  });
+
+  it("turns an SOP into one step per second-level heading, named after it", async () => {
+    await start();
+
+    const skeleton = parseYaml(extractYaml(resultText(await use("stepgate_outline", { procedure: SOP })))) as { id: string; steps: Array<{ id: string; gates: string[] }> };
+
+    expect(skeleton.id).toBe("incident-review");
+    expect(skeleton.steps.map((step) => step.id)).toEqual(["collect-the-timeline", "find-the-cause", "write-the-review"]);
+    expect(skeleton.steps[0]?.gates).toEqual(["TODO(gate): The timeline SHALL list each alert once."]);
+    expect(skeleton.steps[2]?.gates).toEqual(["TODO(gate): The review MUST link the incident ticket."]);
+  });
+
+  it("validates a skeleton by listing every TODO marker still to write, by path", async () => {
+    await start();
+    const skeleton = extractYaml(resultText(await use("stepgate_outline", { procedure: SOP })));
+
+    const report = await use("stepgate_validate", { stepfile: skeleton });
+
+    expect(report.isError).toBe(true);
+    expect(resultText(report)).toContain("- /inputs: TODO(inputs)");
+    expect(resultText(report)).toContain("- /steps/0/produces: TODO(produces)");
+    expect(resultText(report)).toContain("- /steps/2/gates/0: TODO(gate): The review MUST link the incident ticket.");
+  });
+});
+
+function extractYaml(text: string): string {
+  const yaml = /```yaml\n([\s\S]*?)\n```/.exec(text)?.[1];
+  if (yaml === undefined) {
+    throw new Error(`stepgate_outline returned no YAML block: ${text}`);
+  }
+  return yaml;
+}

@@ -25,7 +25,7 @@ describe("Stepgate MCP server", () => {
 
     expect(tools.map((tool) => tool.name)).toEqual([
       "stock-check", "stepgate_call", "stepgate_submit",
-      "stepgate_guide", "stepgate_examples", "stepgate_validate", "stepgate_inspect_api", "stepgate_try",
+      "stepgate_guide", "stepgate_examples", "stepgate_validate", "stepgate_inspect_api", "stepgate_outline", "stepgate_try",
     ]);
     expect(tools[0]).toMatchObject({ description: expect.stringContaining("Checks an item's stock and its supplier."), inputSchema: { required: ["item"] } });
     expect(client.getInstructions()).toContain("stepgate_submit");

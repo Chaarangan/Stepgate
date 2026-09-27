@@ -52,8 +52,13 @@ Every Stepgate server also offers tools for writing new stepfiles, so you can as
 | `stepgate_guide` | The authoring workflow, the full format reference and the JSON Schema |
 | `stepgate_examples` | The catalog as a list, or one entry's stepfile and README to copy a pattern from |
 | `stepgate_inspect_api` | For an OpenAPI document: its sha256 to pin, servers, security schemes, operationIds, and each operation's arguments and success response. Operations without an operationId are listed with their definitions to copy inline. For an MCP server: its tools and their `schema_sha256` |
-| `stepgate_validate` | Every issue in a draft with its path, or the draft's identity and whether it can be tried |
+| `stepgate_outline` | A skeleton stepfile from a SKILL.md or markdown SOP: one step per numbered item or second-level heading, each rule it states (MUST, SHALL, never) as a gate to write, and `TODO(...)` markers for the rest |
+| `stepgate_validate` | Every `TODO(...)` marker still to write, or every issue in a draft with its path, or the draft's identity and whether it can be tried |
 | `stepgate_try` | A run of the draft from its text, driven with `stepgate_call` and `stepgate_submit` like any run |
+
+If you already have the procedure written down, as a skill or a runbook, start from it:
+
+> Turn my release-notes SKILL.md into a stepfile with stepgate_outline, then fill in the gates and try it.
 
 `npx -y stepgate` with no stepfiles starts a server that offers only these tools.
 

@@ -1,8 +1,10 @@
 import { existsSync, readFileSync } from "node:fs";
+import { parse as parseYaml } from "yaml";
 import { catalogDirectory, catalogFile, listCatalog } from "./catalog.ts";
 import { CredentialUnavailable, StepfileInvalid, UrlNotPublic } from "./engine/errors.ts";
 import type { HttpContext } from "./engine/http.ts";
 import { load, toolUrl } from "./engine/load.ts";
+import { markers } from "./outline.ts";
 import { withSampleSettings } from "./engine/settings.ts";
 import { toolKinds } from "./engine/tools/kinds.ts";
 import { oneLine, type InspectRequest } from "./engine/tools/tool.ts";
@@ -19,7 +21,15 @@ const WORKFLOW = `# Writing a stepfile with Stepgate
 3. Give every step gates that check its output against \`calls\`, what the APIs actually returned, not only its shape.
 4. Call stepgate_validate with the draft and fix every issue it lists.
 5. Call stepgate_try with the draft and example inputs, then drive the run with stepgate_call and stepgate_submit as for any stepfile. Drafts may call only public https URLs, and may declare only the credentials and settings the operator granted to drafts (a credential only for the hosts it was granted for); any other stepfile that needs a key is tried by saving it and adding its path to the server's configuration.
-6. Save it as <id>.stepfile.yaml. It runs by passing its absolute path to stepgate.`;
+6. Save it as <id>.stepfile.yaml. It runs by passing its absolute path to stepgate.
+
+## Starting from a procedure you already have
+
+When the user has the procedure written down, as a SKILL.md, a runbook or an SOP, call stepgate_outline with its text instead of starting from nothing. It returns a skeleton: one agent step per numbered item or second-level heading, and each sentence stating a rule (MUST, SHALL, REQUIRED, must, never) as a TODO(gate) under its step. Then:
+
+- Turn each TODO(gate) into a gate that checks the rule against the output and calls, and add gates for anything else the step's output must satisfy.
+- Make a step mechanical, with do, where it needs no judgement: fetching what the inputs name, counting, picking the latest item, copying fields. Use derive for computed fields of an agent step.
+- Declare inputs, tools and each step's produces, and replace every remaining TODO marker. stepgate_validate lists the markers left before it checks anything else.`;
 
 function firstExisting(locations: URL[]): URL {
   const found = locations.find((location) => existsSync(location));
@@ -96,6 +106,16 @@ export function draftProblems(stepfile: Stepfile, policy: DraftPolicy): string[]
 
 /** Validates a draft: its issues, or its id, identity and steps and whether stepgate_try accepts it. */
 export function validateDraft(text: string, policy: DraftPolicy): { valid: boolean; report: string } {
+  let parsed: unknown = null;
+  try {
+    parsed = parseYaml(text, { version: "1.2" });
+  } catch {
+    // load below reports the parse error with its position.
+  }
+  const left = markers(parsed);
+  if (left.length > 0) {
+    return { valid: false, report: `The stepfile still has parts to write. Replace every marker, then validate again:\n${left.map((marker) => `- ${marker.path}: ${marker.text}`).join("\n")}` };
+  }
   let stepfile: Stepfile;
   try {
     stepfile = load(text);
