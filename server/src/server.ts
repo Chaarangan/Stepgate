@@ -1,10 +1,11 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { CallToolRequestSchema, ListToolsRequestSchema, type CallToolResult, type Tool } from "@modelcontextprotocol/sdk/types.js";
 import { randomUUID } from "node:crypto";
+import { CallToolRequestSchema, ListToolsRequestSchema, type CallToolResult, type Tool } from "@modelcontextprotocol/sdk/types.js";
 import { draftProblems, examples, guide, inspectApi, validateDraft, type DraftPolicy } from "./authoring.ts";
 import { DraftRefused, RunNotActive, StepgateError } from "./engine/errors.ts";
 import { load } from "./engine/load.ts";
-import { startRun, type Progress, type Run, type StepView } from "./engine/run.ts";
+import type { Progress, StepView } from "./engine/run.ts";
+import { createRuns } from "./engine/runs.ts";
 import { VERSION } from "./version.ts";
 import type { Json, JsonObject, LedgerRecord, RunContext, Stepfile } from "./engine/types.ts";
 
@@ -107,8 +108,6 @@ const AUTHORING_TOOLS: Tool[] = [
   },
 ];
 
-type Active = { run: Run; timer: NodeJS.Timeout };
-
 /** A reply with no structuredContent, so clients that prefer it still show the text. */
 function plain(message: string, isError: boolean): CallToolResult {
   return { content: [{ type: "text", text: message }], isError };
@@ -165,27 +164,8 @@ function isObject(value: unknown): value is JsonObject {
 export function createStepgateServer(stepfiles: Stepfile[], options: StepgateServerOptions): Server {
   const byId = new Map(stepfiles.map((stepfile) => [stepfile.document.id, stepfile]));
   const server = new Server({ name: "stepgate", version: VERSION }, { capabilities: { tools: {} }, instructions: INSTRUCTIONS });
-  const active = new Map<string, Active>();
-
-  const forget = (id: string) => {
-    const entry = active.get(id);
-    if (entry !== undefined) {
-      clearTimeout(entry.timer);
-      active.delete(id);
-    }
-  };
-  const expire = (id: string) => setTimeout(() => {
-    const entry = active.get(id);
-    forget(id);
-    void entry?.run.abandon();
-  }, options.runIdleMs).unref();
-
-  server.onclose = () => {
-    for (const [id, entry] of active) {
-      forget(id);
-      void entry.run.abandon();
-    }
-  };
+  const runs = createRuns(options.runIdleMs);
+  server.onclose = () => void runs.abandonAll();
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: [
@@ -203,30 +183,8 @@ export function createStepgateServer(stepfiles: Stepfile[], options: StepgateSer
 
   const started = async (stepfile: Stepfile, inputs: JsonObject): Promise<CallToolResult> => {
     const call = randomUUID();
-    const { run, progress } = await startRun(stepfile, inputs, { ...options, ledger: (record) => options.ledger({ stepfile: stepfile.document.id, call }, record) });
-    if (progress.state !== "finished") {
-      active.set(run.id, { run, timer: expire(run.id) });
-    }
-    return progressResult(run.id, progress);
-  };
-
-  const continued = async (id: string, act: (run: Run) => Promise<CallToolResult>): Promise<CallToolResult> => {
-    const entry = active.get(id);
-    if (entry === undefined) {
-      throw new RunNotActive(id);
-    }
-    clearTimeout(entry.timer);
-    entry.timer = expire(id);
-    try {
-      const result = await act(entry.run);
-      if ((result.structuredContent as { state?: string } | undefined)?.state === "finished") {
-        forget(id);
-      }
-      return result;
-    } catch (error) {
-      forget(id);
-      throw error;
-    }
+    const { run, progress } = await runs.start(stepfile, inputs, { ...options, ledger: (record) => options.ledger({ stepfile: stepfile.document.id, call }, record) });
+    return progressResult(run, progress);
   };
 
   const authoring: Record<string, (args: JsonObject) => Promise<{ report: string; isError: boolean }>> = {
@@ -264,14 +222,14 @@ export function createStepgateServer(stepfiles: Stepfile[], options: StepgateSer
     }
     try {
       if (request.params.name === CALL) {
-        return await continued(String(args.run), async (run) => {
-          const result = await run.call(String(args.operation), args.arguments as Json | undefined);
-          // Some clients (Claude Code among them) show structuredContent in place of the text, so both carry the result.
-          return text(result.content, { run: run.id, state: "running", result: result.content }, result.isError);
-        });
+        const run = String(args.run);
+        const result = await runs.call(run, String(args.operation), args.arguments as Json | undefined);
+        // Some clients (Claude Code among them) show structuredContent in place of the text, so both carry the result.
+        return text(result.content, { run, state: "running", result: result.content }, result.isError);
       }
       if (request.params.name === SUBMIT) {
-        return await continued(String(args.run), async (run) => progressResult(run.id, await run.submit(isObject(args.output) ? args.output : null)));
+        const run = String(args.run);
+        return progressResult(run, await runs.submit(run, isObject(args.output) ? args.output : null));
       }
       if (request.params.name === TRY) {
         const draft = load(typeof args.stepfile === "string" ? args.stepfile : "");

@@ -183,7 +183,6 @@ type Current = {
 export async function startRun(written: Stepfile, inputs: JsonObject, runContext: RunContext): Promise<{ run: Run; progress: Progress }> {
   const id = randomUUID();
   const append = createLedger(runContext.ledger);
-  await append("run_started", { run: id, stepfile: written.document.id, identity: written.identity, inputs: canonicalHash(inputs) });
   let prepared: Prepared | undefined;
   let ended = false;
   const end = async (type: string, fields: JsonObject) => {
@@ -213,6 +212,7 @@ export async function startRun(written: Stepfile, inputs: JsonObject, runContext
   };
 
   const session = await guarded(async () => {
+    await append("run_started", { run: id, stepfile: written.document.id, identity: written.identity, inputs: canonicalHash(inputs) });
     // Settings are filled in first, so the host allowlist below only ever holds concrete hosts.
     const stepfile: Stepfile = { ...written, document: await resolveSettings(written.document, runContext) };
     const http: HttpContext = { allowedHosts: new Set(Object.values(stepfile.document.tools ?? {}).map(declaredToolHost)), append, userAgent: runContext.userAgent, credentials: runContext.credentials, limits: runContext.limits };
@@ -298,11 +298,14 @@ export async function startRun(written: Stepfile, inputs: JsonObject, runContext
       open.attempt += 1;
       return { state: "rejected", failures, attempts_left: view(open).attempts_left };
     }),
-    abandon: async () => {
-      if (!ended) {
-        await end("run_abandoned", {});
+    // Queued behind any call in flight, so its connections are not closed under it; request deadlines bound the wait.
+    abandon: () => serial(async () => {
+      await end("run_abandoned", {});
+    }).catch((error: unknown) => {
+      if (!(error instanceof RunNotActive)) {
+        throw error;
       }
-    },
+    }),
   };
   return { run, progress };
 }

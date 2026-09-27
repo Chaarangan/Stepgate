@@ -1,5 +1,6 @@
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { afterEach, describe, expect, it } from "vitest";
+import type { JsonObject } from "../src/engine/types.ts";
 import { GOOD_STOCK, GOOD_SUMMARY, resultText, startHarness, stateOf, stepViews, use, type Harness, type Setup } from "./harness.ts";
 
 let harness: Harness | undefined;
@@ -57,6 +58,24 @@ describe("Stepgate MCP server", () => {
     expect(resultText(unknown as CallToolResult)).toMatch(/^RunNotActive: run no-such-run is not active/);
     expect(resultText(finished as CallToolResult)).toMatch(/^RunNotActive: /);
     expect(api.received.filter((request) => request.path.startsWith("/items"))).toEqual([]);
+  });
+
+  it("lets a call in flight finish before an idle run is abandoned", async () => {
+    const { client, call, records, seen } = await start({
+      edit: (stepfile) => {
+        ((stepfile.tools as JsonObject).catalogue as JsonObject).exposes = ["getItem", "getFlaky", "getRevoked", "postSlow"];
+        ((stepfile.steps as JsonObject[])[0] as JsonObject).tools = ["postSlow"];
+      },
+      actions: [],
+      runIdleMs: 50,
+    });
+
+    await call({ item: "K-1" });
+    const slow = await client.callTool({ name: "stepgate_call", arguments: { run: stateOf(seen[0]).run, operation: "postSlow", arguments: {} } });
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    expect(slow.isError).toBeFalsy();
+    expect(records.map((record) => record.type).slice(-2)).toEqual(["tool_call", "run_abandoned"]);
   });
 
   it("abandons a run the client stops driving, and records it in the ledger", async () => {
