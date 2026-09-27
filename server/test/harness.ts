@@ -10,7 +10,7 @@ import { isLoopbackHttpUrl, isPublicHttpsUrl } from "../src/engine/http.ts";
 import { load } from "../src/engine/load.ts";
 import type { CredentialSource, RunContext, JsonObject, LedgerRecord, Stepfile } from "../src/engine/types.ts";
 import { directoryCaseSink } from "../src/record-cases.ts";
-import { fixedStepfiles } from "../src/served.ts";
+import { fixedStepfiles, type Served } from "../src/served.ts";
 import { createStepgateServer } from "../src/server.ts";
 import { userAgent } from "../src/version.ts";
 import { API_KEY, MCP_TOKEN, secretsFrom, startApi, startAuthorizationServer, startMcp, type Fixture } from "./fixtures.ts";
@@ -52,6 +52,8 @@ export type Setup = {
   runIdleMs?: number;
   /** Starts an OAuth authorization server that the MCP fixture names in its protected resource metadata. */
   authorization?: boolean;
+  /** Stepfiles to serve in place of the base one, such as files watched for edits. */
+  served?: Served;
   /** A directory to record finished and failed runs in as cases files. */
   recordCases?: string;
   /** Defaults to letting drafts reach the loopback fixture servers as well as public https, with no credentials or settings. */
@@ -90,7 +92,7 @@ export async function startHarness(setup: Setup): Promise<Harness> {
 
   const records: LedgerRecord[] = [];
   const loaded = load(JSON.stringify(stepfile));
-  const server = createStepgateServer(fixedStepfiles([loaded]), {
+  const server = createStepgateServer(setup.served ?? fixedStepfiles([loaded]), {
     credentials: setup.credentialSource ?? secretsFrom(setup.credentials ?? { catalogue: API_KEY, suppliers: MCP_TOKEN }),
     settings: async (name) => {
       const value = settings[name];

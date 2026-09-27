@@ -1,24 +1,16 @@
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { ToolListChangedNotificationSchema, type CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { stringify } from "yaml";
-import { SettingUnavailable } from "../src/engine/errors.ts";
-import type { LedgerRecord } from "../src/engine/types.ts";
-import { createStepgateServer } from "../src/server.ts";
-import { watchStepfiles, type Served } from "../src/served.ts";
-import { userAgent } from "../src/version.ts";
-import { secretsFrom } from "./fixtures.ts";
-import { loopbackOrPublic, resultText, stateOf } from "./harness.ts";
+import { watchStepfiles } from "../src/served.ts";
+import { resultText, startHarness, stateOf, type Harness } from "./harness.ts";
 
-function stepfile(description: string): string {
+function stepfile(id: string, description: string): string {
   return stringify({
     stepgate: "1",
-    id: "greeting",
+    id,
     description,
     inputs: { type: "object", properties: {} },
     steps: [{
@@ -38,39 +30,26 @@ afterEach(async () => {
   }
 });
 
-/** Serves one stepfile file with --watch semantics and connects a client that counts tool-list changes. */
-async function serveWatched(text: string): Promise<{ client: Client; file: string; changes: () => number; records: LedgerRecord[]; served: Served }> {
+/** Serves these stepfile texts from files with --watch semantics, through the harness, counting tool-list changes. */
+async function serveWatched(texts: string[]): Promise<{ harness: Harness; files: string[]; changes: () => number }> {
   const directory = mkdtempSync(join(tmpdir(), "stepgate-watch-"));
-  const file = join(directory, "greeting.stepfile.yaml");
-  writeFileSync(file, text);
-  const served = watchStepfiles([file]);
-  const records: LedgerRecord[] = [];
-  const server = createStepgateServer(served, {
-    credentials: secretsFrom({}),
-    settings: async (name) => {
-      throw new SettingUnavailable(name, "this test declares no settings");
-    },
-    ledger: (record) => void records.push(record),
-    recordCases: null,
-    limits: { callsPerStep: 8, toolResultChars: 10_000, requestTimeoutMs: 5_000, responseBytes: 1_000_000 },
-    runIdleMs: 60_000,
-    userAgent: userAgent(null),
-    drafts: { urlAllowed: loopbackOrPublic, credentials: new Map(), settings: new Set() },
+  const files = texts.map((text, index) => {
+    const file = join(directory, `watched-${index}.stepfile.yaml`);
+    writeFileSync(file, text);
+    return file;
   });
-  const client = new Client({ name: "watcher", version: "1.0.0" });
+  const served = watchStepfiles(files);
+  const harness = await startHarness({ served, actions: [] });
   let changed = 0;
-  client.setNotificationHandler(ToolListChangedNotificationSchema, async () => {
+  harness.client.setNotificationHandler(ToolListChangedNotificationSchema, async () => {
     changed += 1;
   });
-  const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
-  await server.connect(serverSide as Transport);
-  await client.connect(clientSide as Transport);
   cleanups.push(async () => {
-    await client.close();
+    await harness.close();
     served.close();
     rmSync(directory, { recursive: true, force: true });
   });
-  return { client, file, changes: () => changed, records, served };
+  return { harness, files, changes: () => changed };
 }
 
 async function until(condition: () => boolean): Promise<void> {
@@ -83,37 +62,63 @@ async function until(condition: () => boolean): Promise<void> {
   }
 }
 
+async function callTool(harness: Harness, name: string, args: Record<string, unknown>): Promise<CallToolResult> {
+  return (await harness.client.callTool({ name, arguments: args })) as CallToolResult;
+}
+
 describe("--watch", () => {
   it("reloads an edited stepfile and tells the client its tools changed", async () => {
-    const { client, file, changes } = await serveWatched(stepfile("Says hello."));
+    const { harness, files, changes } = await serveWatched([stepfile("greeting", "Says hello.")]);
 
-    writeFileSync(file, stepfile("Says hello, edited."));
+    writeFileSync(files[0] as string, stepfile("greeting", "Says hello, edited."));
     await until(() => changes() > 0);
 
-    const { tools } = await client.listTools();
+    const { tools } = await harness.client.listTools();
     expect(tools.find((tool) => tool.name === "greeting")?.description).toContain("Says hello, edited.");
   });
 
   it("fails a call to a stepfile that became invalid with its issues, instead of serving the old version", async () => {
-    const { client, file, changes } = await serveWatched(stepfile("Says hello."));
+    const { harness, files, changes } = await serveWatched([stepfile("greeting", "Says hello.")]);
 
-    writeFileSync(file, stepfile("Says hello.").replace('stepgate: "1"', 'stepgate: "2"'));
+    writeFileSync(files[0] as string, stepfile("greeting", "Says hello.").replace('stepgate: "1"', 'stepgate: "2"'));
     await until(() => changes() > 0);
 
-    const result = (await client.callTool({ name: "greeting", arguments: {} })) as CallToolResult;
+    const result = await callTool(harness, "greeting", {});
     expect(stateOf(result)).toMatchObject({ state: "failed", error: "StepfileInvalid" });
     expect(resultText(result)).toContain("/stepgate");
   });
 
-  it("finishes a run started before an edit on the version it started with", async () => {
-    const { client, file, changes, records } = await serveWatched(stepfile("Says hello."));
-    const started = (await client.callTool({ name: "greeting", arguments: {} })) as CallToolResult;
-    const identity = records.find((record) => record.type === "run_started")?.identity;
+  it("fails a call to a stepfile whose file was removed with StepfileUnreadable", async () => {
+    const { harness, files, changes } = await serveWatched([stepfile("greeting", "Says hello.")]);
 
-    writeFileSync(file, stepfile("Says hello.").replace("pattern: hello", "pattern: goodbye"));
+    unlinkSync(files[0] as string);
     await until(() => changes() > 0);
 
-    const finished = (await client.callTool({ name: "stepgate_submit", arguments: { run: stateOf(started).run, output: { text: "hello" } } })) as CallToolResult;
+    expect(stateOf(await callTool(harness, "greeting", {}))).toMatchObject({ state: "failed", error: "StepfileUnreadable" });
+  });
+
+  it("refuses an edit that gives a stepfile the id another served file has, rather than listing two tools of one name", async () => {
+    const { harness, files, changes } = await serveWatched([stepfile("greeting", "Says hello."), stepfile("farewell", "Says goodbye.")]);
+
+    writeFileSync(files[1] as string, stepfile("greeting", "Says goodbye."));
+    await until(() => changes() > 0);
+
+    const { tools } = await harness.client.listTools();
+    expect(tools.filter((tool) => tool.name === "greeting")).toHaveLength(1);
+    const result = await callTool(harness, "farewell", {});
+    expect(stateOf(result)).toMatchObject({ state: "failed", error: "StepfileInvalid" });
+    expect(resultText(result)).toContain("id greeting is already served by");
+  });
+
+  it("finishes a run started before an edit on the version it started with", async () => {
+    const { harness, files, changes } = await serveWatched([stepfile("greeting", "Says hello.")]);
+    const started = await callTool(harness, "greeting", {});
+    const identity = harness.records.find((record) => record.type === "run_started")?.identity;
+
+    writeFileSync(files[0] as string, stepfile("greeting", "Says hello.").replace("pattern: hello", "pattern: goodbye"));
+    await until(() => changes() > 0);
+
+    const finished = await callTool(harness, "stepgate_submit", { run: stateOf(started).run, output: { text: "hello" } });
     expect(stateOf(finished)).toMatchObject({ state: "finished", identity });
   });
 });

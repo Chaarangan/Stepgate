@@ -243,7 +243,8 @@ export async function startRun(written: Stepfile, inputs: JsonObject, runContext
     ended = true;
     await append(type, fields);
     await prepared?.close();
-    if (runContext.recordCases !== null && type !== "run_abandoned") {
+    // A run that ended before any attempt, such as in preflight, leaves nothing a cases file could test.
+    if (runContext.recordCases !== null && type !== "run_abandoned" && recorded.length > 0) {
       await runContext.recordCases({ stepfile: written.document.id, run: id, inputs, steps: recorded });
     }
   };

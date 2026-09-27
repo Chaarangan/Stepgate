@@ -731,6 +731,20 @@ describe("automatic diagnoses", () => {
 });
 
 describe("recording cases", () => {
+  it("writes no cases file for a run that ended before any attempt, which would have nothing to test", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "stepgate-cases-"));
+    try {
+      const { call } = await start({ credentials: { suppliers: MCP_TOKEN }, actions: [], recordCases: directory });
+
+      const result = await call({ item: "K-1" });
+
+      expect(stateOf(result)).toMatchObject({ state: "failed", error: "PreflightFailed" });
+      expect(readdirSync(directory)).toEqual([]);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   it("records a mechanical step with its calls and computed output", async () => {
     const directory = mkdtempSync(join(tmpdir(), "stepgate-cases-"));
     try {

@@ -1,12 +1,12 @@
 import { watch, readFileSync, type FSWatcher } from "node:fs";
 import { basename, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { StepfileInvalid } from "./engine/errors.ts";
+import { StepfileInvalid, StepfileUnreadable } from "./engine/errors.ts";
 import { load } from "./engine/load.ts";
 import type { Stepfile } from "./engine/types.ts";
 
 /** One stepfile a server offers as a tool: loaded, or refused by its last edit, which a call to it then reports. */
-export type ServedEntry = { id: string; stepfile: Stepfile; problem: null } | { id: string; stepfile: null; problem: StepfileInvalid };
+export type ServedEntry = { id: string; stepfile: Stepfile; problem: null } | { id: string; stepfile: null; problem: StepfileInvalid | StepfileUnreadable };
 
 /** The stepfiles a server offers; `--watch` changes them while it runs, and `onChange` returns its own unsubscribe. */
 export type Served = {
@@ -26,7 +26,7 @@ function reload(file: string, previousId: string): ServedEntry {
   try {
     text = readFileSync(file, "utf8");
   } catch (error) {
-    return { id: previousId, stepfile: null, problem: new StepfileInvalid([{ path: "", message: `cannot read ${file}: ${(error as Error).message}` }]) };
+    return { id: previousId, stepfile: null, problem: new StepfileUnreadable(file, (error as Error).message, { cause: error }) };
   }
   try {
     const stepfile = load(text);
@@ -56,7 +56,14 @@ export function watchStepfiles(files: Array<string | URL>): Served {
     // Editors write a file in several events; reload once they settle.
     pending.set(index, setTimeout(() => {
       pending.delete(index);
-      entries[index] = reload(paths[index] as string, (entries[index] as ServedEntry).id);
+      const previous = (entries[index] as ServedEntry).id;
+      const next = reload(paths[index] as string, previous);
+      const clash = entries.findIndex((entry, other) => other !== index && entry.id === next.id);
+      entries[index] = clash === -1 ? next : {
+        id: previous,
+        stepfile: null,
+        problem: new StepfileInvalid([{ path: "/id", message: `id ${next.id} is already served by ${paths[clash] ?? "another file"}` }]),
+      };
       for (const listener of listeners) {
         listener();
       }

@@ -16,6 +16,16 @@ export class StepfileInvalid extends StepgateError {
 }
 
 /** A precondition checked before step 1 did not hold, so no step ran. */
+/** A stepfile's file could not be read, as when --watch finds it removed. */
+export class StepfileUnreadable extends StepgateError {
+  override name = "StepfileUnreadable";
+  readonly file: string;
+  constructor(file: string, reason: string, options?: ErrorOptions) {
+    super(`cannot read stepfile ${file}: ${reason}`, options);
+    this.file = file;
+  }
+}
+
 export class PreflightFailed extends StepgateError {
   override name = "PreflightFailed";
   readonly item: string;
