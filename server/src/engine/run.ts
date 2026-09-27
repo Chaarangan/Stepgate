@@ -9,12 +9,12 @@ import {
   RunNotActive,
   type GateDiagnosis,
 } from "./errors.ts";
-import { evaluateGates } from "./gates.ts";
-import type { CredentialBinding, HttpContext } from "./http.ts";
+import { compileStepGates, type StepGates } from "./gates.ts";
+import type { HttpContext } from "./http.ts";
 import { canonicalHash, textHash } from "./identity.ts";
 import { compileToolSchema, createToolSchemaValidators, createValidator, describeErrors, inlineLocalRefs } from "./json-schema.ts";
 import { createLedger, type AppendRecord } from "./ledger.ts";
-import { declaredToolHost } from "./load.ts";
+import { credentialOf, declaredToolHost } from "./load.ts";
 import { renderInstructions } from "./placeholders.ts";
 import { evaluatePredicate, type EvidenceCall } from "./predicate.ts";
 import { resolveSettings } from "./settings.ts";
@@ -38,12 +38,6 @@ type Prepared = {
 
 function isObject(value: unknown): value is JsonObject {
   return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
-function credentialFor(stepfile: Stepfile, toolName: string): Omit<CredentialBinding, "place"> | null {
-  const name = stepfile.document.tools?.[toolName]?.credential;
-  const declaration = name === undefined ? undefined : stepfile.document.credentials?.[name];
-  return name === undefined || declaration === undefined ? null : { name, declaration };
 }
 
 async function checkCredentials(stepfile: Stepfile, runContext: RunContext): Promise<void> {
@@ -82,7 +76,7 @@ async function preflight(stepfile: Stepfile, inputs: JsonObject, runContext: Run
       if (declaration.verifier !== undefined) {
         continue;
       }
-      const credential = credentialFor(stepfile, toolName);
+      const credential = credentialOf(stepfile.document, toolName);
       const prepared = await kindOf(declaration).prepare(http, toolName, declaration, credential);
       closers.push(prepared.close);
       for (const definition of prepared.definitions) {
@@ -223,12 +217,13 @@ export async function startRun(written: Stepfile, inputs: JsonObject, runContext
     const stepfile: Stepfile = { ...written, document: await resolveSettings(written.document, runContext) };
     const http: HttpContext = { allowedHosts: new Set(Object.values(stepfile.document.tools ?? {}).map(declaredToolHost)), append, userAgent: runContext.userAgent, credentials: runContext.credentials, limits: runContext.limits };
     prepared = await preflight(stepfile, inputs, runContext, http);
-    return { stepfile, http, tools: prepared.tools };
+    const ajv = createValidator();
+    const gates = new Map<string, StepGates>(stepfile.document.steps.map((step) => [step.id, compileStepGates(stepfile.document, http, step, ajv)]));
+    return { stepfile, tools: prepared.tools, gates };
   });
   const steps = session.stepfile.document.steps;
   const defs = { $defs: { ...(session.stepfile.document.$defs ?? {}) } };
   const outputs: Record<string, JsonObject> = {};
-  const ajv = createValidator();
   let current: Current | null = null;
 
   const view = (open: Current): StepView => ({
@@ -287,19 +282,11 @@ export async function startRun(written: Stepfile, inputs: JsonObject, runContext
       const open = current as Current;
       const { step, attempt } = open;
       await append("submit", { step: step.id, attempt, output: { sha256: canonicalHash(output ?? null), length: JSON.stringify(output ?? null).length } });
-      const failures = await evaluateGates({
-        document: session.stepfile.document,
-        step,
-        context: { inputs, steps: outputs, output: output ?? null, calls: open.calls },
-        ajv,
-        http: session.http,
-        verifierCredential: (toolName) => credentialFor(session.stepfile, toolName),
-      });
-      const checked = failures.some((failure) => failure.gate === "produces") ? ["produces"] : step.gates.map((gate) => gate.id);
-      for (const gate of checked) {
-        const failure = failures.find((item) => item.gate === gate);
-        await append("gate", { step: step.id, attempt, gate, verdict: failure === undefined ? "pass" : "fail", diagnosis: failure === undefined ? null : textHash(failure.diagnosis) });
+      const verdicts = await (session.gates.get(step.id) as StepGates).check({ inputs, steps: outputs, output: output ?? null, calls: open.calls });
+      for (const { gate, passed, diagnosis } of verdicts) {
+        await append("gate", { step: step.id, attempt, gate, verdict: passed ? "pass" : "fail", diagnosis: diagnosis === null ? null : textHash(diagnosis) });
       }
+      const failures = verdicts.flatMap(({ gate, passed, diagnosis }) => (passed ? [] : [{ gate, diagnosis: diagnosis ?? "" }]));
       if (failures.length === 0) {
         await append("step_passed", { step: step.id, attempt });
         outputs[step.id] = output as JsonObject;

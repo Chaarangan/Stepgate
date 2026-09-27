@@ -109,6 +109,23 @@ describe("gates", () => {
   });
 });
 
+describe("verifier outages", () => {
+  it("stops the run with ToolCallFailed when a verifier answers with something other than JSON", async () => {
+    const { call, records } = await start({
+      edit: (stepfile, addresses) => {
+        (stepfile.tools as JsonObject).checker = { verifier: { url: `${addresses.catalogue}/verify-garbage` } };
+        (steps(stepfile)[0] as JsonObject).gates = [{ id: "enough", http: { tool: "checker" } }];
+      },
+      actions: [GOOD_STOCK],
+    });
+
+    const result = await call({ item: "K-1" });
+
+    expect(resultText(result)).toMatch(/^ToolCallFailed: verifier checker failed with status 200: response is not JSON: <html>maintenance/);
+    expect(records.at(-1)).toMatchObject({ type: "run_failed", error: "ToolCallFailed" });
+  });
+});
+
 describe("evidence", () => {
   const countMatchesCatalogue = (stepfile: JsonObject) => {
     (steps(stepfile)[0] as JsonObject).gates = [{

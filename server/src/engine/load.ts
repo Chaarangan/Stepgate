@@ -6,7 +6,7 @@ import { createValidator } from "./json-schema.ts";
 import { placeholderPaths } from "./placeholders.ts";
 import { varPaths } from "./predicate.ts";
 import { settingNames } from "./settings.ts";
-import type { Stepfile, StepfileDocument, ToolDeclaration } from "./types.ts";
+import type { CredentialDeclaration, Stepfile, StepfileDocument, ToolDeclaration } from "./types.ts";
 
 // server/schema/ sits two levels above both src/engine/ and dist/engine/, and ships in the package.
 const SCHEMA_URL = new URL("../../schema/stepfile.schema.json", import.meta.url);
@@ -31,6 +31,13 @@ export function declaredToolHost(tool: ToolDeclaration): string {
     throw new TypeError(`tool url ${toolUrl(tool)} has no host; the schema should have rejected it`);
   }
   return authority.toLowerCase();
+}
+
+/** The credential a tool binds, with its declaration, or null when the tool takes none. */
+export function credentialOf(document: StepfileDocument, toolName: string): { name: string; declaration: CredentialDeclaration } | null {
+  const name = document.tools?.[toolName]?.credential;
+  const declaration = name === undefined ? undefined : document.credentials?.[name];
+  return name === undefined || declaration === undefined ? null : { name, declaration };
 }
 
 function parseText(text: string): unknown {

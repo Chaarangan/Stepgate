@@ -56,6 +56,10 @@ export async function startApi(flakyFailures: number): Promise<Fixture> {
       response.end(OPENAPI_BYTES);
       return;
     }
+    if (path === "/verify-garbage") {
+      response.writeHead(200, { "content-type": "text/html" }).end("<html>maintenance</html>");
+      return;
+    }
     if (path === "/verify") {
       const { output } = JSON.parse(body) as { output: { count: number } };
       send(response, 200, output.count >= 3 ? { pass: true } : { pass: false, message: `count ${output.count} is below 3` });
