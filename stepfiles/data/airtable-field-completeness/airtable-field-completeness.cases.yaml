@@ -11,10 +11,10 @@ cases:
               tables:
                 - id: tblBBBBBBBBBBBBBB
                   name: Contacts
+                  primaryFieldId: fldA
                   fields: [{ id: fldA, name: Name, type: singleLineText }, { id: fldB, name: Email, type: email }, { id: fldC, name: Owner, type: singleLineText }]
         output:
           table: { id: tblBBBBBBBBBBBBBB, name: Contacts, fields: [Name, Email, Owner] }
-          missing_fields: [Phone]
         expect: pass
       - step: records
         calls:
@@ -25,15 +25,15 @@ cases:
                 - { id: recCCCCCCCCCCCCCC, createdTime: "2026-09-01T10:00:00.000Z", fields: { Email: ada@example.com, Owner: Grace } }
                 - { id: recDDDDDDDDDDDDDD, createdTime: "2026-09-02T10:00:00.000Z", fields: { Email: alan@example.com } }
         output:
+          checked: [Email, Owner]
+          missing_fields: [Phone]
           records:
-            - { id: recCCCCCCCCCCCCCC, checked: [Email, Owner], empty: [] }
-            - { id: recDDDDDDDDDDDDDD, checked: [Email, Owner], empty: [Owner] }
+            - { id: recCCCCCCCCCCCCCC, empty: [] }
+            - { id: recDDDDDDDDDDDDDD, empty: [Owner] }
           more_records: false
         expect: pass
       - step: report
         output:
-          audited: 2
-          incomplete: [recDDDDDDDDDDDDDD]
           summary: |
             ## Result
             2 records audited, 1 incomplete. The table has no Phone field.
@@ -41,7 +41,59 @@ cases:
             - recDDDDDDDDDDDDDD: Owner is empty
         expect: pass
 
-  - name: a record called complete when Airtable left a field out is rejected
+  - name: a table found by id, with more than 100 records, passes
+    inputs: { base_id: appAAAAAAAAAAAAAA, table: tblBBBBBBBBBBBBBB, required_fields: [Email] }
+    steps:
+      - step: schema
+        calls:
+          - tool: getBaseSchema
+            arguments: { baseId: appAAAAAAAAAAAAAA }
+            result: { tables: [{ id: tblBBBBBBBBBBBBBB, name: Contacts, fields: [{ id: fldB, name: Email, type: email }] }] }
+        output:
+          table: { id: tblBBBBBBBBBBBBBB, name: Contacts, fields: [Email] }
+        expect: pass
+      - step: records
+        calls:
+          - tool: listRecords
+            arguments: { baseId: appAAAAAAAAAAAAAA, tableIdOrName: tblBBBBBBBBBBBBBB, "fields[]": [Email] }
+            result:
+              records: [{ id: recCCCCCCCCCCCCCC, createdTime: "2026-09-01T10:00:00.000Z", fields: { Email: ada@example.com } }]
+              offset: itrEEEEEEEEEEEEEE/recCCCCCCCCCCCCCC
+        output:
+          checked: [Email]
+          missing_fields: []
+          records: [{ id: recCCCCCCCCCCCCCC, empty: [] }]
+          more_records: true
+        expect: pass
+      - step: report
+        output:
+          summary: "## Result\n1 record audited, none incomplete; only the first 100 were audited.\n## Incomplete records\nNone."
+        expect: pass
+
+  - name: a table the base does not have stops the run
+    inputs: { base_id: appAAAAAAAAAAAAAA, table: Leads, required_fields: [Email] }
+    steps:
+      - step: schema
+        calls:
+          - tool: getBaseSchema
+            arguments: { baseId: appAAAAAAAAAAAAAA }
+            result: { tables: [{ id: tblBBBBBBBBBBBBBB, name: Contacts, fields: [{ id: fldB, name: Email, type: email }] }] }
+        output: { table: null }
+        expect: { fail: [table-exists, some-field-exists] }
+
+  - name: a table with none of the requested fields stops the run
+    inputs: { base_id: appAAAAAAAAAAAAAA, table: Contacts, required_fields: [Phone] }
+    steps:
+      - step: schema
+        calls:
+          - tool: getBaseSchema
+            arguments: { baseId: appAAAAAAAAAAAAAA }
+            result: { tables: [{ id: tblBBBBBBBBBBBBBB, name: Contacts, fields: [{ id: fldB, name: Email, type: email }] }] }
+        output:
+          table: { id: tblBBBBBBBBBBBBBB, name: Contacts, fields: [Email] }
+        expect: { fail: [some-field-exists] }
+
+  - name: a summary that skips an incomplete record or invents one is rejected
     inputs: { base_id: appAAAAAAAAAAAAAA, table: Contacts, required_fields: [Email, Owner] }
     steps:
       - step: schema
@@ -51,7 +103,6 @@ cases:
             result: { tables: [{ id: tblBBBBBBBBBBBBBB, name: Contacts, fields: [{ id: fldB, name: Email, type: email }, { id: fldC, name: Owner, type: singleLineText }] }] }
         output:
           table: { id: tblBBBBBBBBBBBBBB, name: Contacts, fields: [Email, Owner] }
-          missing_fields: []
         expect: pass
       - step: records
         calls:
@@ -59,37 +110,21 @@ cases:
             arguments: { baseId: appAAAAAAAAAAAAAA, tableIdOrName: tblBBBBBBBBBBBBBB, "fields[]": [Email, Owner] }
             result: { records: [{ id: recDDDDDDDDDDDDDD, createdTime: "2026-09-02T10:00:00.000Z", fields: { Email: alan@example.com } }] }
         output:
-          records: [{ id: recDDDDDDDDDDDDDD, checked: [Email, Owner], empty: [] }]
+          checked: [Email, Owner]
+          missing_fields: []
+          records: [{ id: recDDDDDDDDDDDDDD, empty: [Owner] }]
           more_records: false
-        expect: { fail: [empty-from-records] }
-
-  - name: an invented record id and a table the schema does not list are rejected
-    inputs: { base_id: appAAAAAAAAAAAAAA, table: Contacts, required_fields: [Email] }
-    steps:
-      - step: schema
-        calls:
-          - tool: getBaseSchema
-            arguments: { baseId: appAAAAAAAAAAAAAA }
-            result: { tables: [{ id: tblBBBBBBBBBBBBBB, name: Contacts, fields: [{ id: fldB, name: Email, type: email }] }] }
-        output:
-          table: { id: tblZZZZZZZZZZZZZZ, name: Contacts, fields: [Email] }
-          missing_fields: []
-        expect: { fail: [table-from-schema] }
-      - step: schema
-        calls:
-          - tool: getBaseSchema
-            arguments: { baseId: appAAAAAAAAAAAAAA }
-            result: { tables: [{ id: tblBBBBBBBBBBBBBB, name: Contacts, fields: [{ id: fldB, name: Email, type: email }] }] }
-        output:
-          table: { id: tblBBBBBBBBBBBBBB, name: Contacts, fields: [Email] }
-          missing_fields: []
         expect: pass
-      - step: records
-        calls:
-          - tool: listRecords
-            arguments: { baseId: appAAAAAAAAAAAAAA, tableIdOrName: tblBBBBBBBBBBBBBB, "fields[]": [Email] }
-            result: { records: [{ id: recCCCCCCCCCCCCCC, createdTime: "2026-09-01T10:00:00.000Z", fields: { Email: ada@example.com } }] }
+      - step: report
         output:
-          records: [{ id: recEEEEEEEEEEEEEE, checked: [Email], empty: [] }]
-          more_records: false
-        expect: { fail: [every-record-once, empty-from-records] }
+          summary: "## Result\n1 record audited, 1 incomplete.\n## Incomplete records\n- recZZZZZZZZZZZZZZ: Owner is empty"
+        expect: { fail: [summary-names-incomplete, summary-ids-are-audited] }
+      - step: report
+        output:
+          summary: "## Incomplete records\n- recDDDDDDDDDDDDDD: Owner\n## Result\n1 audited."
+        expect: { fail: [sections-in-order] }
+      - step: report
+        output:
+          audited: 1
+          summary: "## Result\n1 audited.\n## Incomplete records\n- recDDDDDDDDDDDDDD: Owner"
+        expect: { fail: [derive] }

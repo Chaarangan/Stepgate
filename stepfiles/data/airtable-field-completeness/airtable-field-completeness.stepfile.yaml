@@ -106,192 +106,90 @@ tools:
 
 steps:
   - id: schema
-    tools: [getBaseSchema]
-    instructions: |
-      Call getBaseSchema once with baseId {{inputs.base_id}}.
-
-      Find the table whose name or id is exactly "{{inputs.table}}". Submit it
-      as table: its id, its name, and fields: the name of every one of its
-      fields, in the order the schema lists them.
-
-      These fields were asked for:
-
-      {{inputs.required_fields}}
-
-      Submit missing_fields: the ones the table does not have, in the order
-      given, or an empty list if it has them all.
+    do:
+      calls:
+        - { id: schema, operation: getBaseSchema, arguments: { baseId: { var: inputs.base_id } } }
+      output:
+        # The table named by the input, matched first by name and then by id.
+        table:
+          if:
+            - &by-name { get: [{ get: [{ join: [[{ object: [[key, { var: inputs.table }]] }], { var: responses.schema.tables }, key, name] }, 0] }, right] }
+            - { object: [[id, { get: [*by-name, id] }], [name, { get: [*by-name, name] }], [fields, { map: [{ get: [*by-name, fields] }, { var: name }] }]] }
+            - &by-id { get: [{ get: [{ join: [[{ object: [[key, { var: inputs.table }]] }], { var: responses.schema.tables }, key, id] }, 0] }, right] }
+            - { object: [[id, { get: [*by-id, id] }], [name, { get: [*by-id, name] }], [fields, { map: [{ get: [*by-id, fields] }, { var: name }] }]] }
+            - null
     produces:
       type: object
-      required: [table, missing_fields]
+      required: [table]
       properties:
         table:
-          type: object
-          required: [id, name, fields]
-          additionalProperties: false
-          properties:
-            id: { type: string, pattern: "^tbl[A-Za-z0-9]{14}$" }
-            name: { type: string }
-            fields: { type: array, items: { type: string } }
-        missing_fields: { type: array, items: { type: string } }
+          oneOf:
+            - type: "null"
+            - type: object
+              required: [id, name, fields]
+              additionalProperties: false
+              properties:
+                id: { type: string, pattern: "^tbl[A-Za-z0-9]{14}$" }
+                name: { type: string }
+                fields: { type: array, items: { type: string } }
     gates:
-      - id: table-is-requested
-        message: table must be the one whose name or id is the table input.
-        predicate:
-          or:
-            - "==": [{ var: output.table.name }, { var: inputs.table }]
-            - "==": [{ var: output.table.id }, { var: inputs.table }]
-      - id: table-from-schema
-        message: table's id, name and every field name must be copied from the getBaseSchema result.
-        predicate:
-          none:
-            - join:
-                - [{ var: output.table }]
-                - flatten:
-                    map:
-                      - filter: [{ var: calls }, { and: [{ "==": [{ var: tool }, getBaseSchema] }, { "!": { var: is_error } }] }]
-                      - { var: result.tables }
-                - id
-                - id
-            - or:
-                - "==": [{ var: right }, null]
-                - "!=": [{ var: left.name }, { var: right.name }]
-                - "!": { subset: [{ var: left.fields }, { map: [{ var: right.fields }, { var: name }] }] }
-                - "!": { subset: [{ map: [{ var: right.fields }, { var: name }] }, { var: left.fields }] }
-      - id: missing-fields-exact
-        message: "missing_fields must be exactly the requested fields the table does not have:"
-        predicate:
-          and:
-            - subset: [{ var: output.missing_fields }, { difference: [{ var: inputs.required_fields }, { var: output.table.fields }] }]
-            - subset: [{ difference: [{ var: inputs.required_fields }, { var: output.table.fields }] }, { var: output.missing_fields }]
-        explain: { difference: [{ var: inputs.required_fields }, { var: output.table.fields }] }
-    retries: 2
+      - id: table-exists
+        message: The base has no table whose name or id is the table input.
+        predicate: { "!=": [{ var: output.table }, null] }
+      - id: some-field-exists
+        message: The table has none of the requested fields, so there is nothing to audit.
+        predicate: { ">": [{ length: { difference: [{ var: inputs.required_fields }, { difference: [{ var: inputs.required_fields }, { var: output.table.fields }] }] } }, 0] }
 
   - id: records
-    tools: [listRecords]
-    instructions: |
-      Call listRecords once with baseId {{inputs.base_id}}, tableIdOrName
-      {{steps.schema.table.id}}, and fields[] set to these fields, which the
-      table has:
-
-      {{steps.schema.table.fields}}
-
-      Pass in fields[] only the requested fields the table has, which are the
-      ones below that are not in the missing list:
-
-      requested: {{inputs.required_fields}}
-      missing: {{steps.schema.missing_fields}}
-
-      Submit every record the call returned, in order, as { id, checked,
-      empty }: checked is the list of fields you passed in fields[], the same
-      for every record, and empty is those of them that are not keys of the
-      record's fields, because Airtable leaves empty fields out. Set
-      more_records to true if the result has an offset, which means the table
-      has more than 100 records and only the first 100 were audited.
+    do:
+      calls:
+        - id: records
+          operation: listRecords
+          arguments:
+            baseId: { var: inputs.base_id }
+            tableIdOrName: { var: steps.schema.table.id }
+            "fields[]": &checked { difference: [{ var: inputs.required_fields }, { difference: [{ var: inputs.required_fields }, { var: steps.schema.table.fields }] }] }
+      output:
+        checked: *checked
+        missing_fields: { difference: [{ var: inputs.required_fields }, { var: steps.schema.table.fields }] }
+        # map cannot see checked, so the reduce carries it in its accumulator. Airtable leaves empty fields out.
+        records:
+          get:
+            - reduce:
+                - { var: responses.records.records }
+                - object:
+                    - [checked, { var: accumulator.checked }]
+                    - - rows
+                      - merge:
+                          - { var: accumulator.rows }
+                          - [{ object: [[id, { var: current.id }], [empty, { difference: [{ var: accumulator.checked }, { keys: { var: current.fields } }] }]] }]
+                - { object: [[checked, *checked], [rows, []]] }
+            - rows
+        more_records: { "!!": { var: responses.records.offset } }
     produces:
       type: object
-      required: [records, more_records]
+      required: [checked, missing_fields, records, more_records]
       properties:
+        checked: { type: array, items: { type: string } }
+        missing_fields: { type: array, items: { type: string } }
         records:
           type: array
           maxItems: 100
           items:
             type: object
-            required: [id, checked, empty]
+            required: [id, empty]
             additionalProperties: false
             properties:
               id: { type: string, pattern: "^rec[A-Za-z0-9]{14}$" }
-              checked: { type: array, items: { type: string } }
               empty: { type: array, items: { type: string } }
         more_records: { type: boolean }
-    gates:
-      - id: fetched-the-table
-        message: >
-          Make one successful listRecords call on the schema step's table id,
-          with fields[] holding exactly the requested fields the table has.
-        predicate:
-          and:
-            - "==":
-                - length: { filter: [{ var: calls }, { and: [{ "==": [{ var: tool }, listRecords] }, { "!": { var: is_error } }] }] }
-                - 1
-            - "==":
-                - { var: steps.schema.table.id }
-                - get: [{ map: [{ filter: [{ var: calls }, { "==": [{ var: tool }, listRecords] }] }, { var: arguments.tableIdOrName }] }, 0]
-            - subset:
-                - get: [{ map: [{ filter: [{ var: calls }, { "==": [{ var: tool }, listRecords] }] }, { get: [{ var: arguments }, "fields[]"] }] }, 0]
-                - difference: [{ var: inputs.required_fields }, { var: steps.schema.missing_fields }]
-            - subset:
-                - difference: [{ var: inputs.required_fields }, { var: steps.schema.missing_fields }]
-                - get: [{ map: [{ filter: [{ var: calls }, { "==": [{ var: tool }, listRecords] }] }, { get: [{ var: arguments }, "fields[]"] }] }, 0]
-      - id: every-record-once
-        message: "Submit every record listRecords returned exactly once; these ids are not among them:"
-        predicate:
-          and:
-            - "==":
-                - { length: { var: output.records } }
-                - length: { flatten: { map: [{ filter: [{ var: calls }, { "==": [{ var: tool }, listRecords] }] }, { var: result.records }] } }
-            - "==":
-                - { length: { unique: { map: [{ var: output.records }, { var: id }] } } }
-                - { length: { var: output.records } }
-            - subset:
-                - { map: [{ var: output.records }, { var: id }] }
-                - map: [{ flatten: { map: [{ filter: [{ var: calls }, { "==": [{ var: tool }, listRecords] }] }, { var: result.records }] } }, { var: id }]
-        explain:
-          difference:
-            - { map: [{ var: output.records }, { var: id }] }
-            - map: [{ flatten: { map: [{ filter: [{ var: calls }, { "==": [{ var: tool }, listRecords] }] }, { var: result.records }] } }, { var: id }]
-      - id: checked-is-fetched
-        message: checked must be the same for every record, and be exactly the requested fields the table has.
-        predicate:
-          or:
-            - "==": [{ length: { var: output.records } }, 0]
-            - and:
-                - "==": [{ length: { unique: { map: [{ var: output.records }, { var: checked }] } } }, 1]
-                - subset:
-                    - get: [{ unique: { map: [{ var: output.records }, { var: checked }] } }, 0]
-                    - difference: [{ var: inputs.required_fields }, { var: steps.schema.missing_fields }]
-                - subset:
-                    - difference: [{ var: inputs.required_fields }, { var: steps.schema.missing_fields }]
-                    - get: [{ unique: { map: [{ var: output.records }, { var: checked }] } }, 0]
-      - id: empty-from-records
-        message: "Each record's empty must be exactly the checked fields its fields leave out. These records are wrong:"
-        predicate:
-          none:
-            - join:
-                - { var: output.records }
-                - flatten: { map: [{ filter: [{ var: calls }, { "==": [{ var: tool }, listRecords] }] }, { var: result.records }] }
-                - id
-                - id
-            - or:
-                - "==": [{ var: right }, null]
-                - "!": { subset: [{ var: left.empty }, { difference: [{ var: left.checked }, { keys: { var: right.fields } }] }] }
-                - "!": { subset: [{ difference: [{ var: left.checked }, { keys: { var: right.fields } }] }, { var: left.empty }] }
-        explain:
-          map:
-            - filter:
-                - join:
-                    - { var: output.records }
-                    - flatten: { map: [{ filter: [{ var: calls }, { "==": [{ var: tool }, listRecords] }] }, { var: result.records }] }
-                    - id
-                    - id
-                - or:
-                    - "==": [{ var: right }, null]
-                    - "!": { subset: [{ var: left.empty }, { difference: [{ var: left.checked }, { keys: { var: right.fields } }] }] }
-                    - "!": { subset: [{ difference: [{ var: left.checked }, { keys: { var: right.fields } }] }, { var: left.empty }] }
-            - { var: left.id }
-      - id: more-records-from-offset
-        message: more_records must be true exactly when the listRecords result has an offset.
-        predicate:
-          "==":
-            - { var: output.more_records }
-            - some: [{ filter: [{ var: calls }, { "==": [{ var: tool }, listRecords] }] }, { "!!": { var: result.offset } }]
-    retries: 2
 
   - id: report
     instructions: |
       The table {{steps.schema.table.name}} ({{steps.schema.table.id}}) was
-      checked for these fields: {{inputs.required_fields}}.
+      checked for these fields: {{steps.records.checked}}.
 
-      Fields the table does not have: {{steps.schema.missing_fields}}
+      Requested fields the table does not have: {{steps.records.missing_fields}}
 
       Records audited, with the checked fields each leaves empty:
 
@@ -299,13 +197,13 @@ steps:
 
       More records than the 100 audited: {{steps.records.more_records}}
 
-      Submit audited, the number of records audited; incomplete, the ids of
-      the records with at least one empty field, in the order above; and a
-      Markdown summary with the sections "## Result" and "## Incomplete
-      records". Under Result give the counts, name any missing field, and say
-      if only the first 100 records were audited. Under Incomplete records
-      list every incomplete record by its id with its empty fields, or say
-      there are none. Mention no record id that was not audited.
+      Submit summary, in Markdown with the sections "## Result" and "##
+      Incomplete records". Under Result give the number of records audited
+      and how many have an empty field, name any missing field, and say if
+      only the first 100 records were audited. Under Incomplete records list
+      every record with at least one empty field by its id with its empty
+      fields, or say there are none. Mention no record id that was not
+      audited.
     produces:
       type: object
       required: [audited, incomplete, summary]
@@ -313,42 +211,20 @@ steps:
         audited: { type: integer, minimum: 0 }
         incomplete: { type: array, items: { type: string } }
         summary: { type: string, maxLength: 20000 }
+    derive:
+      audited: { length: { var: steps.records.records } }
+      incomplete: { map: [{ filter: [{ var: steps.records.records }, { ">": [{ length: { var: empty } }, 0] }] }, { var: id }] }
+    let:
+      cited: { match_all: [{ var: output.summary }, "rec[A-Za-z0-9]{14}"] }
     gates:
       - id: sections-in-order
         schema:
           properties:
             summary: { pattern: "## Result[\\s\\S]*## Incomplete records" }
-      - id: counts-from-records
-        message: audited must be the number of records the records step submitted.
-        predicate: { "==": [{ var: output.audited }, { length: { var: steps.records.records } }] }
-      - id: incomplete-from-records
-        message: incomplete must be exactly the ids of the records with at least one empty field.
-        predicate:
-          and:
-            - "==":
-                - { length: { var: output.incomplete } }
-                - length: { filter: [{ var: steps.records.records }, { ">": [{ length: { var: empty } }, 0] }] }
-            - subset:
-                - { var: output.incomplete }
-                - map: [{ filter: [{ var: steps.records.records }, { ">": [{ length: { var: empty } }, 0] }] }, { var: id }]
       - id: summary-names-incomplete
         message: "The summary must name every incomplete record by its id; these are missing:"
-        predicate:
-          subset:
-            - { var: output.incomplete }
-            - { match_all: [{ var: output.summary }, "rec[A-Za-z0-9]{14}"] }
-        explain:
-          difference:
-            - { var: output.incomplete }
-            - { match_all: [{ var: output.summary }, "rec[A-Za-z0-9]{14}"] }
+        predicate: { subset: [{ var: output.incomplete }, { var: let.cited }] }
       - id: summary-ids-are-audited
         message: "Every record id in the summary must be one that was audited; these were not:"
-        predicate:
-          subset:
-            - { match_all: [{ var: output.summary }, "rec[A-Za-z0-9]{14}"] }
-            - { map: [{ var: steps.records.records }, { var: id }] }
-        explain:
-          difference:
-            - { match_all: [{ var: output.summary }, "rec[A-Za-z0-9]{14}"] }
-            - { map: [{ var: steps.records.records }, { var: id }] }
+        predicate: { subset: [{ var: let.cited }, { map: [{ var: steps.records.records }, { var: id }] }] }
     retries: 2

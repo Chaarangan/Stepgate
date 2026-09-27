@@ -1,14 +1,16 @@
 # airtable-field-completeness
 
-Audits one Airtable table for empty required fields: for each of up to 100 records it reports which of the fields you name are empty, then summarises the incomplete records. A model asked to do this in chat tends to skip records, invent record ids, or call a field filled because a neighbouring record fills it. Here every record id, every field name and every "empty" verdict is checked against what Airtable returned. Airtable leaves empty fields out of a record, so a field counts as empty exactly when the record's `fields` has no key for it.
+Audits one Airtable table for empty required fields: for each of up to 100 records it reports which of the fields you name are empty, then summarises the incomplete records. A model asked to do this in chat tends to skip records, invent record ids, or call a field filled because a neighbouring record fills it. Here Stepgate reads the schema and the records itself and works out which fields each record leaves empty, so no record or verdict can be skipped or invented; the agent only writes the summary, whose gates check it against those records. Airtable leaves empty fields out of a record, so a field counts as empty exactly when the record's `fields` has no key for it.
 
 Status: validated against Airtable's documented Web API and with offline gate tests (`stepgate --test airtable-field-completeness`).
 
 ## Steps
 
-1. **schema**: reads the base schema and finds the table. Gates check the table is the one named in `table`, that its id, name and field names are copied from the schema, and that `missing_fields` is exactly the requested fields the table does not have.
-2. **records**: lists up to 100 records with only the requested fields. Gates check there is one successful call on the schema step's table id with exactly the fields the table has, that every returned record is submitted once, that each record's `empty` is exactly the checked fields its `fields` leave out, and that `more_records` is true exactly when Airtable returned an `offset`.
-3. **report**: counts and summarises. Gates check the counts and the list of incomplete ids against the records step, that the summary has its two sections in order, names every incomplete record, and names no record that was not audited.
+1. **schema** (mechanical): Stepgate reads the base schema and keeps the table whose name, or else id, is `table`, with its field names. Gates stop the run if the base has no such table or the table has none of the requested fields.
+2. **records** (mechanical): Stepgate lists up to 100 records with only the requested fields the table has, and records `checked` (those fields), `missing_fields` (the requested fields the table lacks), each record's `empty` fields, and `more_records`, true when Airtable returned an `offset`.
+3. **report**: the agent writes a Markdown summary. Stepgate derives `audited`, the number of records, and `incomplete`, the ids of the records with an empty field. Gates check the summary has its two sections in order, names every incomplete record, and names no record that was not audited.
+
+`missing_fields` moved from `outputs.schema` to `outputs.records`; `audited`, `incomplete` and `summary` are still in `outputs.report`.
 
 ## Inputs
 
