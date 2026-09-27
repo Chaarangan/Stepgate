@@ -28,7 +28,7 @@ tools:
   tavily:
     mcp: { url: "https://mcp.tavily.com/mcp/" }
     credential: tavily
-    exposes: [tavily_search]
+    exposes: [{ name: tavily_search, effect: read }]
 
 steps:
   - id: search

@@ -86,7 +86,7 @@ tools:
                         version: { type: string }
               responses:
                 "200": { description: "vulns lists the advisories in OSV format" }
-    exposes: [queryVulns]
+    exposes: [{ name: queryVulns, effect: read }]
 
 # An each call's responses come back in the order of its items, so steps pair them by position: the
 # reduce numbers a list as { i, value } and join matches the numbers.
