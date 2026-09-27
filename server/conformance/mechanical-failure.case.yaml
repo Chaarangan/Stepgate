@@ -1,0 +1,37 @@
+name: a mechanical call that returns an error stops the run with ToolCallFailed, since no model can retry it
+api:
+  routes:
+    - method: GET
+      path: /items?shelf=Z
+      answers: [{ status: 404, json: { error: no such shelf } }]
+stepfile:
+  stepgate: "1"
+  id: shelves
+  inputs: { type: object, required: [shelf], properties: { shelf: { type: string } } }
+  tools:
+    catalogue:
+      openapi:
+        server: "${api.origin}"
+        document:
+          openapi: 3.1.0
+          info: { title: Catalogue, version: "1" }
+          paths:
+            /items:
+              get:
+                operationId: listItems
+                parameters: [{ name: shelf, in: query, required: true, schema: { type: string } }]
+      exposes: [listItems]
+  steps:
+    - id: fetch
+      do:
+        calls: [{ id: shelf, operation: listItems, arguments: { shelf: { var: inputs.shelf } } }]
+        output: { items: { var: responses.shelf.items } }
+      produces: { type: object }
+inputs: { shelf: Z }
+actions: []
+expect:
+  replies:
+    - { state: failed, error: ToolCallFailed, contain: "call shelf (listItems)" }
+  ledger: [run_started, step_started, tool_call, run_failed]
+  requests:
+    - { method: GET, path: /items?shelf=Z }

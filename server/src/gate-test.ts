@@ -75,7 +75,7 @@ export function parseCases(stepfile: Stepfile, text: string): GateCase[] {
     throw new CasesInvalid([describeErrors(validate.errors)]);
   }
   const raw = (parsed as { cases: Array<{ name: string; inputs: JsonObject; steps: Array<Omit<CaseStep, "calls"> & { calls?: Array<Partial<EvidenceCall> & { tool: string; result: Json }> }> }> }).cases;
-  const known = new Map(stepfile.document.steps.map((step) => [step.id, new Set(step.gates.map((gate) => gate.id))]));
+  const known = new Map(stepfile.document.steps.map((step) => [step.id, new Set((step.gates ?? []).map((gate) => gate.id))]));
   const problems = raw.flatMap((item) => item.steps.flatMap((step) => {
     const gates = known.get(step.step);
     if (gates === undefined) {
@@ -126,8 +126,8 @@ export async function testGates(stepfile: Stepfile, cases: GateCase[]): Promise<
       if (step === undefined) {
         throw new TypeError(`step ${caseStep.step} vanished after parseCases checked it`);
       }
-      const offline = step.gates.filter((gate) => !("http" in gate) && !("approve" in gate));
-      const skipped = step.gates.filter((gate) => "http" in gate || "approve" in gate).map((gate) => gate.id);
+      const offline = (step.gates ?? []).filter((gate) => !("http" in gate) && !("approve" in gate));
+      const skipped = (step.gates ?? []).filter((gate) => "http" in gate || "approve" in gate).map((gate) => gate.id);
       const { verdicts, output } = await compileStepGates(stepfile.document, { http: OFFLINE, approvals: NO_PEOPLE }, { ...step, gates: offline }, ajv)
         .check({ inputs: item.inputs, steps: accepted, output: caseStep.output, calls: caseStep.calls });
       const failed = verdicts.filter((verdict) => !verdict.passed);

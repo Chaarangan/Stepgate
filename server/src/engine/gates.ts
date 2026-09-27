@@ -165,7 +165,7 @@ export function compileStepGates(document: StepfileDocument, services: GateServi
   const defs = document.$defs ?? {};
   const validateOutput = compileWithDefs(ajv, step.produces, defs);
   const validateSubmission = step.derive === undefined ? validateOutput : compileWithDefs(ajv, submittedSchema(step), defs);
-  const gates = step.gates.map((gate) => compileGate(document, services, step, gate, ajv));
+  const gates = (step.gates ?? []).map((gate) => compileGate(document, services, step, gate, ajv));
   const lets = Object.entries(step.let ?? {}).map(([name, rule]) => [name, expandResults(rule) as JsonObject] as const);
   const derives = Object.entries(step.derive ?? {}).map(([name, rule]) => [name, expandResults(rule) as JsonObject] as const);
   return {

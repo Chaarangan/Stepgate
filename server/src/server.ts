@@ -124,6 +124,7 @@ function describeStep(run: string, view: StepView): string {
       .map((operation) => `- ${operation.name}: ${operation.description}\n  arguments: ${JSON.stringify(operation.inputSchema)}`)
       .join("\n")}`;
   return [
+    ...(view.completed.length === 0 ? [] : [`Stepgate did these steps itself: ${view.completed.join(", ")}.`]),
     `Run ${run}, step ${view.number} of ${view.total}: ${view.step}.`,
     `Instructions:\n${view.instructions.trim()}`,
     operations,

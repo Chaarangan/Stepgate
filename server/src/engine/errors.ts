@@ -114,6 +114,18 @@ export class GateFailed extends StepgateError {
   }
 }
 
+/** A mechanical step computed arguments its operation's schema refuses, which no model is there to correct. */
+export class CallArgumentsInvalid extends StepgateError {
+  override name = "CallArgumentsInvalid";
+  readonly step: string;
+  readonly call: string;
+  constructor(step: string, call: string, operation: string, problems: string) {
+    super(`step ${step} computed arguments for call ${call} (${operation}) that its schema refuses: ${problems}`);
+    this.step = step;
+    this.call = call;
+  }
+}
+
 /** A step made more tool calls than Stepgate allows, which usually means the client is looping. */
 export class CallLimitReached extends StepgateError {
   override name = "CallLimitReached";

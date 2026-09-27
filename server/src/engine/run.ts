@@ -1,12 +1,14 @@
 import type { ValidateFunction } from "ajv/dist/2020.js";
 import { randomUUID } from "node:crypto";
 import {
+  CallArgumentsInvalid,
   CallLimitReached,
   CredentialUnavailable,
   GateFailed,
   InvalidGrant,
   PreflightFailed,
   RunNotActive,
+  ToolCallFailed,
   type GateDiagnosis,
 } from "./errors.ts";
 import { compileStepGates, submittedSchema, type StepGates } from "./gates.ts";
@@ -16,11 +18,11 @@ import { compileToolSchema, createToolSchemaValidators, createValidator, describ
 import { createLedger, type AppendRecord } from "./ledger.ts";
 import { credentialOf, declaredToolHost } from "./load.ts";
 import { renderInstructions } from "./placeholders.ts";
-import { evaluateExpression, evaluatePredicate, type EvidenceCall } from "./predicate.ts";
+import { evaluateExpression, evaluatePredicate, evaluateTemplate, type EvidenceCall } from "./predicate.ts";
 import { resolveSettings } from "./settings.ts";
 import { kindOf } from "./tools/kinds.ts";
 import type { ToolResult } from "./tools/tool.ts";
-import type { Json, JsonObject, JsonSchema, RunContext, RunResult, Stepfile, Step, ToolDefinition } from "./types.ts";
+import type { Json, JsonObject, JsonSchema, MechanicalWork, RunContext, RunResult, Stepfile, Step, ToolDefinition } from "./types.ts";
 
 type StepOperation = {
   definition: ToolDefinition;
@@ -66,7 +68,7 @@ async function preflight(stepfile: Stepfile, inputs: JsonObject, runContext: Run
     throw new PreflightFailed("inputs", describeErrors(validateInputs.errors));
   }
   await checkCredentials(stepfile, runContext);
-  if (!runContext.approvals.available && stepfile.document.steps.some((step) => step.gates.some((gate) => "approve" in gate))) {
+  if (!runContext.approvals.available && stepfile.document.steps.some((step) => (step.gates ?? []).some((gate) => "approve" in gate))) {
     throw new PreflightFailed("approval", "the stepfile has approve gates, which ask a person through MCP elicitation, and this client does not support elicitation");
   }
   const toolSchemas = createToolSchemaValidators();
@@ -126,8 +128,11 @@ function parseResult(content: string): Json {
   }
 }
 
+/** Who made a call: the client through stepgate_call, or Stepgate for a mechanical step's call of this id. */
+type Caller = { by: "client" } | { by: "stepgate"; call: string };
+
 /** Runs one tool call. `evidence` is what gates see; it is null when the call never reached the tool. */
-async function callTool(prepared: StepOperation, operation: string, args: Json | undefined, stepId: string, append: AppendRecord, limit: number): Promise<{ shown: ToolResult; evidence: EvidenceCall | null }> {
+async function callTool(prepared: StepOperation, operation: string, args: Json | undefined, stepId: string, caller: Caller, append: AppendRecord, limit: number): Promise<{ shown: ToolResult; evidence: EvidenceCall | null }> {
   if (!isObject(args) || !prepared.validateArgs(args)) {
     return { shown: { content: `Invalid arguments for ${operation}: ${describeErrors(prepared.validateArgs.errors) || "arguments must be an object"}`, isError: true, status: null }, evidence: null };
   }
@@ -137,6 +142,8 @@ async function callTool(prepared: StepOperation, operation: string, args: Json |
   const shown = prepared.select === null || result.isError ? result.content : JSON.stringify(evaluateExpression(prepared.select, parseResult(result.content)));
   await append("tool_call", {
     step: stepId,
+    caller: caller.by,
+    ...(caller.by === "stepgate" ? { call: caller.call } : {}),
     tool: prepared.toolName,
     operation,
     host: prepared.host,
@@ -164,6 +171,8 @@ export type StepView = {
   operations: ToolDefinition[];
   produces: JsonSchema;
   attempts_left: number;
+  /** Mechanical steps Stepgate passed since the client's last view, in order. */
+  completed: string[];
 };
 
 export type Progress =
@@ -237,6 +246,7 @@ export async function startRun(written: Stepfile, inputs: JsonObject, runContext
   const outputs: Record<string, JsonObject> = {};
   let current: Current | null = null;
 
+  let completed: string[] = [];
   const view = (open: Current): StepView => ({
     step: open.step.id,
     number: open.index + 1,
@@ -245,20 +255,62 @@ export async function startRun(written: Stepfile, inputs: JsonObject, runContext
     operations: [...open.allowed.values()].map((tool) => tool.definition),
     produces: inlineLocalRefs(submittedSchema(open.step), defs, []) as JsonObject,
     attempts_left: (open.step.retries ?? 0) + 2 - open.attempt,
+    completed,
   });
 
+  /** Makes a mechanical step's calls in order and computes its output, then applies its gates; any failure ends the run. */
+  const perform = async (step: Step, work: MechanicalWork): Promise<void> => {
+    const responses: JsonObject = {};
+    const calls: EvidenceCall[] = [];
+    for (const [made, planned] of (work.calls ?? []).entries()) {
+      if (made >= runContext.limits.callsPerStep) {
+        throw new CallLimitReached(step.id, runContext.limits.callsPerStep);
+      }
+      const tool = session.tools.get(planned.operation) as StepOperation;
+      const args = evaluateTemplate(planned.arguments ?? {}, { inputs, steps: outputs, responses });
+      if (typeof args !== "object" || args === null || Array.isArray(args) || !tool.validateArgs(args)) {
+        throw new CallArgumentsInvalid(step.id, planned.id, planned.operation, describeErrors(tool.validateArgs.errors) || "arguments must be an object");
+      }
+      const { shown, evidence } = await callTool(tool, planned.operation, args, step.id, { by: "stepgate", call: planned.id }, append, Number.MAX_SAFE_INTEGER);
+      if (shown.isError || evidence === null) {
+        throw new ToolCallFailed(`call ${planned.id} (${planned.operation})`, shown.status, shown.content);
+      }
+      responses[planned.id] = evidence.result;
+      calls.push(evidence);
+    }
+    const output = evaluateTemplate(work.output, { inputs, steps: outputs, responses });
+    await append("computed", { step: step.id, output: { sha256: canonicalHash(output), length: JSON.stringify(output).length } });
+    const checked = await (session.gates.get(step.id) as StepGates).check({ inputs, steps: outputs, output, calls });
+    for (const { gate, passed, diagnosis } of checked.verdicts) {
+      await append("gate", { step: step.id, attempt: 1, gate, verdict: passed ? "pass" : "fail", diagnosis: diagnosis === null ? null : textHash(diagnosis) });
+    }
+    const failures = checked.verdicts.flatMap(({ gate, passed, diagnosis }) => (passed ? [] : [{ gate, diagnosis: diagnosis ?? "" }]));
+    if (failures.length > 0) {
+      throw new GateFailed(step.id, failures);
+    }
+    await append("step_passed", { step: step.id, attempt: 1 });
+    outputs[step.id] = checked.output as JsonObject;
+  };
+
   const advance = async (from: number): Promise<Progress> => {
+    completed = [];
     for (let index = from; index < steps.length; index += 1) {
       const step = steps[index] as Step;
       if (step.when !== undefined && !evaluatePredicate(step.when, { inputs, steps: outputs })) {
         await append("step_skipped", { step: step.id });
         continue;
       }
+      if (step.do !== undefined) {
+        await append("step_started", { step: step.id });
+        await perform(step, step.do);
+        completed = [...completed, step.id];
+        continue;
+      }
       const allowed = new Map((step.tools ?? []).flatMap((name) => {
         const tool = session.tools.get(name);
         return tool === undefined ? [] : [[name, tool] as const];
       }));
-      const instructions = renderInstructions(step.id, step.instructions, { inputs, steps: outputs });
+      const instructions = renderInstructions(step.id, step.instructions ?? "", { inputs, steps: outputs });
       await append("step_started", { step: step.id });
       current = { step, index, allowed, instructions, attempt: 1, callsMade: 0, calls: [] };
       return { state: "step", step: view(current) };
@@ -283,7 +335,7 @@ export async function startRun(written: Stepfile, inputs: JsonObject, runContext
         await append("tool_refused", { step: open.step.id, operation });
         return { content: `${operation} is not available in this step.`, isError: true, status: null };
       }
-      const { shown, evidence } = await callTool(tool, operation, args ?? {}, open.step.id, append, runContext.limits.toolResultChars);
+      const { shown, evidence } = await callTool(tool, operation, args ?? {}, open.step.id, { by: "client" }, append, runContext.limits.toolResultChars);
       if (evidence !== null) {
         open.calls = [...open.calls, evidence];
       }

@@ -32,7 +32,7 @@ for (const { domain, id, file, stepfile: { document } } of entries) {
     gates: document.steps.reduce((sum, step) => sum + lines(step.gates), 0),
     produces: document.steps.reduce((sum, step) => sum + lines(step.produces), 0),
     tools: lines(document.tools),
-    instructions: document.steps.reduce((sum, step) => sum + step.instructions.split("\n").length, 0),
+    instructions: document.steps.reduce((sum, step) => sum + (step.instructions ?? "").split("\n").length, 0),
     other: 0,
   };
   parts.other = lines(document) - parts.gates - parts.produces - parts.tools - parts.instructions;
@@ -40,8 +40,8 @@ for (const { domain, id, file, stepfile: { document } } of entries) {
     totals[key] += parts[key];
   }
   for (const step of document.steps) {
-    filters += callFilters(step.gates as unknown as Json);
-    for (const gate of step.gates) {
+    filters += callFilters((step.gates ?? []) as unknown as Json);
+    for (const gate of step.gates ?? []) {
       const kind = (["schema", "predicate", "http", "approve"] as const).find((name) => name in gate);
       if (kind === undefined) {
         throw new Error(`gate ${gate.id} in ${id} has no known kind`);

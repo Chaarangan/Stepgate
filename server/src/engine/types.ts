@@ -32,12 +32,20 @@ export type Gate =
   | { id: string; http: { tool: string } }
   | { id: string; approve: { message: string } };
 
+/** One call a mechanical step makes, with arguments as a template over inputs, earlier outputs and earlier responses. */
+export type MechanicalCall = { id: string; operation: string; arguments?: JsonObject };
+
+/** What Stepgate does for a mechanical step: its calls in order, then an output template over their responses. */
+export type MechanicalWork = { calls?: MechanicalCall[]; output: Json };
+
+/** An agent step has `instructions` and gates; a mechanical step has `do` instead, and its gates are optional. */
 export type Step = {
   id: string;
-  instructions: string;
+  instructions?: string;
+  do?: MechanicalWork;
   tools?: string[];
   produces: JsonSchema;
-  gates: Gate[];
+  gates?: Gate[];
   retries?: number;
   /** Top-level output fields Stepgate computes after the client submits; the client is not asked for them. */
   derive?: Record<string, JsonObject>;

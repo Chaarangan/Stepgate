@@ -1,0 +1,21 @@
+name: a stepfile of mechanical steps finishes on the start call, and when skips a mechanical step
+stepfile:
+  stepgate: "1"
+  id: tally
+  inputs: { type: object, required: [prices], properties: { prices: { type: array, items: { type: number } }, audit: { type: boolean } } }
+  steps:
+    - id: audit
+      when: { var: inputs.audit }
+      do: { output: { audited: true } }
+      produces: { type: object }
+    - id: total
+      do:
+        output:
+          total: { reduce: [{ var: inputs.prices }, { "+": [{ var: accumulator }, { var: current }] }, 0] }
+      produces: { type: object, required: [total], properties: { total: { type: number } } }
+inputs: { prices: [2.5, 4, 1.5] }
+actions: []
+expect:
+  replies:
+    - { state: finished, contain: '"total": 8' }
+  ledger: [run_started, step_skipped, step_started, computed, step_passed, run_finished]

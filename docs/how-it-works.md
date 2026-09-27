@@ -17,6 +17,8 @@ stepgate → client   step 2 instructions only
 
 The client cannot skip step 2, because it is not told step 2 exists until step 1 passes. It cannot declare step 1 done, because a step passes only when its gates pass over the output it submitted. It cannot reach an undeclared host or read a key, because Stepgate makes every request.
 
+A mechanical step, one with `do` instead of instructions, never reaches the client: Stepgate makes its calls, computes its output and checks its gates itself, and the next step the client is shown lists it under `completed`. A run may start or end with mechanical steps, and one of only mechanical steps finishes on the call that starts it.
+
 What this guarantees is that the path through a stepfile depends only on submitted outputs and mechanical checks. The outputs themselves still come from a model and still vary.
 
 ## Connecting a client
@@ -76,6 +78,7 @@ Limits depend on the client and its model, so they are command-line options rath
 | `ResponseTooLarge` | A response was larger than `--response-bytes` |
 | `PlaceholderUnresolved` | A placeholder had no value when the step started |
 | `GateFailed` | A step used up its retries; names the step and the failing gates |
+| `CallArgumentsInvalid` | A mechanical step computed arguments its operation's schema refuses; names the step and call |
 | `CallLimitReached` | A step hit the tool-call limit |
 | `RunNotActive` | A call named a run that finished, failed, was abandoned or never existed |
 | `DraftRefused` | A draft given to `stepgate_try` declares a credential or setting the operator did not grant, lists a host its credential was not granted for, or calls a URL that is not public `https` |
@@ -90,7 +93,8 @@ Every run writes a hash-chained ledger. Each record carries `run`, `stepfile`, `
 |---|---|
 | `run_started` | the stepfile's identity and a hash of the inputs |
 | `step_started`, `step_skipped`, `step_passed` | the step and attempt |
-| `tool_call` | tool, operation, host, status, duration, the credential's name, a hash and length of the response, and the length the client was shown after any `select` |
+| `tool_call` | tool, operation, host, status, duration, the credential's name, a hash and length of the response, and the length the client was shown after any `select`; `caller`, which is `client` or `stepgate`, and for a mechanical step's call its `call` id |
+| `computed` | a mechanical step's output, as a hash and length |
 | `tool_refused` | an operation the step does not allow, which the client tried to call |
 | `submit` | the step, attempt, and a hash and length of the output |
 | `derived` | the step, attempt, and a hash and length of the output once its `derive` fields are added |

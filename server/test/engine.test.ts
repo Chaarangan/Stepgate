@@ -4,12 +4,26 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { parse as parseYaml } from "yaml";
+import { StepfileInvalid } from "../src/engine/errors.ts";
 import { directorySink } from "../src/engine/ledger.ts";
 import { load } from "../src/engine/load.ts";
 import { evaluatePredicate } from "../src/engine/predicate.ts";
 import type { Json, JsonObject } from "../src/engine/types.ts";
 import { userAgent, VERSION } from "../src/version.ts";
 import { GOOD_STOCK, GOOD_SUMMARY, startHarness, type Harness } from "./harness.ts";
+
+/** Every issue a load failure reports, as "path message". */
+function issuesOf(work: () => unknown): string[] {
+  try {
+    work();
+  } catch (error) {
+    if (error instanceof StepfileInvalid) {
+      return error.issues.map((issue) => `${issue.path} ${issue.message}`);
+    }
+    throw error;
+  }
+  throw new Error("expected load to refuse the stepfile");
+}
 
 const MARKET_RESEARCH = new URL("../../stepfiles/marketing/market-research/market-research.stepfile.yaml", import.meta.url);
 
@@ -71,6 +85,39 @@ describe("load", () => {
 
     first.derive = { sources: { var: "steps.report.summary" } };
     expect(() => load(JSON.stringify(document))).toThrow("steps.report.summary does not name an earlier step");
+  });
+
+  it("refuses a step with neither instructions nor do, or both, and an agent step with no gates", () => {
+    const document = parseYaml(readFileSync(MARKET_RESEARCH, "utf8")) as { steps: Array<Record<string, unknown>> };
+    const first = document.steps[0] as Record<string, unknown>;
+    const instructions = first.instructions;
+    delete first.instructions;
+    expect(() => load(JSON.stringify(document))).toThrow("/steps/0 a step needs instructions, or do for a mechanical step");
+
+    first.instructions = instructions;
+    first.do = { output: {} };
+    expect(() => load(JSON.stringify(document))).toThrow("/steps/0 a step has instructions or do, not both");
+
+    delete first.do;
+    delete first.gates;
+    expect(() => load(JSON.stringify(document))).toThrow("/steps/0 an agent step needs at least one gate");
+  });
+
+  it("refuses a mechanical step with fields only an agent step takes, or calls it cannot make", () => {
+    const document = parseYaml(readFileSync(MARKET_RESEARCH, "utf8")) as { steps: Array<Record<string, unknown>> };
+    const first = document.steps[0] as Record<string, unknown>;
+    delete first.instructions;
+    first.do = { calls: [{ id: "one", operation: "tavily_search", arguments: { query: { var: "responses.two.query" } } }, { id: "two", operation: "tavily_crawl" }, { id: "one", operation: "tavily_search" }], output: { results: ["tavily_search"] } };
+
+    expect(() => load(JSON.stringify(document))).toThrow(StepfileInvalid);
+    const messages = issuesOf(() => load(JSON.stringify(document)));
+    expect(messages).toEqual(expect.arrayContaining([
+      "/steps/0 a mechanical step takes no tools or retries",
+      "/steps/0/do/calls/0 responses.two does not name an earlier call of this step",
+      "/steps/0/do/calls/1 tavily_crawl is not exposed by any tool",
+      "/steps/0/do/calls/2 call id one is not unique in the step",
+      "/steps/0/do results reads an agent step's calls; a mechanical step reads responses.<call id>",
+    ]));
   });
 
   it("refuses a when condition that reads let, which is evaluated only on submission", () => {

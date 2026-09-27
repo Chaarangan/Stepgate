@@ -28,9 +28,10 @@ Unknown fields are rejected. Beyond the schema, Stepgate checks these rules when
 4. Every `credential` a tool names is declared, and the tool's host is in that credential's `hosts`.
 5. Every `http` gate names a `verifier` tool.
 6. Every placeholder and every `var` path under `steps.` names an earlier step.
-7. Every `derive` key is a property of the step's `produces`.
-8. Every `var` path under `let.` names an entry of the step's `let`, one before it when read from `let` itself, and `when` reads no `let`.
-9. Every `results` takes a literal operation name and optional path, and appears only in gates, never in `when` or `select`.
+7. A step has `instructions` or `do`, not both. An agent step has at least one gate; a mechanical step has no `tools`, `retries`, `derive` or `let`, its call ids are unique, every call names an exposed operation, and `responses.<id>` names an earlier call of the step, or any of its calls in `output`.
+8. Every `derive` key is a property of the step's `produces`.
+9. Every `var` path under `let.` names an entry of the step's `let`, one before it when read from `let` itself, and `when` reads no `let`.
+10. Every `results` takes a literal operation name and optional path, and appears only in an agent step's gates, `let` and `derive`, never in `when`, `select` or `do`.
 
 ## Tools
 
@@ -122,20 +123,49 @@ A credential is attached only to requests whose host is in its `hosts`, and neve
 | Field | Required | Meaning |
 |---|---|---|
 | `id` | yes | Identifier |
-| `instructions` | yes | What the model should do, with placeholders |
+| `instructions` | one of the two | What the model should do, with placeholders; makes this an agent step |
+| `do` | one of the two | Calls and an output Stepgate makes itself; makes this a mechanical step ([Mechanical steps](#mechanical-steps)) |
 | `tools` | no | Exposed tool names this step may call; omitted means none |
 | `produces` | yes | JSON Schema the step's output must satisfy |
-| `gates` | yes | At least one gate |
+| `gates` | agent steps | At least one gate; optional on a mechanical step |
 | `retries` | no | Extra attempts after a gate fails, 0 to 5; default 0 |
 | `derive` | no | Output fields Stepgate computes after the client submits ([Deriving fields](#deriving-fields)) |
 | `let` | no | Named JSONLogic expressions that gates read as `let.<name>` ([Naming expressions](#naming-expressions)) |
 | `when` | no | A predicate over `inputs` and `steps`; the step is skipped unless it is `true` |
 
-Steps run in file order. There is no branching, looping or parallel block; `when` covers optional steps.
+Steps run in file order. There is no branching, looping or parallel block; `when` covers optional steps. An agent step is done by the client's agent; a mechanical step by Stepgate, and the client is never shown it.
 
 **Placeholders.** `{{inputs.<path>}}` and `{{steps.<id>.<path>}}` are replaced in `instructions` before the step starts. A string is inserted as-is and anything else as indented JSON. Placeholders work only in `instructions` and have no conditionals, loops or filters. A path that cannot be resolved is an error, caught at load time where possible.
 
 **Submitting.** The client finishes a step by sending an output matching `produces` to Stepgate's `stepgate_submit` tool. Each submission is one attempt.
+
+### Mechanical steps
+
+A step with `do` instead of `instructions` is done by Stepgate. It makes each call in `calls` in order, computes `output`, checks it against `produces` and any gates, and moves on. The client is never shown the step; the next step it is shown lists it under `completed`. Use one for work that needs no judgement: fetching what the inputs already name, picking the latest filing, arithmetic.
+
+```yaml
+- id: fetch
+  do:
+    calls:
+      - id: shelf
+        operation: listItems
+        arguments: { shelf: { var: inputs.shelf } }
+    output:
+      ids: { map: [{ var: responses.shelf.items }, { var: id }] }
+      count: { length: { var: responses.shelf.items } }
+  produces:
+    type: object
+    required: [ids, count]
+    properties: { ids: { type: array }, count: { type: integer } }
+```
+
+A call's `operation` is any exposed name, and its `arguments` and the step's `output` are templates over `{ inputs, steps, responses }`, where `responses.<call id>` is an earlier call's full result, parsed as JSON when it is JSON. In a template:
+
+- a one-key object whose key is a JSONLogic or Stepgate operator is an expression, and its value is used;
+- `{ literal: <value> }` is the value as written, for an object that would otherwise read as an expression, such as a request body `{ filter: ... }`;
+- any other object or array has each member evaluated as a template, and anything else is itself.
+
+A mechanical step takes no `tools`, `retries`, `derive` or `let`, and `results` has no calls to read there. Nobody is there to retry, so a call whose arguments break the operation's schema stops the run with `CallArgumentsInvalid`, a call that returns an error with `ToolCallFailed`, and an output that fails `produces` or a gate with `GateFailed`. Its calls count against the call limit like the client's.
 
 ### Deriving fields
 

@@ -7,7 +7,7 @@ import { placeholderPaths } from "./placeholders.ts";
 import { matchAllPatterns, operatorArguments, resultsProblem, varPaths } from "./predicate.ts";
 import { patternProblem, schemaPatterns } from "./regex.ts";
 import { settingNames } from "./settings.ts";
-import type { CredentialDeclaration, Json, Stepfile, StepfileDocument, ToolDeclaration } from "./types.ts";
+import type { CredentialDeclaration, Json, MechanicalWork, Step, Stepfile, StepfileDocument, ToolDeclaration } from "./types.ts";
 
 // server/schema/ sits two levels above both src/engine/ and dist/engine/, and ships in the package.
 const SCHEMA_URL = new URL("../../schema/stepfile.schema.json", import.meta.url);
@@ -39,6 +39,48 @@ export function credentialOf(document: StepfileDocument, toolName: string): { na
   const name = document.tools?.[toolName]?.credential;
   const declaration = name === undefined ? undefined : document.credentials?.[name];
   return name === undefined || declaration === undefined ? null : { name, declaration };
+}
+
+/** The load rules only a mechanical step has (docs/stepfile.md, Mechanical steps). */
+function mechanicalProblems(path: string, work: MechanicalWork, step: Step, exposed: Map<string, string>): ValidationIssue[] {
+  const issues: ValidationIssue[] = [];
+  const agentOnly = (["tools", "retries", "derive", "let"] as const).filter((field) => step[field] !== undefined);
+  if (agentOnly.length > 0) {
+    issues.push({ path, message: `a mechanical step takes no ${agentOnly.join(" or ")}` });
+  }
+  const earlier = new Set<string>();
+  for (const [index, call] of (work.calls ?? []).entries()) {
+    const where = `${path}/do/calls/${index}`;
+    if (!exposed.has(call.operation)) {
+      issues.push({ path: where, message: `${call.operation} is not exposed by any tool` });
+    }
+    if (earlier.has(call.id)) {
+      issues.push({ path: where, message: `call id ${call.id} is not unique in the step` });
+    }
+    for (const name of responseReferences(call.arguments ?? null)) {
+      if (!earlier.has(name)) {
+        issues.push({ path: where, message: `responses.${name} does not name an earlier call of this step` });
+      }
+    }
+    earlier.add(call.id);
+  }
+  for (const name of responseReferences(work.output)) {
+    if (!earlier.has(name)) {
+      issues.push({ path: `${path}/do/output`, message: `responses.${name} does not name a call of this step` });
+    }
+  }
+  if (operatorArguments([work.output, ...(work.calls ?? []).map((call) => call.arguments ?? null)], "results").length > 0) {
+    issues.push({ path: `${path}/do`, message: "results reads an agent step's calls; a mechanical step reads responses.<call id>" });
+  }
+  return issues;
+}
+
+/** The call ids a template reads through `var: responses.<id>`. */
+function responseReferences(template: Json): string[] {
+  return varPaths(template).flatMap((reference) => {
+    const [root, name] = reference.split(".");
+    return root === "responses" && name !== undefined ? [name] : [];
+  });
 }
 
 /** The `let` names a rule reads through `var: let.<name>`. */
@@ -143,7 +185,7 @@ function checkCrossFieldRules(document: StepfileDocument): ValidationIssue[] {
       ...schemaPatterns(step.produces).map((pattern): [string, string] => [`/steps/${index}/produces`, pattern]),
       ...matchAllPatterns(Object.values(step.let ?? {})).map((pattern): [string, string] => [`/steps/${index}/let`, pattern]),
       ...matchAllPatterns(Object.values(step.derive ?? {})).map((pattern): [string, string] => [`/steps/${index}/derive`, pattern]),
-      ...step.gates.flatMap((gate) => ("schema" in gate ? schemaPatterns(gate.schema) : "predicate" in gate ? matchAllPatterns([gate.predicate, gate.explain ?? null]) : []).map((pattern): [string, string] => [`/steps/${index}/gates/${gate.id}`, pattern])),
+      ...(step.gates ?? []).flatMap((gate) => ("schema" in gate ? schemaPatterns(gate.schema) : "predicate" in gate ? matchAllPatterns([gate.predicate, gate.explain ?? null]) : []).map((pattern): [string, string] => [`/steps/${index}/gates/${gate.id}`, pattern])),
     ]),
   ];
   for (const [path, pattern] of patterns) {
@@ -160,6 +202,19 @@ function checkCrossFieldRules(document: StepfileDocument): ValidationIssue[] {
       issues.push({ path: `${path}/id`, message: `step id ${step.id} is not unique` });
     }
 
+    if (step.do === undefined && step.instructions === undefined) {
+      issues.push({ path, message: "a step needs instructions, or do for a mechanical step" });
+    }
+    if (step.do !== undefined && step.instructions !== undefined) {
+      issues.push({ path, message: "a step has instructions or do, not both" });
+    }
+    if (step.do === undefined && (step.gates ?? []).length === 0) {
+      issues.push({ path, message: "an agent step needs at least one gate" });
+    }
+    if (step.do !== undefined) {
+      issues.push(...mechanicalProblems(path, step.do, step, exposedOwners));
+    }
+
     for (const name of step.tools ?? []) {
       if (!exposedOwners.has(name)) {
         issues.push({ path: `${path}/tools`, message: `${name} is not exposed by any tool` });
@@ -167,7 +222,7 @@ function checkCrossFieldRules(document: StepfileDocument): ValidationIssue[] {
     }
 
     const gateIds = new Set<string>();
-    for (const gate of step.gates) {
+    for (const gate of step.gates ?? []) {
       if (gateIds.has(gate.id)) {
         issues.push({ path: `${path}/gates`, message: `gate id ${gate.id} is not unique in the step` });
       }
@@ -189,7 +244,7 @@ function checkCrossFieldRules(document: StepfileDocument): ValidationIssue[] {
     // Expressions evaluated on submission, where let is declared and calls exist, by where they sit in the file.
     const derives = Object.entries(step.derive ?? {});
     const readingLet: Array<[string, Json]> = [
-      ...step.gates.flatMap((gate): Array<[string, Json]> => ("predicate" in gate ? [[`${path}/gates/${gate.id}`, [gate.predicate, gate.explain ?? null]]] : [])),
+      ...(step.gates ?? []).flatMap((gate): Array<[string, Json]> => ("predicate" in gate ? [[`${path}/gates/${gate.id}`, [gate.predicate, gate.explain ?? null]]] : [])),
       ...derives.map(([name, rule]): [string, Json] => [`${path}/derive/${name}`, rule]),
     ];
     for (const [where, rule] of [...readingLet, ...lets.map(([name, rule]): [string, Json] => [`${path}/let/${name}`, rule])]) {
@@ -215,10 +270,11 @@ function checkCrossFieldRules(document: StepfileDocument): ValidationIssue[] {
     }
 
     const references = [
-      ...placeholderPaths(step.instructions),
-      ...step.gates.flatMap((gate) => ("predicate" in gate ? [...varPaths(gate.predicate), ...(gate.explain === undefined ? [] : varPaths(gate.explain))] : [])),
+      ...placeholderPaths(step.instructions ?? ""),
+      ...(step.gates ?? []).flatMap((gate) => ("predicate" in gate ? [...varPaths(gate.predicate), ...(gate.explain === undefined ? [] : varPaths(gate.explain))] : [])),
       ...lets.flatMap(([, rule]) => varPaths(rule)),
       ...derives.flatMap(([, rule]) => varPaths(rule)),
+      ...(step.do === undefined ? [] : varPaths([step.do.output, ...(step.do.calls ?? []).map((call) => call.arguments ?? null)])),
       ...(step.when === undefined ? [] : varPaths(step.when)),
     ];
     for (const reference of references) {

@@ -12,6 +12,14 @@ _Avoid_: runbook, agent file, bundle, workflow, playbook
 One unit of a stepfile: instructions, the tools it may call, the output it must submit, and its gates.
 _Avoid_: task, node, stage
 
+**Agent step**:
+A step the client's agent does: it has instructions, and ends with a submission its gates check.
+_Avoid_: model step, client step
+
+**Mechanical step**:
+A step Stepgate does itself: it has `do`, a list of calls and an output template, and the client is never shown it.
+_Avoid_: server step, automatic step, script
+
 **Gate**:
 A mechanical check on a step's submitted output, or a person's approval of it, that decides whether the step passed. Never judged by a model.
 _Avoid_: guardrail, validator, check, assertion
