@@ -1,0 +1,43 @@
+name: a mechanical call keeps an error response whose status it accepts, and still fails on any other
+api:
+  routes:
+    - method: GET
+      path: /recalls?model=Civic
+      answers: [{ status: 400, json: { Count: 0, results: [] } }]
+    - method: GET
+      path: /recalls?model=Accord
+      answers: [{ status: 200, json: { Count: 1, results: [{ id: 24V-001 }] } }]
+stepfile:
+  stepgate: "1"
+  id: recalls
+  inputs: { type: object, required: [models], properties: { models: { type: array } } }
+  tools:
+    nhtsa:
+      openapi:
+        server: "${api.origin}"
+        document:
+          openapi: 3.1.0
+          info: { title: Recalls, version: "1" }
+          paths:
+            /recalls:
+              get:
+                operationId: getRecalls
+                parameters: [{ name: model, in: query, required: true, schema: { type: string } }]
+      exposes: [getRecalls]
+  steps:
+    - id: count
+      do:
+        calls:
+          - { id: recalls, operation: getRecalls, each: { var: inputs.models }, arguments: { model: { var: item } }, accept: [400] }
+        output:
+          counts: { map: [{ var: responses.recalls }, { var: Count }] }
+      produces: { type: object, required: [counts], properties: { counts: { type: array } } }
+inputs: { models: [Civic, Accord] }
+actions: []
+expect:
+  replies:
+    - { state: finished, contain: "0,\n" }
+  ledger: [run_started, step_started, tool_call, tool_call, computed, step_passed, run_finished]
+  requests:
+    - { method: GET, path: /recalls?model=Civic }
+    - { method: GET, path: /recalls?model=Accord }

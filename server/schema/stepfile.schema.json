@@ -352,6 +352,17 @@
                   "each": {
                     "$ref": "#/$defs/predicate",
                     "description": "An expression giving an array; the call is made once per element, with item bound in arguments, and its response is the list of results."
+                  },
+                  "accept": {
+                    "type": "array",
+                    "minItems": 1,
+                    "uniqueItems": true,
+                    "items": {
+                      "type": "integer",
+                      "minimum": 400,
+                      "maximum": 599
+                    },
+                    "description": "HTTP error statuses of an OpenAPI operation to keep as the call's response instead of stopping the run, such as a 404 that answers whether something exists."
                   }
                 }
               }

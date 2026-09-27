@@ -257,7 +257,7 @@ async function prepareOpenApiTool(
       if (response.status === 401 || response.status === 403) {
         throw new ToolCallFailed(`${toolName}.${operationId}`, response.status, text);
       }
-      return { content: response.ok ? text : `HTTP ${response.status}: ${text}`, isError: !response.ok, status: response.status };
+      return { content: response.ok ? text : `HTTP ${response.status}: ${text}`, body: text, isError: !response.ok, status: response.status };
     },
     close: async () => {},
   };

@@ -185,7 +185,13 @@ calls:
     arguments: { doi: { var: item } }
 ```
 
-A mechanical step takes no `tools`, `retries`, `derive` or `let`, and `results` has no calls to read there. Nobody is there to retry, so a call whose arguments break the operation's schema stops the run with `CallArgumentsInvalid`, a call that returns an error with `ToolCallFailed`, and an output that fails `produces` or a gate with `GateFailed`. Its calls count against the call limit like the client's.
+Some APIs answer a question with an error status: NHTSA answers 400 when a vehicle has no recalls, and a registry 404 when a package does not exist. A call's `accept` lists the statuses of an OpenAPI operation to keep as its response, parsed like any other, instead of stopping the run:
+
+```yaml
+- { id: recalls, operation: getRecallsByVehicle, arguments: { ... }, accept: [400] }
+```
+
+A mechanical step takes no `tools`, `retries`, `derive` or `let`, and `results` has no calls to read there. Nobody is there to retry, so a call whose arguments break the operation's schema stops the run with `CallArgumentsInvalid`, a call that returns an error its `accept` does not list with `ToolCallFailed`, and an output that fails `produces` or a gate with `GateFailed`. Its calls count against the call limit like the client's.
 
 ### Deriving fields
 

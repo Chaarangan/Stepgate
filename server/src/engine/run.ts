@@ -172,10 +172,11 @@ function parseResult(content: string): Json {
 /** Who made a call: the client through stepgate_call, or Stepgate for a mechanical step's call of this id. */
 type Caller = { by: "client" } | { by: "stepgate"; call: string };
 
-/** Runs one tool call. `evidence` is what gates see; it is null when the call never reached the tool. */
-async function callTool(prepared: StepOperation, operation: string, args: Json | undefined, stepId: string, caller: Caller, append: AppendRecord, limit: number): Promise<{ shown: ToolResult; evidence: EvidenceCall | null }> {
+/** Runs one tool call. `evidence` is what gates see and `body` what the API sent; both are null when the call never reached the tool. */
+async function callTool(prepared: StepOperation, operation: string, args: Json | undefined, stepId: string, caller: Caller, append: AppendRecord, limit: number): Promise<{ shown: ToolResult; evidence: EvidenceCall | null; body: string | null }> {
   if (!isObject(args) || !prepared.validateArgs(args)) {
-    return { shown: { content: `Invalid arguments for ${operation}: ${describeErrors(prepared.validateArgs.errors) || "arguments must be an object"}`, isError: true, status: null }, evidence: null };
+    const content = `Invalid arguments for ${operation}: ${describeErrors(prepared.validateArgs.errors) || "arguments must be an object"}`;
+    return { shown: { content, body: content, isError: true, status: null }, evidence: null, body: null };
   }
   const started = performance.now();
   const result = await prepared.call(args);
@@ -200,6 +201,7 @@ async function callTool(prepared: StepOperation, operation: string, args: Json |
   return {
     shown: { ...result, content: truncate(shown, limit) },
     evidence: { tool: operation, arguments: args, result: parsed, is_error: result.isError },
+    body: result.body,
   };
 }
 
@@ -335,11 +337,13 @@ export async function startRun(written: Stepfile, inputs: JsonObject, runContext
         if (typeof args !== "object" || args === null || Array.isArray(args) || !tool.validateArgs(args)) {
           throw new CallArgumentsInvalid(step.id, planned.id, planned.operation, describeErrors(tool.validateArgs.errors) || "arguments must be an object");
         }
-        const { shown, evidence } = await callTool(tool, planned.operation, args, step.id, { by: "stepgate", call: planned.id }, append, SHOWN_TO_NOBODY);
-        if (shown.isError || evidence === null) {
+        const { shown, evidence, body } = await callTool(tool, planned.operation, args, step.id, { by: "stepgate", call: planned.id }, append, SHOWN_TO_NOBODY);
+        const accepted = shown.status !== null && (planned.accept ?? []).includes(shown.status);
+        if (evidence === null || body === null || (shown.isError && !accepted)) {
           throw new ToolCallFailed(`call ${planned.id} (${planned.operation})`, shown.status, shown.content);
         }
-        results.push(evidence.result);
+        // An accepted error is read as the API sent it, without the status the client would be shown before it.
+        results.push(shown.isError ? parseResult(body) : evidence.result);
         calls.push(evidence);
       }
       responses[planned.id] = planned.each === undefined ? results[0] ?? null : results;
@@ -400,7 +404,8 @@ export async function startRun(written: Stepfile, inputs: JsonObject, runContext
       const tool = open.allowed.get(operation);
       if (tool === undefined) {
         await append("tool_refused", { step: open.step.id, operation });
-        return { content: `${operation} is not available in this step.`, isError: true, status: null };
+        const content = `${operation} is not available in this step.`;
+        return { content, body: content, isError: true, status: null };
       }
       const { shown, evidence } = await callTool(tool, operation, args ?? {}, open.step.id, { by: "client" }, append, runContext.limits.toolResultChars);
       if (evidence !== null) {
