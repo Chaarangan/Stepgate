@@ -15,8 +15,8 @@ export type CredentialDeclaration = {
   description: string;
 };
 
-/** An exposed operation: its name, or the name with an MCP schema pin and a `select` over its result. */
-export type ExposedName = string | { name: string; schema_sha256?: string; select?: JsonObject };
+/** An exposed operation: its name, or the name with an MCP schema pin, a `select` over its result, and `effect: read` for one that changes nothing. */
+export type ExposedName = string | { name: string; schema_sha256?: string; select?: JsonObject; effect?: "read" };
 
 export type ToolDeclaration = {
   openapi?: { server: string; document?: JsonObject; url?: string; sha256?: string };
@@ -32,13 +32,29 @@ export type Gate =
   | { id: string; http: { tool: string } }
   | { id: string; approve: { message: string } };
 
+/**
+ * One call a mechanical step makes, with arguments as a template over inputs, earlier outputs and earlier responses.
+ * With `each`, it is made once per element of that array, with `item` bound, and its response is the list of results.
+ * An error status in `accept` is kept as the response instead of stopping the run.
+ */
+export type MechanicalCall = { id: string; operation: string; arguments?: JsonObject; each?: JsonObject; accept?: number[] };
+
+/** What Stepgate does for a mechanical step: its calls in order, then an output template over their responses. */
+export type MechanicalWork = { calls?: MechanicalCall[]; output: Json };
+
+/** An agent step has `instructions` and gates; a mechanical step has `do` instead, and its gates are optional. */
 export type Step = {
   id: string;
-  instructions: string;
+  instructions?: string;
+  do?: MechanicalWork;
   tools?: string[];
   produces: JsonSchema;
-  gates: Gate[];
+  gates?: Gate[];
   retries?: number;
+  /** Top-level output fields Stepgate computes after the client submits; the client is not asked for them. */
+  derive?: Record<string, JsonObject>;
+  /** Named expressions evaluated in order once per submission, read by gates as `let.<name>`. */
+  let?: Record<string, JsonObject>;
   when?: JsonObject;
 };
 
@@ -88,6 +104,15 @@ export type Approvals = {
   ask: (request: ApprovalRequest) => Promise<{ approved: boolean; reason: string | null }>;
 };
 
+/** One call a step made, as gates see it: the full result, parsed as JSON where it is JSON. */
+export type EvidenceCall = { tool: string; arguments: JsonObject; result: Json; is_error: boolean };
+
+/** One attempt at a step, as a cases file records it for `stepgate --test`. */
+export type RecordedStep = { step: string; calls: EvidenceCall[]; output: Json; expect: "pass" | { fail: string[] } };
+
+/** Receives a run's attempts once it finishes or fails, when the operator records cases. */
+export type CaseSink = (run: { stepfile: string; run: string; inputs: JsonObject; steps: RecordedStep[] }) => Promise<void>;
+
 /** What a run needs from Stepgate: credentials, settings, a ledger sink and limits. */
 export type RunContext = {
   approvals: Approvals;
@@ -95,6 +120,8 @@ export type RunContext = {
   /** The operator's value for a setting, such as a site name; raises SettingUnavailable when unset. */
   settings: (name: string, declaration: SettingDeclaration) => Promise<string>;
   ledger: (record: LedgerRecord) => void | Promise<void>;
+  /** Where finished and failed runs are written as cases, or null when the operator does not record them. */
+  recordCases: CaseSink | null;
   /** Budgets: tool calls one step may make, the longest tool result passed to the client, and the time and size one request may take. */
   limits: { callsPerStep: number; toolResultChars: number; requestTimeoutMs: number; responseBytes: number };
   /** Sent on every outgoing request that does not set its own. */

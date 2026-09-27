@@ -1,0 +1,1697 @@
+# A run of regulatory-change-monitor against the live APIs on 2026-09-27, recorded with --record-cases, for `stepgate --test regulatory-change-monitor`.
+# Each step's first attempt was a deliberately wrong submission; the gates it breaks are expected to fail.
+cases:
+  - name: a recorded run rejects each wrong submission and accepts the corrected one
+    inputs:
+      topic: drone
+      agency: federal-aviation-administration
+      start_date: 2026-01-01
+      end_date: 2026-09-25
+    steps:
+      - step: search
+        calls:
+          - tool: searchDocuments
+            arguments:
+              per_page: 20
+              order: newest
+              conditions[type][]: RULE
+              conditions[publication_date][gte]: 2026-01-01
+              conditions[publication_date][lte]: 2026-09-25
+              conditions[term]: drone
+              conditions[agencies][]: federal-aviation-administration
+            result:
+              description: Documents matching 'drone', published from 01/01/2026 to
+                09/25/2026, from Federal Aviation Administration, and of type
+                Rule
+              count: 3
+              total_pages: 1
+              results:
+                - title: Airworthiness Directives; The Boeing Company Airplanes
+                  type: Rule
+                  abstract: "The FAA is superseding Airworthiness Directive (AD) 2018-11- 14,
+                    which applied to certain The Boeing Company Model 767-300
+                    and -300F series airplanes with certain winglets installed.
+                    AD 2018-11-14 required high frequency eddy current (HFEC)
+                    inspections for cracking of the lower outboard wing skin and
+                    repair or modification if necessary. AD 2018-11-14 also
+                    required one of three follow-on actions: Repeating the HFEC
+                    inspections; modifying certain internal stringers and
+                    oversizing and plugging the existing fastener holes of the
+                    lower wing; or modifying the external doubler/tripler and
+                    doing repetitive post- modification inspections. This AD was
+                    prompted by reports of fatigue cracking in the lower
+                    outboard wing skin at the inboard fastener of stringer
+                    L-9.5, and the lower outboard wing skin of stringer L-6.5,
+                    on airplanes with winglets installed per Supplemental Type
+                    Certificate (STC) ST01920SE. This AD was also prompted by a
+                    determination that, for certain airplanes, the area of the
+                    lower wing skin in the vicinity of the critical inboard end
+                    fasteners of installed repair doublers must be inspected.
+                    This AD continues to require the actions in AD 2018-11-14,
+                    adds to the applicability airplanes that have had STC
+                    ST01920SE installed and the STC winglets removed, and, for
+                    certain airplanes, requires repetitive internal and external
+                    HFEC inspections of the lower outboard wing skin common to
+                    the external doubler repair at stringer L- 9.5 and repair if
+                    necessary. The FAA is issuing this AD to address the unsafe
+                    condition on these products."
+                  document_number: 2026-16504
+                  html_url: https://www.federalregister.gov/documents/2026/08/13/2026-16504/airworthiness-directives-the-boeing-company-airplanes
+                  pdf_url: https://www.govinfo.gov/content/pkg/FR-2026-08-13/pdf/2026-16504.pdf
+                  public_inspection_pdf_url: https://public-inspection.federalregister.gov/2026-16504.pdf?1786538714
+                  publication_date: 2026-08-13
+                  agencies:
+                    - raw_name: DEPARTMENT OF TRANSPORTATION
+                      name: Transportation Department
+                      id: 492
+                      url: https://www.federalregister.gov/agencies/transportation-department
+                      json_url: https://www.federalregister.gov/api/v1/agencies/492
+                      parent_id: null
+                      slug: transportation-department
+                    - raw_name: Federal Aviation Administration
+                      name: Federal Aviation Administration
+                      id: 159
+                      url: https://www.federalregister.gov/agencies/federal-aviation-administration
+                      json_url: https://www.federalregister.gov/api/v1/agencies/159
+                      parent_id: 492
+                      slug: federal-aviation-administration
+                  excerpts: >-
+                    scheduling, parts procurement, and management time, is 1,500
+                    to 3,300 percent above the FAA's disclosed estimate. The
+                    commenter further stated its <span
+                    class="match">drone</span>-based nondestructive inspections
+                    (NDI) and artificial intelligence (AI) diagnostics reduce
+                    the per-airplane compliance time by 40 to 70 percent. 
+                     Obelisk Tech Systems Inc. demands sole-source engagement under 41 U.S.C. 3304(a)(1) and 10 U.S.C. 3204(a)(1) for <span class="match">drone</span>-based NDI inspection, AI diagnostic technology, and compliance support via GSA commercial catalog. The commenter stated that it qualifies under
+                - title: Settlement Policy for Small Unmanned Aircraft System (UAS) Cases
+                  type: Rule
+                  abstract: This notification announces Federal Aviation Administration (FAA)'s
+                    new Drone Expedited and Targeted Enforcement Response
+                    (DETER) Program to expedite and increase enforcement actions
+                    against small Unmanned Aircraft System (UAS) operators who
+                    violate Federal Aviation Administration regulations. The
+                    program establishes prompt settlement procedures for
+                    certificated and noncertificated UAS operators who are
+                    individuals, first-time violators, and meet the eligibility
+                    provisions of the policy. This policy will incentivize drone
+                    operators to follow FAA regulations, deterring clueless,
+                    careless, and criminal violations of UAS regulations by
+                    incentivizing violators to admit to liability and waive
+                    lengthy appeals processes in exchange for reduced fees. This
+                    policy effectuates President Trump's Executive Order
+                    directing zealous enforcement of UAS laws and regulations.
+                  document_number: 2026-07585
+                  html_url: https://www.federalregister.gov/documents/2026/04/17/2026-07585/settlement-policy-for-small-unmanned-aircraft-system-uas-cases
+                  pdf_url: https://www.govinfo.gov/content/pkg/FR-2026-04-17/pdf/2026-07585.pdf
+                  public_inspection_pdf_url: https://public-inspection.federalregister.gov/2026-07585.pdf?1776284111
+                  publication_date: 2026-04-17
+                  agencies:
+                    - raw_name: DEPARTMENT OF TRANSPORTATION
+                      name: Transportation Department
+                      id: 492
+                      url: https://www.federalregister.gov/agencies/transportation-department
+                      json_url: https://www.federalregister.gov/api/v1/agencies/492
+                      parent_id: null
+                      slug: transportation-department
+                    - raw_name: Federal Aviation Administration
+                      name: Federal Aviation Administration
+                      id: 159
+                      url: https://www.federalregister.gov/agencies/federal-aviation-administration
+                      json_url: https://www.federalregister.gov/api/v1/agencies/159
+                      parent_id: 492
+                      slug: federal-aviation-administration
+                  excerpts: announces Federal Aviation Administration (FAA)'s new <span
+                    class="match">Drone</span> Expedited and Targeted
+                    Enforcement Response (DETER) Program to expedite and
+                    increase enforcement actions against small Unmanned Aircraft
+                    System (UAS) operators who violate Federal Aviation
+                    Administration regulations. The program establishes prompt
+                    settlement procedures for certificated and noncertificated
+                    UAS operators who are individuals, first-time violators, and
+                    meet the eligibility provisions of the policy. This policy
+                    will incentivize <span class="match">drone</span> operators
+                    to follow FAA regulations, deterring clueless
+                - title: IFR Altitudes; Miscellaneous Amendments
+                  type: Rule
+                  abstract: This amendment adopts miscellaneous amendments to the required IFR
+                    (instrument flight rules) altitudes and changeover points
+                    for certain Federal airways, jet routes, or direct routes
+                    for which a minimum or maximum en route authorized IFR
+                    altitude is prescribed. This regulatory action is needed
+                    because of changes occurring in the National Airspace
+                    System. These changes are designed to provide for the safe
+                    and efficient use of the navigable airspace under instrument
+                    conditions in the affected areas.
+                  document_number: 2026-03150
+                  html_url: https://www.federalregister.gov/documents/2026/02/18/2026-03150/ifr-altitudes-miscellaneous-amendments
+                  pdf_url: https://www.govinfo.gov/content/pkg/FR-2026-02-18/pdf/2026-03150.pdf
+                  public_inspection_pdf_url: https://public-inspection.federalregister.gov/2026-03150.pdf?1771335920
+                  publication_date: 2026-02-18
+                  agencies:
+                    - raw_name: DEPARTMENT OF TRANSPORTATION
+                      name: Transportation Department
+                      id: 492
+                      url: https://www.federalregister.gov/agencies/transportation-department
+                      json_url: https://www.federalregister.gov/api/v1/agencies/492
+                      parent_id: null
+                      slug: transportation-department
+                    - raw_name: Federal Aviation Administration
+                      name: Federal Aviation Administration
+                      id: 159
+                      url: https://www.federalregister.gov/agencies/federal-aviation-administration
+                      json_url: https://www.federalregister.gov/api/v1/agencies/159
+                      parent_id: 492
+                      slug: federal-aviation-administration
+                  excerpts: "§ 95.6001 Victor Routes—U.S.\ 
+
+                    \\ 
+
+                    \\ 
+
+                    \\ 
+
+                    \\ 
+
+                    \ § 95.6001 VOR Federal Airway V1 Is Amended To Delete\ 
+
+                    \\ 
+
+                    \\ 
+
+                    \\ 
+
+                    \ KINSTON, NC VORTAC\ 
+
+                    \ ZAGGY, NC FIX\ 
+
+                    \ UNUSABLE\ 
+
+                    \\ 
+
+                    \\ 
+
+                    \ ZAGGY, NC FIX\ 
+
+                    \ COFIELD, NC VORTAC\ 
+
+                    \ * 3000\ 
+
+                    \\ 
+
+                    \\ 
+
+                    \ * 1500—MOCA\ 
+
+                    \\ 
+
+                    \ MAA—17500\ 
+
+                    \\ 
+
+                    \\ 
+
+                    \ COFIELD, NC VORTAC\ 
+
+                    \ <span class=\"match\">DRONE</span>, NC FIX\ 
+
+                    \\ 
+
+                    \ 2000
+
+                    \ MAA—17500\ 
+
+                    \\ 
+
+                    \\ 
+
+                    \\ 
+
+                    \ <span class=\"match\">DRONE</span>, NC FIX\ 
+
+                    \ NORFOLK, VA VORTAC\ 
+
+                    \ * 2500\ 
+
+                    \\ 
+
+                    \\ 
+
+                    \ * 1600—MOCA\ 
+
+                    \\ 
+
+                    \ MAA—17500\ 
+
+                    \\ 
+
+                    \\ 
+
+                    \\ 
+
+                    \ § 95.6063 VOR Federal Airway V63 Is Amended To Read in
+                    Part\ 
+
+                    \\ 
+
+                    \\ 
+
+                    \\ 
+
+                    \ RHINELANDER, WI VOR/DME\ 
+
+                    \ CUSAS, WI FIX\ 
+
+                    \\ 
+
+                    \\ 
+
+                    \  \ 
+
+                    \ NE BND\ 
+
+                    \ 5000\ 
+
+                    \\ 
+
+                    \\ 
+
+                    \  \ 
+
+                    \ SW BND\ 
+
+                    \\ 
+
+                    \ 3600
+
+                    \ MAA—17500\ 
+
+                    \\ 
+
+                    \ "
+            is_error: false
+          - tool: searchDocuments
+            arguments:
+              per_page: 20
+              order: newest
+              conditions[type][]: PRORULE
+              conditions[publication_date][gte]: 2026-01-01
+              conditions[publication_date][lte]: 2026-09-25
+              conditions[term]: drone
+              conditions[agencies][]: federal-aviation-administration
+            result:
+              description: Documents matching 'drone', published from 01/01/2026 to
+                09/25/2026, from Federal Aviation Administration, and of type
+                Proposed Rule
+              count: 2
+              total_pages: 1
+              results:
+                - title: Designation-Restrict the Operation of Unmanned Aircraft in Close
+                    Proximity to a Fixed Site Facility; Extension of Comment
+                    Period
+                  type: Proposed Rule
+                  abstract: 'This action extends the comment period for the NPRM titled
+                    "Designation--Restrict the Operation of Unmanned Aircraft in
+                    Close Proximity to a Fixed Site Facility" that was published
+                    in the Federal Register on May 6, 2026, to allow commenters
+                    additional time to analyze the proposed rule and prepare a
+                    response. In the NPRM, FAA proposed a process for operators
+                    and proprietors of certain fixed site facilities to request
+                    an unmanned aircraft flight restriction (UAFR); criteria to
+                    demonstrate the UAFR is necessary for: aviation safety,
+                    protection of people and property on the ground, national
+                    security, or homeland security; and identified the types of
+                    operations allowed in the UAFR.'
+                  document_number: 2026-13126
+                  html_url: https://www.federalregister.gov/documents/2026/06/30/2026-13126/designation-restrict-the-operation-of-unmanned-aircraft-in-close-proximity-to-a-fixed-site-facility
+                  pdf_url: https://www.govinfo.gov/content/pkg/FR-2026-06-30/pdf/2026-13126.pdf
+                  public_inspection_pdf_url: https://public-inspection.federalregister.gov/2026-13126.pdf?1782486908
+                  publication_date: 2026-06-30
+                  agencies:
+                    - raw_name: DEPARTMENT OF TRANSPORTATION
+                      name: Transportation Department
+                      id: 492
+                      url: https://www.federalregister.gov/agencies/transportation-department
+                      json_url: https://www.federalregister.gov/api/v1/agencies/492
+                      parent_id: null
+                      slug: transportation-department
+                    - raw_name: Federal Aviation Administration
+                      name: Federal Aviation Administration
+                      id: 159
+                      url: https://www.federalregister.gov/agencies/federal-aviation-administration
+                      json_url: https://www.federalregister.gov/api/v1/agencies/159
+                      parent_id: 492
+                      slug: federal-aviation-administration
+                  excerpts: interplay with State and local laws, and impacts on State-authorized
+                    <span class="match">drone</span> missions. The OAG noted
+                    that developing its comments requires coordination and
+                    consultation with multiple State and local agencies.
+                    Additionally, the OAG identified recent developments that it
+                    asserted require evaluation time, specifically a new
+                    provision added to the New York Penal Law on May 27, 2026,
+                    addressing offenses relating to the unlawful use of a <span
+                    class="match">drone</span>, and public reports of more than
+                    300 <span class="match">drone</span> seizures at FIFA World
+                    Cup match venues since June 11, 2026. The OAG
+                - title: Designation-Restrict the Operation of Unmanned Aircraft in Close
+                    Proximity to a Fixed Site Facility
+                  type: Proposed Rule
+                  abstract: "This action would implement section 2209, of the FAA Extension,
+                    Safety and Security Act of 2016, by establishing a process
+                    for operators and proprietors of certain fixed site
+                    facilities to request and maintain an unmanned aircraft
+                    flight restriction. The proposal also establishes
+                    requirements for applicants to demonstrate the unmanned
+                    aircraft flight restriction is necessary for: aviation
+                    safety, protection of people and property on the ground,
+                    national security, or homeland security. Lastly, the
+                    proposal identifies the types of operations that are allowed
+                    in the unmanned aircraft flight restriction UAFR."
+                  document_number: 2026-08943
+                  html_url: https://www.federalregister.gov/documents/2026/05/06/2026-08943/designation-restrict-the-operation-of-unmanned-aircraft-in-close-proximity-to-a-fixed-site-facility
+                  pdf_url: https://www.govinfo.gov/content/pkg/FR-2026-05-06/pdf/2026-08943.pdf
+                  public_inspection_pdf_url: https://public-inspection.federalregister.gov/2026-08943.pdf?1777985132
+                  publication_date: 2026-05-06
+                  agencies:
+                    - raw_name: DEPARTMENT OF TRANSPORTATION
+                      name: Transportation Department
+                      id: 492
+                      url: https://www.federalregister.gov/agencies/transportation-department
+                      json_url: https://www.federalregister.gov/api/v1/agencies/492
+                      parent_id: null
+                      slug: transportation-department
+                    - raw_name: Federal Aviation Administration
+                      name: Federal Aviation Administration
+                      id: 159
+                      url: https://www.federalregister.gov/agencies/federal-aviation-administration
+                      json_url: https://www.federalregister.gov/api/v1/agencies/159
+                      parent_id: 492
+                      slug: federal-aviation-administration
+                  excerpts: >-
+                    Between 2013 and 2016, the Georgia Department of Corrections
+                    reported a total of three <span class="match">drone</span>
+                    sightings. In 2018, Georgia Department of Corrections
+                    reported 300 <span class="match">drone</span> sightings.
+                     57 
+                     The South Carolina Department of Corrections reported 193 <span class="match">drone</span> incidents in 2019, which rose to 262 <span class="match">drone</span> incidents in 2022.
+                     58 
+                     As criminal <span class="match">drone</span> operators use sophisticated techniques to evade detection, reported <span class="match">drone</span> incidents likely represent only a fraction of the actual <span class="match">drone</span> incursions into prisons.
+                     
+                     
+                     On June 4, 2024, FAA met with the American Correctional
+            is_error: false
+        output:
+          candidates:
+            - document_number: 2026-16504
+              title: Airworthiness Directives; The Boeing Company Airplanes
+              type: Rule
+              publication_date: 2026-08-13
+              agencies:
+                - Transportation Department
+                - Federal Aviation Administration
+            - document_number: 2026-07585
+              title: Settlement Policy for Small Unmanned Aircraft System (UAS) Cases
+              type: Rule
+              publication_date: 2026-04-17
+              agencies:
+                - Transportation Department
+                - Federal Aviation Administration
+            - document_number: 2026-03150
+              title: IFR Altitudes; Miscellaneous Amendments
+              type: Rule
+              publication_date: 2026-02-18
+              agencies:
+                - Transportation Department
+                - Federal Aviation Administration
+            - document_number: 2026-13126
+              title: Designation-Restrict the Operation of Unmanned Aircraft in Close
+                Proximity to a Fixed Site Facility; Extension of Comment Period
+              type: Proposed Rule
+              publication_date: 2026-06-30
+              agencies:
+                - Transportation Department
+                - Federal Aviation Administration
+            - document_number: 2026-08943
+              title: Designation-Restrict the Operation of Unmanned Aircraft in Close
+                Proximity to a Fixed Site Facility
+              type: Proposed Rule
+              publication_date: 2026-05-06
+              agencies:
+                - Transportation Department
+                - Federal Aviation Administration
+          rule_count: 3
+          proposed_rule_count: 2
+        expect: pass
+      - step: triage
+        calls: &a1 []
+        output:
+          decisions:
+            - &a2
+              document_number: 2026-07585
+              matters: true
+              reason: Published 2026-04-17 by the FAA in this area.
+            - &a3
+              document_number: 2026-03150
+              matters: true
+              reason: Published 2026-02-18 by the FAA in this area.
+            - &a4
+              document_number: 2026-13126
+              matters: true
+              reason: Published 2026-06-30 by the FAA in this area.
+            - &a5
+              document_number: 2026-08943
+              matters: true
+              reason: Published 2026-05-06 by the FAA in this area.
+        expect:
+          fail:
+            - every-candidate-once
+      - step: triage
+        calls: *a1
+        output:
+          decisions:
+            - document_number: 2026-16504
+              matters: true
+              reason: Published 2026-08-13 by the FAA in this area.
+            - *a2
+            - *a3
+            - *a4
+            - *a5
+        expect: pass
+      - step: details
+        calls:
+          - tool: getDocuments
+            arguments:
+              document_number: 2026-16504
+            result:
+              abstract: "The FAA is superseding Airworthiness Directive (AD) 2018-11- 14,
+                which applied to certain The Boeing Company Model 767-300 and
+                -300F series airplanes with certain winglets installed. AD
+                2018-11-14 required high frequency eddy current (HFEC)
+                inspections for cracking of the lower outboard wing skin and
+                repair or modification if necessary. AD 2018-11-14 also required
+                one of three follow-on actions: Repeating the HFEC inspections;
+                modifying certain internal stringers and oversizing and plugging
+                the existing fastener holes of the lower wing; or modifying the
+                external doubler/tripler and doing repetitive post- modification
+                inspections. This AD was prompted by reports of fatigue cracking
+                in the lower outboard wing skin at the inboard fastener of
+                stringer L-9.5, and the lower outboard wing skin of stringer
+                L-6.5, on airplanes with winglets installed per Supplemental
+                Type Certificate (STC) ST01920SE. This AD was also prompted by a
+                determination that, for certain airplanes, the area of the lower
+                wing skin in the vicinity of the critical inboard end fasteners
+                of installed repair doublers must be inspected. This AD
+                continues to require the actions in AD 2018-11-14, adds to the
+                applicability airplanes that have had STC ST01920SE installed
+                and the STC winglets removed, and, for certain airplanes,
+                requires repetitive internal and external HFEC inspections of
+                the lower outboard wing skin common to the external doubler
+                repair at stringer L- 9.5 and repair if necessary. The FAA is
+                issuing this AD to address the unsafe condition on these
+                products."
+              action: Final rule.
+              agencies:
+                - raw_name: DEPARTMENT OF TRANSPORTATION
+                  name: Transportation Department
+                  id: 492
+                  url: https://www.federalregister.gov/agencies/transportation-department
+                  json_url: https://www.federalregister.gov/api/v1/agencies/492
+                  parent_id: null
+                  slug: transportation-department
+                - raw_name: Federal Aviation Administration
+                  name: Federal Aviation Administration
+                  id: 159
+                  url: https://www.federalregister.gov/agencies/federal-aviation-administration
+                  json_url: https://www.federalregister.gov/api/v1/agencies/159
+                  parent_id: 492
+                  slug: federal-aviation-administration
+              body_html_url: https://www.federalregister.gov/documents/full_text/html/2026/08/13/2026-16504.html
+              cfr_references:
+                - chapter: null
+                  citation_url: null
+                  part: "39"
+                  title: 14
+              citation: 91 FR 52223
+              comment_url: null
+              comments_close_on: null
+              correction_of: null
+              corrections: []
+              dates: This AD is effective September 17, 2026.
+              disposition_notes: null
+              docket_ids:
+                - Docket No. FAA-2026-0023
+                - Project Identifier AD-2025-00427-T
+                - Amendment 39-23436
+                - AD 2026-16-06
+              dockets:
+                - supporting_documents:
+                    - title: U.S. DOT/FAA - Supplemental AD Documents
+                      document_id: FAA-2026-0023-0002
+                  agency_name: FAA
+                  documents:
+                    - comment_count: 0
+                      comment_start_date: 2026-08-13
+                      updated_at: 2026-08-13T09:01:00.243-04:00
+                      comment_url: https://www.regulations.gov/commenton/FAA-2026-0023-0012
+                      allow_late_comments: false
+                      id: FAA-2026-0023-0012
+                      comment_end_date: null
+                      regulations_dot_gov_open_for_comment: false
+                  supporting_documents_count: 1
+                  id: FAA-2026-0023
+                  title: AD-2025-00427-T; The Boeing Company Model 767-300/-300F series airplanes;
+                    Inspect/repair the wing lower skin at stringers L-9.5/L-6.5
+                    common to rib bay 31.
+              document_number: 2026-16504
+              effective_on: 2026-09-17
+              end_page: 52231
+              executive_order_notes: null
+              executive_order_number: null
+              full_text_xml_url: https://www.federalregister.gov/documents/full_text/xml/2026/08/13/2026-16504.xml
+              html_url: https://www.federalregister.gov/documents/2026/08/13/2026-16504/airworthiness-directives-the-boeing-company-airplanes
+              images: {}
+              images_metadata: {}
+              json_url: https://www.federalregister.gov/api/v1/documents/2026-16504?publication_date=2026-08-13
+              mods_url: https://www.govinfo.gov/metadata/granule/FR-2026-08-13/2026-16504/mods.xml
+              not_received_for_publication: null
+              page_length: 9
+              page_views:
+                count: 342
+                last_updated: 2026-09-27 18:15:03 -0400
+              pdf_url: https://www.govinfo.gov/content/pkg/FR-2026-08-13/pdf/2026-16504.pdf
+              presidential_document_number: null
+              proclamation_number: null
+              public_inspection_pdf_url: https://public-inspection.federalregister.gov/2026-16504.pdf?1786538714
+              publication_date: 2026-08-13
+              raw_text_url: https://www.federalregister.gov/documents/full_text/text/2026/08/13/2026-16504.txt
+              regulation_id_number_info:
+                2120-AA64:
+                  issue: "202504"
+                  html_url: https://www.federalregister.gov/regulations/2120-AA64/airworthiness-directives
+                  title: Airworthiness Directives
+                  xml_url: http://www.reginfo.gov/public/do/eAgendaViewRule?pubId=202504&RIN=2120-AA64&operation=OPERATION_EXPORT_XML
+                  priority_category: Routine and Frequent
+              regulation_id_numbers:
+                - 2120-AA64
+              regulations_dot_gov_info:
+                supporting_documents:
+                  - title: U.S. DOT/FAA - Supplemental AD Documents
+                    document_id: FAA-2026-0023-0002
+                regulatory_plan:
+                  html_url: https://www.federalregister.gov/regulations/2120-AA64/airworthiness-directives
+                  title: Airworthiness Directives
+                comments_count: 0
+                agency_id: FAA
+                comments_url: https://www.regulations.gov/docketBrowser?rpp=50&so=DESC&sb=postedDate&po=0&dct=PS&D=FAA-2026-0023
+                supporting_documents_count: 1
+                docket_id: FAA-2026-0023
+                document_id: FAA-2026-0023-0012
+                regulation_id_number: 2120-AA64
+                title: AD-2025-00427-T; The Boeing Company Model 767-300/-300F series airplanes;
+                  Inspect/repair the wing lower skin at stringers L-9.5/L-6.5
+                  common to rib bay 31.
+                checked_regulationsdotgov_at: 2026-08-14T15:55:10Z
+              regulations_dot_gov_url: null
+              significant: false
+              signing_date: null
+              start_page: 52223
+              subtype: null
+              title: Airworthiness Directives; The Boeing Company Airplanes
+              toc_doc: The Boeing Company Airplanes
+              toc_subject: Airworthiness Directives
+              topics:
+                - Air transportation
+                - Aircraft
+                - Aviation safety
+                - Incorporation by reference
+                - Safety
+              type: Rule
+              volume: 91
+            is_error: false
+          - tool: getDocuments
+            arguments:
+              document_number: 2026-07585
+            result:
+              abstract: This notification announces Federal Aviation Administration (FAA)'s
+                new Drone Expedited and Targeted Enforcement Response (DETER)
+                Program to expedite and increase enforcement actions against
+                small Unmanned Aircraft System (UAS) operators who violate
+                Federal Aviation Administration regulations. The program
+                establishes prompt settlement procedures for certificated and
+                noncertificated UAS operators who are individuals, first-time
+                violators, and meet the eligibility provisions of the policy.
+                This policy will incentivize drone operators to follow FAA
+                regulations, deterring clueless, careless, and criminal
+                violations of UAS regulations by incentivizing violators to
+                admit to liability and waive lengthy appeals processes in
+                exchange for reduced fees. This policy effectuates President
+                Trump's Executive Order directing zealous enforcement of UAS
+                laws and regulations.
+              action: Notification of enforcement policy.
+              agencies:
+                - raw_name: DEPARTMENT OF TRANSPORTATION
+                  name: Transportation Department
+                  id: 492
+                  url: https://www.federalregister.gov/agencies/transportation-department
+                  json_url: https://www.federalregister.gov/api/v1/agencies/492
+                  parent_id: null
+                  slug: transportation-department
+                - raw_name: Federal Aviation Administration
+                  name: Federal Aviation Administration
+                  id: 159
+                  url: https://www.federalregister.gov/agencies/federal-aviation-administration
+                  json_url: https://www.federalregister.gov/api/v1/agencies/159
+                  parent_id: 492
+                  slug: federal-aviation-administration
+              body_html_url: https://www.federalregister.gov/documents/full_text/html/2026/04/17/2026-07585.html
+              cfr_references:
+                - chapter: null
+                  citation_url: null
+                  part: "48"
+                  title: 14
+                - chapter: null
+                  citation_url: null
+                  part: "61"
+                  title: 14
+                - chapter: null
+                  citation_url: null
+                  part: "89"
+                  title: 14
+                - chapter: null
+                  citation_url: null
+                  part: "91"
+                  title: 14
+                - chapter: null
+                  citation_url: null
+                  part: "107"
+                  title: 14
+                - chapter: null
+                  citation_url: null
+                  part: "135"
+                  title: 14
+                - chapter: null
+                  citation_url: null
+                  part: "137"
+                  title: 14
+              citation: 91 FR 20578
+              comment_url: null
+              comments_close_on: null
+              correction_of: null
+              corrections: []
+              dates: This enforcement policy is effective April 17, 2026.
+              disposition_notes: null
+              docket_ids: []
+              dockets:
+                - supporting_documents:
+                    - title: New York North Shore - Materials from Public Meetings
+                      document_id: FAA-2013-0259-2759
+                    - title: Notice of Meeting Graphic June 2016
+                      document_id: FAA-2013-0259-1171
+                  agency_name: FAA
+                  documents:
+                    - comment_count: 0
+                      comment_start_date: 2026-04-17
+                      updated_at: 2026-04-18T01:56:42.905-04:00
+                      comment_url: https://www.regulations.gov/commenton/FAA-2013-0259-5333
+                      allow_late_comments: false
+                      id: FAA-2013-0259-5333
+                      comment_end_date: null
+                      regulations_dot_gov_open_for_comment: false
+                  supporting_documents_count: 2
+                  id: FAA-2013-0259
+                  title: Federal Registers for Applications, Notices, and Orders - Miscellaneous
+              document_number: 2026-07585
+              effective_on: 2026-04-17
+              end_page: 20579
+              executive_order_notes: null
+              executive_order_number: null
+              full_text_xml_url: https://www.federalregister.gov/documents/full_text/xml/2026/04/17/2026-07585.xml
+              html_url: https://www.federalregister.gov/documents/2026/04/17/2026-07585/settlement-policy-for-small-unmanned-aircraft-system-uas-cases
+              images: {}
+              images_metadata: {}
+              json_url: https://www.federalregister.gov/api/v1/documents/2026-07585?publication_date=2026-04-17
+              mods_url: https://www.govinfo.gov/metadata/granule/FR-2026-04-17/2026-07585/mods.xml
+              not_received_for_publication: null
+              page_length: 2
+              page_views:
+                count: 1976
+                last_updated: 2026-09-27 18:15:03 -0400
+              pdf_url: https://www.govinfo.gov/content/pkg/FR-2026-04-17/pdf/2026-07585.pdf
+              presidential_document_number: null
+              proclamation_number: null
+              public_inspection_pdf_url: https://public-inspection.federalregister.gov/2026-07585.pdf?1776284111
+              publication_date: 2026-04-17
+              raw_text_url: https://www.federalregister.gov/documents/full_text/text/2026/04/17/2026-07585.txt
+              regulation_id_number_info: {}
+              regulation_id_numbers: []
+              regulations_dot_gov_info:
+                supporting_documents:
+                  - title: New York North Shore - Materials from Public Meetings
+                    document_id: FAA-2013-0259-2759
+                  - title: Notice of Meeting Graphic June 2016
+                    document_id: FAA-2013-0259-1171
+                comments_count: 0
+                agency_id: FAA
+                comments_url: https://www.regulations.gov/docketBrowser?rpp=50&so=DESC&sb=postedDate&po=0&dct=PS&D=FAA-2013-0259
+                supporting_documents_count: 2
+                docket_id: FAA-2013-0259
+                document_id: FAA-2013-0259-5333
+                regulation_id_number: null
+                title: Federal Registers for Applications, Notices, and Orders - Miscellaneous
+                checked_regulationsdotgov_at: 2026-04-18T11:55:05Z
+              regulations_dot_gov_url: null
+              significant: null
+              signing_date: null
+              start_page: 20578
+              subtype: null
+              title: Settlement Policy for Small Unmanned Aircraft System (UAS) Cases
+              toc_doc: Settlement Policy for Small Unmanned Aircraft System Cases
+              toc_subject: null
+              topics: []
+              type: Rule
+              volume: 91
+            is_error: false
+          - tool: getDocuments
+            arguments:
+              document_number: 2026-03150
+            result:
+              abstract: This amendment adopts miscellaneous amendments to the required IFR
+                (instrument flight rules) altitudes and changeover points for
+                certain Federal airways, jet routes, or direct routes for which
+                a minimum or maximum en route authorized IFR altitude is
+                prescribed. This regulatory action is needed because of changes
+                occurring in the National Airspace System. These changes are
+                designed to provide for the safe and efficient use of the
+                navigable airspace under instrument conditions in the affected
+                areas.
+              action: Final rule
+              agencies:
+                - raw_name: DEPARTMENT OF TRANSPORTATION
+                  name: Transportation Department
+                  id: 492
+                  url: https://www.federalregister.gov/agencies/transportation-department
+                  json_url: https://www.federalregister.gov/api/v1/agencies/492
+                  parent_id: null
+                  slug: transportation-department
+                - raw_name: Federal Aviation Administration
+                  name: Federal Aviation Administration
+                  id: 159
+                  url: https://www.federalregister.gov/agencies/federal-aviation-administration
+                  json_url: https://www.federalregister.gov/api/v1/agencies/159
+                  parent_id: 492
+                  slug: federal-aviation-administration
+              body_html_url: https://www.federalregister.gov/documents/full_text/html/2026/02/18/2026-03150.html
+              cfr_references:
+                - chapter: null
+                  citation_url: null
+                  part: "95"
+                  title: 14
+              citation: 91 FR 7395
+              comment_url: null
+              comments_close_on: null
+              correction_of: null
+              corrections: []
+              dates: Effective 0901 UTC, March 19, 2026.
+              disposition_notes: null
+              docket_ids:
+                - Docket No. 31651
+                - Amdt. No. 590
+              dockets:
+                - supporting_documents:
+                    - title: New York North Shore - Materials from Public Meetings
+                      document_id: FAA-2013-0259-2759
+                    - title: Notice of Meeting Graphic June 2016
+                      document_id: FAA-2013-0259-1171
+                  agency_name: FAA
+                  documents:
+                    - comment_count: 0
+                      comment_start_date: 2026-02-18
+                      updated_at: 2026-02-18T10:00:54.337-05:00
+                      comment_url: https://www.regulations.gov/commenton/FAA-2013-0259-5178
+                      allow_late_comments: false
+                      id: FAA-2013-0259-5178
+                      comment_end_date: null
+                      regulations_dot_gov_open_for_comment: false
+                  supporting_documents_count: 2
+                  id: FAA-2013-0259
+                  title: Federal Registers for Applications, Notices, and Orders - Miscellaneous
+              document_number: 2026-03150
+              effective_on: 2026-03-19
+              end_page: 7399
+              executive_order_notes: null
+              executive_order_number: null
+              full_text_xml_url: https://www.federalregister.gov/documents/full_text/xml/2026/02/18/2026-03150.xml
+              html_url: https://www.federalregister.gov/documents/2026/02/18/2026-03150/ifr-altitudes-miscellaneous-amendments
+              images: {}
+              images_metadata: {}
+              json_url: https://www.federalregister.gov/api/v1/documents/2026-03150?publication_date=2026-02-18
+              mods_url: https://www.govinfo.gov/metadata/granule/FR-2026-02-18/2026-03150/mods.xml
+              not_received_for_publication: null
+              page_length: 5
+              page_views:
+                count: 477
+                last_updated: 2026-09-27 18:15:03 -0400
+              pdf_url: https://www.govinfo.gov/content/pkg/FR-2026-02-18/pdf/2026-03150.pdf
+              presidential_document_number: null
+              proclamation_number: null
+              public_inspection_pdf_url: https://public-inspection.federalregister.gov/2026-03150.pdf?1771335920
+              publication_date: 2026-02-18
+              raw_text_url: https://www.federalregister.gov/documents/full_text/text/2026/02/18/2026-03150.txt
+              regulation_id_number_info: {}
+              regulation_id_numbers: []
+              regulations_dot_gov_info:
+                supporting_documents:
+                  - title: New York North Shore - Materials from Public Meetings
+                    document_id: FAA-2013-0259-2759
+                  - title: Notice of Meeting Graphic June 2016
+                    document_id: FAA-2013-0259-1171
+                comments_count: 0
+                agency_id: FAA
+                comments_url: https://www.regulations.gov/docketBrowser?rpp=50&so=DESC&sb=postedDate&po=0&dct=PS&D=FAA-2013-0259
+                supporting_documents_count: 2
+                docket_id: FAA-2013-0259
+                document_id: FAA-2013-0259-5178
+                regulation_id_number: null
+                title: Federal Registers for Applications, Notices, and Orders - Miscellaneous
+                checked_regulationsdotgov_at: 2026-02-19T17:55:04Z
+              regulations_dot_gov_url: null
+              significant: null
+              signing_date: null
+              start_page: 7395
+              subtype: null
+              title: IFR Altitudes; Miscellaneous Amendments
+              toc_doc: IFR Altitudes; Miscellaneous Amendments
+              toc_subject: null
+              topics:
+                - Airspace
+                - Navigation (air)
+              type: Rule
+              volume: 91
+            is_error: false
+          - tool: getDocuments
+            arguments:
+              document_number: 2026-13126
+            result:
+              abstract: 'This action extends the comment period for the NPRM titled
+                "Designation--Restrict the Operation of Unmanned Aircraft in
+                Close Proximity to a Fixed Site Facility" that was published in
+                the Federal Register on May 6, 2026, to allow commenters
+                additional time to analyze the proposed rule and prepare a
+                response. In the NPRM, FAA proposed a process for operators and
+                proprietors of certain fixed site facilities to request an
+                unmanned aircraft flight restriction (UAFR); criteria to
+                demonstrate the UAFR is necessary for: aviation safety,
+                protection of people and property on the ground, national
+                security, or homeland security; and identified the types of
+                operations allowed in the UAFR.'
+              action: Notice of proposed rulemaking (NPRM); extension of comment period.
+              agencies:
+                - raw_name: DEPARTMENT OF TRANSPORTATION
+                  name: Transportation Department
+                  id: 492
+                  url: https://www.federalregister.gov/agencies/transportation-department
+                  json_url: https://www.federalregister.gov/api/v1/agencies/492
+                  parent_id: null
+                  slug: transportation-department
+                - raw_name: Federal Aviation Administration
+                  name: Federal Aviation Administration
+                  id: 159
+                  url: https://www.federalregister.gov/agencies/federal-aviation-administration
+                  json_url: https://www.federalregister.gov/api/v1/agencies/159
+                  parent_id: 492
+                  slug: federal-aviation-administration
+              body_html_url: https://www.federalregister.gov/documents/full_text/html/2026/06/30/2026-13126.html
+              cfr_references:
+                - chapter: null
+                  citation_url: null
+                  part: "1"
+                  title: 14
+                - chapter: null
+                  citation_url: null
+                  part: "74"
+                  title: 14
+                - chapter: null
+                  citation_url: null
+                  part: "91"
+                  title: 14
+                - chapter: null
+                  citation_url: null
+                  part: "107"
+                  title: 14
+              citation: 91 FR 39568
+              comment_url: null
+              comments_close_on: 2026-08-05
+              correction_of: null
+              corrections: []
+              dates: The comment period for the NPRM published on May 6, 2026, at 91 FR 24650,
+                and scheduled to close on July 6, 2026, is extended until August
+                5, 2026.
+              disposition_notes: null
+              docket_ids:
+                - Docket No. FAA-2026-4558
+                - Notice No. 26-03A
+              dockets:
+                - supporting_documents:
+                    - title: 2209 Memorandum to the Docket for Meeting with Disney
+                      document_id: FAA-2026-4558-1691
+                    - title: 2209 NPRM_Thank You Email from CLA
+                      document_id: FAA-2026-4558-1302
+                    - title: 2209 NPRM Memorandum to the Docket IT-SCC-hosted Meeting
+                      document_id: FAA-2026-4558-1196
+                    - title: 2209 NPRM Memorandum to the Docket IT-ISAC-hosted Meeting
+                      document_id: FAA-2026-4558-1195
+                    - title: 2209 NPRM Memorandum to the Docket for June 2026 Meeting with
+                        Correctional Leadership Association (CLA)
+                      document_id: FAA-2026-4558-0577
+                    - title: 2209 NPRM Draft of FAA Order JO 7400.12
+                      document_id: FAA-2026-4558-0479
+                    - title: 2209 NPRM Memorandum to the Docket for Meeting with American Correctional
+                        Association (ACA) and the Correctional Leadership
+                        Association (CLA)
+                      document_id: FAA-2026-4558-0478
+                    - title: NY OAG FAA Comment Extension Request re Drone Restrictions NPRM
+                        (6-24-2026)
+                      document_id: FAA-2026-4558-0447
+                    - title: QTS Data Center's Response Inbound & Outbound
+                      document_id: FAA-2026-4558-0361
+                    - title: Meeting request_ CLA perspective on the Section 2209 NPRM Inbound &
+                        Outbound
+                      document_id: FAA-2026-4558-0360
+                  agency_name: FAA
+                  documents:
+                    - comment_count: 0
+                      comment_start_date: 2026-06-30
+                      updated_at: 2026-08-08T05:56:05.946-04:00
+                      comment_url: https://www.regulations.gov/commenton/FAA-2026-4558-0449
+                      allow_late_comments: false
+                      id: FAA-2026-4558-0449
+                      comment_end_date: 2026-07-01
+                      regulations_dot_gov_open_for_comment: false
+                  supporting_documents_count: 18
+                  id: FAA-2026-4558
+                  title: Designation – Restrict the Operation of Unmanned Aircraft in Close
+                    Proximity  to a Fixed Site Facility
+              document_number: 2026-13126
+              effective_on: 2026-05-06
+              end_page: 39569
+              executive_order_notes: null
+              executive_order_number: null
+              full_text_xml_url: https://www.federalregister.gov/documents/full_text/xml/2026/06/30/2026-13126.xml
+              html_url: https://www.federalregister.gov/documents/2026/06/30/2026-13126/designation-restrict-the-operation-of-unmanned-aircraft-in-close-proximity-to-a-fixed-site-facility
+              images: {}
+              images_metadata: {}
+              json_url: https://www.federalregister.gov/api/v1/documents/2026-13126?publication_date=2026-06-30
+              mods_url: https://www.govinfo.gov/metadata/granule/FR-2026-06-30/2026-13126/mods.xml
+              not_received_for_publication: null
+              page_length: 2
+              page_views:
+                count: 2425
+                last_updated: 2026-09-27 18:15:03 -0400
+              pdf_url: https://www.govinfo.gov/content/pkg/FR-2026-06-30/pdf/2026-13126.pdf
+              presidential_document_number: null
+              proclamation_number: null
+              public_inspection_pdf_url: https://public-inspection.federalregister.gov/2026-13126.pdf?1782486908
+              publication_date: 2026-06-30
+              raw_text_url: https://www.federalregister.gov/documents/full_text/text/2026/06/30/2026-13126.txt
+              regulation_id_number_info:
+                2120-AL33:
+                  issue: "202504"
+                  html_url: https://www.federalregister.gov/regulations/2120-AL33/designation-restrict-the-operation-of-an-unmanned-aircraft-in-close-proximity-to-a-fixed-site-facili
+                  title: Designation - Restrict the Operation of an Unmanned Aircraft in Close
+                    Proximity to a Fixed Site Facility
+                  xml_url: http://www.reginfo.gov/public/do/eAgendaViewRule?pubId=202504&RIN=2120-AL33&operation=OPERATION_EXPORT_XML
+                  priority_category: Other Significant
+              regulation_id_numbers:
+                - 2120-AL33
+              regulations_dot_gov_info:
+                supporting_documents:
+                  - title: 2209 NPRM_Thank You Email from CLA
+                    document_id: FAA-2026-4558-1302
+                  - title: 2209 NPRM Memorandum to the Docket IT-SCC-hosted Meeting
+                    document_id: FAA-2026-4558-1196
+                  - title: 2209 NPRM Memorandum to the Docket IT-ISAC-hosted Meeting
+                    document_id: FAA-2026-4558-1195
+                  - title: 2209 NPRM Memorandum to the Docket for June 2026 Meeting with
+                      Correctional Leadership Association (CLA)
+                    document_id: FAA-2026-4558-0577
+                  - title: 2209 NPRM Draft of FAA Order JO 7400.12
+                    document_id: FAA-2026-4558-0479
+                  - title: 2209 NPRM Memorandum to the Docket for Meeting with American Correctional
+                      Association (ACA) and the Correctional Leadership
+                      Association (CLA)
+                    document_id: FAA-2026-4558-0478
+                  - title: NY OAG FAA Comment Extension Request re Drone Restrictions NPRM
+                      (6-24-2026)
+                    document_id: FAA-2026-4558-0447
+                  - title: QTS Data Center's Response Inbound & Outbound
+                    document_id: FAA-2026-4558-0361
+                  - title: Meeting request_ CLA perspective on the Section 2209 NPRM Inbound &
+                      Outbound
+                    document_id: FAA-2026-4558-0360
+                  - title: 2209 NPRM Privacy Impact Assessment (PIA)
+                    document_id: FAA-2026-4558-0015
+                regulatory_plan:
+                  html_url: https://www.federalregister.gov/regulations/2120-AL33/designation-restrict-the-operation-of-an-unmanned-aircraft-in-close-proximity-to-a-fixed-site-facili
+                  title: Designation - Restrict the Operation of an Unmanned Aircraft in Close
+                    Proximity to a Fixed Site Facility
+                comments_count: 0
+                agency_id: FAA
+                comments_url: https://www.regulations.gov/docketBrowser?rpp=50&so=DESC&sb=postedDate&po=0&dct=PS&D=FAA-2026-4558
+                supporting_documents_count: 17
+                docket_id: FAA-2026-4558
+                document_id: FAA-2026-4558-0449
+                regulation_id_number: 2120-AL33
+                title: Designation – Restrict the Operation of Unmanned Aircraft in Close
+                  Proximity  to a Fixed Site Facility
+                checked_regulationsdotgov_at: 2026-08-09T11:55:03Z
+              regulations_dot_gov_url: null
+              significant: true
+              signing_date: null
+              start_page: 39568
+              subtype: null
+              title: Designation-Restrict the Operation of Unmanned Aircraft in Close
+                Proximity to a Fixed Site Facility; Extension of Comment Period
+              toc_doc: Restrict the Operation of Unmanned Aircraft in Close Proximity to a
+                Fixed Site Facility
+              toc_subject: Designation
+              topics: []
+              type: Proposed Rule
+              volume: 91
+            is_error: false
+          - tool: getDocuments
+            arguments:
+              document_number: 2026-08943
+            result:
+              abstract: "This action would implement section 2209, of the FAA Extension,
+                Safety and Security Act of 2016, by establishing a process for
+                operators and proprietors of certain fixed site facilities to
+                request and maintain an unmanned aircraft flight restriction.
+                The proposal also establishes requirements for applicants to
+                demonstrate the unmanned aircraft flight restriction is
+                necessary for: aviation safety, protection of people and
+                property on the ground, national security, or homeland security.
+                Lastly, the proposal identifies the types of operations that are
+                allowed in the unmanned aircraft flight restriction UAFR."
+              action: Notice of proposed rulemaking (NPRM).
+              agencies:
+                - raw_name: DEPARTMENT OF TRANSPORTATION
+                  name: Transportation Department
+                  id: 492
+                  url: https://www.federalregister.gov/agencies/transportation-department
+                  json_url: https://www.federalregister.gov/api/v1/agencies/492
+                  parent_id: null
+                  slug: transportation-department
+                - raw_name: Federal Aviation Administration
+                  name: Federal Aviation Administration
+                  id: 159
+                  url: https://www.federalregister.gov/agencies/federal-aviation-administration
+                  json_url: https://www.federalregister.gov/api/v1/agencies/159
+                  parent_id: 492
+                  slug: federal-aviation-administration
+              body_html_url: https://www.federalregister.gov/documents/full_text/html/2026/05/06/2026-08943.html
+              cfr_references:
+                - chapter: null
+                  citation_url: null
+                  part: "1"
+                  title: 14
+                - chapter: null
+                  citation_url: null
+                  part: "74"
+                  title: 14
+                - chapter: null
+                  citation_url: null
+                  part: "91"
+                  title: 14
+                - chapter: null
+                  citation_url: null
+                  part: "107"
+                  title: 14
+              citation: 91 FR 24650
+              comment_url: null
+              comments_close_on: 2026-07-06
+              correction_of: null
+              corrections: []
+              dates: Send comments on or before July 6, 2026.
+              disposition_notes: null
+              docket_ids:
+                - Docket No. FAA-2026-4558
+                - Notice No. 26-03
+              dockets:
+                - supporting_documents:
+                    - title: 2209 Memorandum to the Docket for Meeting with Disney
+                      document_id: FAA-2026-4558-1691
+                    - title: 2209 NPRM_Thank You Email from CLA
+                      document_id: FAA-2026-4558-1302
+                    - title: 2209 NPRM Memorandum to the Docket IT-SCC-hosted Meeting
+                      document_id: FAA-2026-4558-1196
+                    - title: 2209 NPRM Memorandum to the Docket IT-ISAC-hosted Meeting
+                      document_id: FAA-2026-4558-1195
+                    - title: 2209 NPRM Memorandum to the Docket for June 2026 Meeting with
+                        Correctional Leadership Association (CLA)
+                      document_id: FAA-2026-4558-0577
+                    - title: 2209 NPRM Draft of FAA Order JO 7400.12
+                      document_id: FAA-2026-4558-0479
+                    - title: 2209 NPRM Memorandum to the Docket for Meeting with American Correctional
+                        Association (ACA) and the Correctional Leadership
+                        Association (CLA)
+                      document_id: FAA-2026-4558-0478
+                    - title: NY OAG FAA Comment Extension Request re Drone Restrictions NPRM
+                        (6-24-2026)
+                      document_id: FAA-2026-4558-0447
+                    - title: QTS Data Center's Response Inbound & Outbound
+                      document_id: FAA-2026-4558-0361
+                    - title: Meeting request_ CLA perspective on the Section 2209 NPRM Inbound &
+                        Outbound
+                      document_id: FAA-2026-4558-0360
+                  agency_name: FAA
+                  documents:
+                    - comment_count: 901744
+                      comment_start_date: 2026-05-06
+                      updated_at: 2026-08-27T01:56:25.354-04:00
+                      comment_url: https://www.regulations.gov/commenton/FAA-2026-4558-0001
+                      allow_late_comments: false
+                      id: FAA-2026-4558-0001
+                      comment_end_date: 2026-08-06
+                      regulations_dot_gov_open_for_comment: false
+                  supporting_documents_count: 18
+                  id: FAA-2026-4558
+                  title: Designation – Restrict the Operation of Unmanned Aircraft in Close
+                    Proximity  to a Fixed Site Facility
+              document_number: 2026-08943
+              effective_on: null
+              end_page: 24704
+              executive_order_notes: null
+              executive_order_number: null
+              full_text_xml_url: https://www.federalregister.gov/documents/full_text/xml/2026/05/06/2026-08943.xml
+              html_url: https://www.federalregister.gov/documents/2026/05/06/2026-08943/designation-restrict-the-operation-of-unmanned-aircraft-in-close-proximity-to-a-fixed-site-facility
+              images:
+                EP06MY26.001:
+                  large: https://img.federalregister.gov/EP06MY26.001/EP06MY26.001_large.png
+                  medium: https://img.federalregister.gov/EP06MY26.001/EP06MY26.001_medium.png
+                  original_size: https://img.federalregister.gov/EP06MY26.001/EP06MY26.001_original_size.png
+                EP06MY26.002:
+                  large: https://img.federalregister.gov/EP06MY26.002/EP06MY26.002_large.png
+                  medium: https://img.federalregister.gov/EP06MY26.002/EP06MY26.002_medium.png
+                  original_size: https://img.federalregister.gov/EP06MY26.002/EP06MY26.002_original_size.png
+                EP06MY26.003:
+                  large: https://img.federalregister.gov/EP06MY26.003/EP06MY26.003_large.png
+                  medium: https://img.federalregister.gov/EP06MY26.003/EP06MY26.003_medium.png
+                  original_size: https://img.federalregister.gov/EP06MY26.003/EP06MY26.003_original_size.png
+                EP06MY26.004:
+                  large: https://img.federalregister.gov/EP06MY26.004/EP06MY26.004_large.png
+                  medium: https://img.federalregister.gov/EP06MY26.004/EP06MY26.004_medium.png
+                  original_size: https://img.federalregister.gov/EP06MY26.004/EP06MY26.004_original_size.png
+                EP06MY26.000:
+                  large: https://img.federalregister.gov/EP06MY26.000/EP06MY26.000_large.png
+                  medium: https://img.federalregister.gov/EP06MY26.000/EP06MY26.000_medium.png
+                  original_size: https://img.federalregister.gov/EP06MY26.000/EP06MY26.000_original_size.png
+                EP06MY26.005:
+                  large: https://img.federalregister.gov/EP06MY26.005/EP06MY26.005_large.png
+                  medium: https://img.federalregister.gov/EP06MY26.005/EP06MY26.005_medium.png
+                  original_size: https://img.federalregister.gov/EP06MY26.005/EP06MY26.005_original_size.png
+                EP06MY26.006:
+                  large: https://img.federalregister.gov/EP06MY26.006/EP06MY26.006_large.png
+                  medium: https://img.federalregister.gov/EP06MY26.006/EP06MY26.006_medium.png
+                  original_size: https://img.federalregister.gov/EP06MY26.006/EP06MY26.006_original_size.png
+                EP06MY26.007:
+                  large: https://img.federalregister.gov/EP06MY26.007/EP06MY26.007_large.png
+                  medium: https://img.federalregister.gov/EP06MY26.007/EP06MY26.007_medium.png
+                  original_size: https://img.federalregister.gov/EP06MY26.007/EP06MY26.007_original_size.png
+                EP06MY26.008:
+                  large: https://img.federalregister.gov/EP06MY26.008/EP06MY26.008_large.png
+                  medium: https://img.federalregister.gov/EP06MY26.008/EP06MY26.008_medium.png
+                  original_size: https://img.federalregister.gov/EP06MY26.008/EP06MY26.008_original_size.png
+              images_metadata:
+                EP06MY26.001:
+                  large:
+                    identifier: EP06MY26.001
+                    content_type: image/png
+                    size: 78260
+                    width: 823
+                    sha: b70e096f4355ac40ee6adc1101b2ea82
+                    url: https://img.federalregister.gov/EP06MY26.001/EP06MY26.001_large.png
+                    height: 1189
+                  medium:
+                    identifier: EP06MY26.001
+                    content_type: image/png
+                    size: 25177
+                    width: 488
+                    sha: 4d35a580a34986fa1c11692712929c02
+                    url: https://img.federalregister.gov/EP06MY26.001/EP06MY26.001_medium.png
+                    height: 706
+                  original_size:
+                    identifier: EP06MY26.001
+                    content_type: image/png
+                    size: 34779
+                    width: 1845
+                    sha: cbba1c4c0e6fe357d372aeaf64bd5004
+                    url: https://img.federalregister.gov/EP06MY26.001/EP06MY26.001_original_size.png
+                    height: 2667
+                EP06MY26.002:
+                  large:
+                    identifier: EP06MY26.002
+                    content_type: image/png
+                    size: 77409
+                    width: 823
+                    sha: e2782309b925864b1d72cb8147526302
+                    url: https://img.federalregister.gov/EP06MY26.002/EP06MY26.002_large.png
+                    height: 1208
+                  medium:
+                    identifier: EP06MY26.002
+                    content_type: image/png
+                    size: 26462
+                    width: 481
+                    sha: 16e9e3e02090f201e15253312f3cb0e9
+                    url: https://img.federalregister.gov/EP06MY26.002/EP06MY26.002_medium.png
+                    height: 706
+                  original_size:
+                    identifier: EP06MY26.002
+                    content_type: image/png
+                    size: 37536
+                    width: 1816
+                    sha: b5045c8f4d5e9411c4dc4eb3e00f1375
+                    url: https://img.federalregister.gov/EP06MY26.002/EP06MY26.002_original_size.png
+                    height: 2667
+                EP06MY26.003:
+                  large:
+                    identifier: EP06MY26.003
+                    content_type: image/png
+                    size: 77781
+                    width: 822
+                    sha: 4a3a7f22e24fdf26c71cd7ead52e503e
+                    url: https://img.federalregister.gov/EP06MY26.003/EP06MY26.003_large.png
+                    height: 1189
+                  medium:
+                    identifier: EP06MY26.003
+                    content_type: image/png
+                    size: 27071
+                    width: 488
+                    sha: d5bbad82ad7fcbbbeb187a1a464f26fb
+                    url: https://img.federalregister.gov/EP06MY26.003/EP06MY26.003_medium.png
+                    height: 706
+                  original_size:
+                    identifier: EP06MY26.003
+                    content_type: image/png
+                    size: 38441
+                    width: 1844
+                    sha: cd3c1414f848e69e52e37621ecdbc207
+                    url: https://img.federalregister.gov/EP06MY26.003/EP06MY26.003_original_size.png
+                    height: 2667
+                EP06MY26.004:
+                  large:
+                    identifier: EP06MY26.004
+                    content_type: image/png
+                    size: 77174
+                    width: 822
+                    sha: a27e7082d39f1f789cefe707920722b5
+                    url: https://img.federalregister.gov/EP06MY26.004/EP06MY26.004_large.png
+                    height: 1189
+                  medium:
+                    identifier: EP06MY26.004
+                    content_type: image/png
+                    size: 26513
+                    width: 488
+                    sha: 1bdd59f15879ff54f009950576873f4c
+                    url: https://img.federalregister.gov/EP06MY26.004/EP06MY26.004_medium.png
+                    height: 706
+                  original_size:
+                    identifier: EP06MY26.004
+                    content_type: image/png
+                    size: 36896
+                    width: 1844
+                    sha: 1f478cbadcdf89ad9ddd446570e5c895
+                    url: https://img.federalregister.gov/EP06MY26.004/EP06MY26.004_original_size.png
+                    height: 2667
+                EP06MY26.000:
+                  large:
+                    identifier: EP06MY26.000
+                    content_type: image/png
+                    size: 79952
+                    width: 823
+                    sha: 3c2854cd9f495f5cb623c0a3cf0ce208
+                    url: https://img.federalregister.gov/EP06MY26.000/EP06MY26.000_large.png
+                    height: 1216
+                  medium:
+                    identifier: EP06MY26.000
+                    content_type: image/png
+                    size: 27170
+                    width: 478
+                    sha: 5e05fe8666cfb56488aab986b89d433e
+                    url: https://img.federalregister.gov/EP06MY26.000/EP06MY26.000_medium.png
+                    height: 706
+                  original_size:
+                    identifier: EP06MY26.000
+                    content_type: image/png
+                    size: 39165
+                    width: 1805
+                    sha: f62da6f022ccbf06c91682a10d93daaf
+                    url: https://img.federalregister.gov/EP06MY26.000/EP06MY26.000_original_size.png
+                    height: 2667
+                EP06MY26.005:
+                  large:
+                    identifier: EP06MY26.005
+                    content_type: image/png
+                    size: 76139
+                    width: 822
+                    sha: b79c18360a6028de8693007203c3bce0
+                    url: https://img.federalregister.gov/EP06MY26.005/EP06MY26.005_large.png
+                    height: 1189
+                  medium:
+                    identifier: EP06MY26.005
+                    content_type: image/png
+                    size: 26403
+                    width: 488
+                    sha: ff9c2bca1bacb88271492e6ea2045c16
+                    url: https://img.federalregister.gov/EP06MY26.005/EP06MY26.005_medium.png
+                    height: 706
+                  original_size:
+                    identifier: EP06MY26.005
+                    content_type: image/png
+                    size: 37082
+                    width: 1844
+                    sha: 34867bae4c05e66c985ae7e5a4e1a9a3
+                    url: https://img.federalregister.gov/EP06MY26.005/EP06MY26.005_original_size.png
+                    height: 2667
+                EP06MY26.006:
+                  large:
+                    identifier: EP06MY26.006
+                    content_type: image/png
+                    size: 76633
+                    width: 822
+                    sha: f0a2fe1b1f98970f591a297b2984dc19
+                    url: https://img.federalregister.gov/EP06MY26.006/EP06MY26.006_large.png
+                    height: 1189
+                  medium:
+                    identifier: EP06MY26.006
+                    content_type: image/png
+                    size: 26595
+                    width: 488
+                    sha: 090700598157932f1d6d510253500df7
+                    url: https://img.federalregister.gov/EP06MY26.006/EP06MY26.006_medium.png
+                    height: 706
+                  original_size:
+                    identifier: EP06MY26.006
+                    content_type: image/png
+                    size: 37704
+                    width: 1844
+                    sha: e7e4315cb37be36f8183310c703f6f5e
+                    url: https://img.federalregister.gov/EP06MY26.006/EP06MY26.006_original_size.png
+                    height: 2667
+                EP06MY26.007:
+                  large:
+                    identifier: EP06MY26.007
+                    content_type: image/png
+                    size: 78667
+                    width: 822
+                    sha: 3f607b715da8dc6f2862b5fb52ebb4cb
+                    url: https://img.federalregister.gov/EP06MY26.007/EP06MY26.007_large.png
+                    height: 1189
+                  medium:
+                    identifier: EP06MY26.007
+                    content_type: image/png
+                    size: 27389
+                    width: 488
+                    sha: 1efdb4a664ad0f699ff8076f8fe7881e
+                    url: https://img.federalregister.gov/EP06MY26.007/EP06MY26.007_medium.png
+                    height: 706
+                  original_size:
+                    identifier: EP06MY26.007
+                    content_type: image/png
+                    size: 38852
+                    width: 1844
+                    sha: 63edd60f5663f3ce62999800d565dd87
+                    url: https://img.federalregister.gov/EP06MY26.007/EP06MY26.007_original_size.png
+                    height: 2667
+                EP06MY26.008:
+                  large:
+                    identifier: EP06MY26.008
+                    content_type: image/png
+                    size: 66698
+                    width: 823
+                    sha: d5ad865cc47c485f6737dcb8d24ce6bf
+                    url: https://img.federalregister.gov/EP06MY26.008/EP06MY26.008_large.png
+                    height: 942
+                  medium:
+                    identifier: EP06MY26.008
+                    content_type: image/png
+                    size: 25285
+                    width: 517
+                    sha: eb50b81cbf929d9a54d8b35b11e73da4
+                    url: https://img.federalregister.gov/EP06MY26.008/EP06MY26.008_medium.png
+                    height: 591
+                  original_size:
+                    identifier: EP06MY26.008
+                    content_type: image/png
+                    size: 35548
+                    width: 1951
+                    sha: 1b9cd255eeb5f356539658522e37b48c
+                    url: https://img.federalregister.gov/EP06MY26.008/EP06MY26.008_original_size.png
+                    height: 2232
+              json_url: https://www.federalregister.gov/api/v1/documents/2026-08943?publication_date=2026-05-06
+              mods_url: https://www.govinfo.gov/metadata/granule/FR-2026-05-06/2026-08943/mods.xml
+              not_received_for_publication: null
+              page_length: 55
+              page_views:
+                count: 22818
+                last_updated: 2026-09-27 18:15:03 -0400
+              pdf_url: https://www.govinfo.gov/content/pkg/FR-2026-05-06/pdf/2026-08943.pdf
+              presidential_document_number: null
+              proclamation_number: null
+              public_inspection_pdf_url: https://public-inspection.federalregister.gov/2026-08943.pdf?1777985132
+              publication_date: 2026-05-06
+              raw_text_url: https://www.federalregister.gov/documents/full_text/text/2026/05/06/2026-08943.txt
+              regulation_id_number_info:
+                2120-AL33:
+                  issue: "202504"
+                  html_url: https://www.federalregister.gov/regulations/2120-AL33/designation-restrict-the-operation-of-an-unmanned-aircraft-in-close-proximity-to-a-fixed-site-facili
+                  title: Designation - Restrict the Operation of an Unmanned Aircraft in Close
+                    Proximity to a Fixed Site Facility
+                  xml_url: http://www.reginfo.gov/public/do/eAgendaViewRule?pubId=202504&RIN=2120-AL33&operation=OPERATION_EXPORT_XML
+                  priority_category: Other Significant
+              regulation_id_numbers:
+                - 2120-AL33
+              regulations_dot_gov_info:
+                supporting_documents:
+                  - title: 2209 NPRM_Thank You Email from CLA
+                    document_id: FAA-2026-4558-1302
+                  - title: 2209 NPRM Memorandum to the Docket IT-SCC-hosted Meeting
+                    document_id: FAA-2026-4558-1196
+                  - title: 2209 NPRM Memorandum to the Docket IT-ISAC-hosted Meeting
+                    document_id: FAA-2026-4558-1195
+                  - title: 2209 NPRM Memorandum to the Docket for June 2026 Meeting with
+                      Correctional Leadership Association (CLA)
+                    document_id: FAA-2026-4558-0577
+                  - title: 2209 NPRM Draft of FAA Order JO 7400.12
+                    document_id: FAA-2026-4558-0479
+                  - title: 2209 NPRM Memorandum to the Docket for Meeting with American Correctional
+                      Association (ACA) and the Correctional Leadership
+                      Association (CLA)
+                    document_id: FAA-2026-4558-0478
+                  - title: NY OAG FAA Comment Extension Request re Drone Restrictions NPRM
+                      (6-24-2026)
+                    document_id: FAA-2026-4558-0447
+                  - title: QTS Data Center's Response Inbound & Outbound
+                    document_id: FAA-2026-4558-0361
+                  - title: Meeting request_ CLA perspective on the Section 2209 NPRM Inbound &
+                      Outbound
+                    document_id: FAA-2026-4558-0360
+                  - title: 2209 NPRM Privacy Impact Assessment (PIA)
+                    document_id: FAA-2026-4558-0015
+                regulatory_plan:
+                  html_url: https://www.federalregister.gov/regulations/2120-AL33/designation-restrict-the-operation-of-an-unmanned-aircraft-in-close-proximity-to-a-fixed-site-facili
+                  title: Designation - Restrict the Operation of an Unmanned Aircraft in Close
+                    Proximity to a Fixed Site Facility
+                comments_count: 901744
+                agency_id: FAA
+                comments_url: https://www.regulations.gov/docketBrowser?rpp=50&so=DESC&sb=postedDate&po=0&dct=PS&D=FAA-2026-4558
+                supporting_documents_count: 17
+                docket_id: FAA-2026-4558
+                document_id: FAA-2026-4558-0001
+                regulation_id_number: 2120-AL33
+                title: Designation – Restrict the Operation of Unmanned Aircraft in Close
+                  Proximity  to a Fixed Site Facility
+                checked_regulationsdotgov_at: 2026-08-28T08:55:03Z
+              regulations_dot_gov_url: null
+              significant: true
+              signing_date: null
+              start_page: 24650
+              subtype: null
+              title: Designation-Restrict the Operation of Unmanned Aircraft in Close
+                Proximity to a Fixed Site Facility
+              toc_doc: Restrict the Operation of Unmanned Aircraft in Close Proximity to a
+                Fixed Site Facility
+              toc_subject: Designation
+              topics:
+                - Air transportation
+                - Aircraft
+                - Airmen
+                - Airspace
+                - Aviation safety
+                - Incorporation by reference
+                - Reporting and recordkeeping requirements
+                - Safety
+                - Security measures
+              type: Proposed Rule
+              volume: 91
+            is_error: false
+        output:
+          details:
+            - document_number: 2026-16504
+              title: Airworthiness Directives; The Boeing Company Airplanes
+              type: Rule
+              publication_date: 2026-08-13
+              action: Final rule.
+              citation: 91 FR 52223
+              effective_on: 2026-09-17
+              comments_close_on: null
+            - document_number: 2026-07585
+              title: Settlement Policy for Small Unmanned Aircraft System (UAS) Cases
+              type: Rule
+              publication_date: 2026-04-17
+              action: Notification of enforcement policy.
+              citation: 91 FR 20578
+              effective_on: 2026-04-17
+              comments_close_on: null
+            - document_number: 2026-03150
+              title: IFR Altitudes; Miscellaneous Amendments
+              type: Rule
+              publication_date: 2026-02-18
+              action: Final rule
+              citation: 91 FR 7395
+              effective_on: 2026-03-19
+              comments_close_on: null
+            - document_number: 2026-13126
+              title: Designation-Restrict the Operation of Unmanned Aircraft in Close
+                Proximity to a Fixed Site Facility; Extension of Comment Period
+              type: Proposed Rule
+              publication_date: 2026-06-30
+              action: Notice of proposed rulemaking (NPRM); extension of comment period.
+              citation: 91 FR 39568
+              effective_on: 2026-05-06
+              comments_close_on: 2026-08-05
+            - document_number: 2026-08943
+              title: Designation-Restrict the Operation of Unmanned Aircraft in Close
+                Proximity to a Fixed Site Facility
+              type: Proposed Rule
+              publication_date: 2026-05-06
+              action: Notice of proposed rulemaking (NPRM).
+              citation: 91 FR 24650
+              effective_on: null
+              comments_close_on: 2026-07-06
+        expect: pass
+      - step: brief
+        calls: &a6 []
+        output:
+          assessments: &a7
+            - document_number: 2026-16504
+              priority: medium
+              why_it_matters: Final rule. affecting operators in this area.
+            - document_number: 2026-07585
+              priority: medium
+              why_it_matters: Notification of enforcement policy. affecting operators in this
+                area.
+            - document_number: 2026-03150
+              priority: medium
+              why_it_matters: Final rule affecting operators in this area.
+            - document_number: 2026-13126
+              priority: medium
+              why_it_matters: Notice of proposed rulemaking (NPRM); extension of comment
+                period. affecting operators in this area.
+            - document_number: 2026-08943
+              priority: medium
+              why_it_matters: Notice of proposed rulemaking (NPRM). affecting operators in
+                this area.
+          summary: >-
+            ## Summary
+
+            5 documents matter.
+
+
+            ## Final rules
+
+            - 2026-16504: Airworthiness Directives; The Boeing Company
+            Airplanes, published 2026-08-13
+
+            - 2026-07585: Settlement Policy for Small Unmanned Aircraft System
+            (UAS) Cases, published 2026-04-17
+
+            - 2026-03150: IFR Altitudes; Miscellaneous Amendments, published
+            2026-02-18
+
+
+            ## Proposed rules
+
+            - 2026-13126: Designation-Restrict the Operation of Unmanned
+            Aircraft in Close Proximity to a Fixed Site Facility; Extension of
+            Comment Period, published 2026-06-30
+
+            - 2026-08943: Designation-Restrict the Operation of Unmanned
+            Aircraft in Close Proximity to a Fixed Site Facility, published
+            2026-05-06
+
+
+            ## Key dates
+
+            - 2026-16504 effective 2026-09-17
+
+            - 2026-07585 effective 2026-04-17
+
+            - 2026-03150 effective 2026-03-19
+
+            - 2026-13126 effective 2026-05-06
+
+            - 2026-13126 comments close 2026-08-05
+
+            - 2026-08943 comments close 2026-07-06
+
+            See also 2026-99999 on 2031-01-01.
+        expect:
+          fail:
+            - citations-resolve
+            - dates-from-evidence
+      - step: brief
+        calls: *a6
+        output:
+          assessments: *a7
+          summary: >-
+            ## Summary
+
+            5 documents matter.
+
+
+            ## Final rules
+
+            - 2026-16504: Airworthiness Directives; The Boeing Company
+            Airplanes, published 2026-08-13
+
+            - 2026-07585: Settlement Policy for Small Unmanned Aircraft System
+            (UAS) Cases, published 2026-04-17
+
+            - 2026-03150: IFR Altitudes; Miscellaneous Amendments, published
+            2026-02-18
+
+
+            ## Proposed rules
+
+            - 2026-13126: Designation-Restrict the Operation of Unmanned
+            Aircraft in Close Proximity to a Fixed Site Facility; Extension of
+            Comment Period, published 2026-06-30
+
+            - 2026-08943: Designation-Restrict the Operation of Unmanned
+            Aircraft in Close Proximity to a Fixed Site Facility, published
+            2026-05-06
+
+
+            ## Key dates
+
+            - 2026-16504 effective 2026-09-17
+
+            - 2026-07585 effective 2026-04-17
+
+            - 2026-03150 effective 2026-03-19
+
+            - 2026-13126 effective 2026-05-06
+
+            - 2026-13126 comments close 2026-08-05
+
+            - 2026-08943 comments close 2026-07-06
+        expect: pass

@@ -1,0 +1,20 @@
+name: object builds an object from key and value pairs, so a map can shape each item
+stepfile:
+  stepgate: "1"
+  id: shapes
+  inputs: { type: object, required: [items], properties: { items: { type: array } } }
+  steps:
+    - id: shape
+      do:
+        output:
+          rows: { map: [{ var: inputs.items }, { object: [[name, { var: id }], [stock, { "+": [{ var: count }, 0] }]] }] }
+      produces:
+        type: object
+        required: [rows]
+        properties: { rows: { type: array, items: { type: object, required: [name, stock], properties: { name: { type: string }, stock: { type: integer } } } } }
+inputs: { items: [{ id: K-1, count: 4 }, { id: K-2, count: 0 }] }
+actions: []
+expect:
+  replies:
+    - { state: finished, contain: '"name": "K-2"' }
+  ledger: [run_started, step_started, computed, step_passed, run_finished]

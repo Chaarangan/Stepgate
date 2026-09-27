@@ -1,14 +1,14 @@
+import { isDeepStrictEqual } from "node:util";
 import { parse as parseYaml } from "yaml";
 import { CasesInvalid } from "./engine/errors.ts";
 import { compileStepGates, type GateVerdict } from "./engine/gates.ts";
 import type { HttpContext } from "./engine/http.ts";
 import { createValidator, describeErrors } from "./engine/json-schema.ts";
-import type { EvidenceCall } from "./engine/predicate.ts";
-import type { Approvals, Json, JsonObject, Stepfile } from "./engine/types.ts";
+import { evaluateExpression, evaluateTemplate } from "./engine/predicate.ts";
+import type { Approvals, EvidenceCall, Json, JsonObject, MechanicalWork, RecordedStep, Stepfile } from "./engine/types.ts";
 
 /** One step of a case: the calls it made, what it submitted, and whether every gate should pass or which should fail. */
-export type CaseStep = { step: string; calls: EvidenceCall[]; output: Json; expect: "pass" | { fail: string[] } };
-export type GateCase = { name: string; inputs: JsonObject; steps: CaseStep[] };
+export type GateCase = { name: string; inputs: JsonObject; steps: RecordedStep[] };
 
 /** A case step's outcome: whether the verdicts matched the expectation, and what ran. */
 export type CaseReport = { case: string; step: string; ok: boolean; failed: GateVerdict[]; skipped: string[]; problem: string | null };
@@ -74,14 +74,14 @@ export function parseCases(stepfile: Stepfile, text: string): GateCase[] {
   if (!validate(parsed)) {
     throw new CasesInvalid([describeErrors(validate.errors)]);
   }
-  const raw = (parsed as { cases: Array<{ name: string; inputs: JsonObject; steps: Array<Omit<CaseStep, "calls"> & { calls?: Array<Partial<EvidenceCall> & { tool: string; result: Json }> }> }> }).cases;
-  const known = new Map(stepfile.document.steps.map((step) => [step.id, new Set(step.gates.map((gate) => gate.id))]));
+  const raw = (parsed as { cases: Array<{ name: string; inputs: JsonObject; steps: Array<Omit<RecordedStep, "calls"> & { calls?: Array<Partial<EvidenceCall> & { tool: string; result: Json }> }> }> }).cases;
+  const known = new Map(stepfile.document.steps.map((step) => [step.id, new Set((step.gates ?? []).map((gate) => gate.id))]));
   const problems = raw.flatMap((item) => item.steps.flatMap((step) => {
     const gates = known.get(step.step);
     if (gates === undefined) {
       return [`case "${item.name}": ${step.step} is not a step of ${stepfile.document.id}`];
     }
-    const unknown = typeof step.expect === "string" ? [] : step.expect.fail.filter((gate) => gate !== "produces" && !gates.has(gate));
+    const unknown = typeof step.expect === "string" ? [] : step.expect.fail.filter((gate) => gate !== "produces" && gate !== "derive" && !gates.has(gate));
     return unknown.map((gate) => `case "${item.name}", step ${step.step}: ${gate} is not one of its gates`);
   }));
   if (problems.length > 0) {
@@ -112,6 +112,53 @@ const NO_PEOPLE: Approvals = {
   },
 };
 
+/** An accepted error was recorded as the client saw it, with its status first; the step read the body after it. */
+function responseOf(call: EvidenceCall): Json {
+  const body = call.is_error && typeof call.result === "string" ? /^HTTP \d{3}: ([\s\S]*)$/.exec(call.result)?.[1] : undefined;
+  if (body === undefined) {
+    return call.result;
+  }
+  try {
+    return JSON.parse(body) as Json;
+  } catch {
+    // Not JSON: the step read the text itself.
+    return body;
+  }
+}
+
+/**
+ * Replays a mechanical step over its recorded calls: each call must be the one the step would make, with the arguments
+ * it would compute, and the output must be what its template computes. Returns what differs, or null.
+ */
+function mechanicalProblem(work: MechanicalWork, recorded: RecordedStep, inputs: JsonObject, steps: Record<string, JsonObject>): string | null {
+  const queue = [...recorded.calls];
+  const responses: JsonObject = {};
+  for (const planned of work.calls ?? []) {
+    const elements = planned.each === undefined ? [null] : evaluateExpression(planned.each, { inputs, steps, responses });
+    if (!Array.isArray(elements)) {
+      return `call ${planned.id}'s each gives ${JSON.stringify(elements)}, not an array`;
+    }
+    const results: Json[] = [];
+    for (const [index, item] of elements.entries()) {
+      const args = evaluateTemplate(planned.arguments ?? {}, { inputs, steps, responses, item });
+      const call = queue.shift();
+      if (call === undefined || call.tool !== planned.operation) {
+        return `call ${planned.id} would make ${planned.operation} call ${index + 1}, but the case recorded ${call === undefined ? "no more calls" : call.tool}`;
+      }
+      if (!isDeepStrictEqual(args, call.arguments)) {
+        return `call ${planned.id} would send ${JSON.stringify(args)} as ${planned.operation} call ${index + 1}, but the case recorded ${JSON.stringify(call.arguments)}`;
+      }
+      results.push(responseOf(call));
+    }
+    responses[planned.id] = planned.each === undefined ? results[0] ?? null : results;
+  }
+  if (queue.length > 0) {
+    return `the case recorded ${queue.length} more call(s) than the step makes`;
+  }
+  const output = evaluateTemplate(work.output, { inputs, steps, responses });
+  return isDeepStrictEqual(output, recorded.output) ? null : `Stepgate computes output ${JSON.stringify(output)} from these calls, not the case's ${JSON.stringify(recorded.output)}`;
+}
+
 /**
  * Runs each case's steps through the stepfile's own gates with the recorded calls, no network and no model.
  * A step's output joins `steps` for later ones when it is expected to pass. Verifier and approve gates are skipped and named.
@@ -126,9 +173,14 @@ export async function testGates(stepfile: Stepfile, cases: GateCase[]): Promise<
       if (step === undefined) {
         throw new TypeError(`step ${caseStep.step} vanished after parseCases checked it`);
       }
-      const offline = step.gates.filter((gate) => !("http" in gate) && !("approve" in gate));
-      const skipped = step.gates.filter((gate) => "http" in gate || "approve" in gate).map((gate) => gate.id);
-      const verdicts = await compileStepGates(stepfile.document, { http: OFFLINE, approvals: NO_PEOPLE }, { ...step, gates: offline }, ajv)
+      const offline = (step.gates ?? []).filter((gate) => !("http" in gate) && !("approve" in gate));
+      const skipped = (step.gates ?? []).filter((gate) => "http" in gate || "approve" in gate).map((gate) => gate.id);
+      const replayed = step.do === undefined ? null : mechanicalProblem(step.do, caseStep, item.inputs, accepted);
+      if (replayed !== null) {
+        reports.push({ case: item.name, step: step.id, ok: false, failed: [], skipped: [], problem: replayed });
+        continue;
+      }
+      const { verdicts, output } = await compileStepGates(stepfile.document, { http: OFFLINE, approvals: NO_PEOPLE }, { ...step, gates: offline }, ajv)
         .check({ inputs: item.inputs, steps: accepted, output: caseStep.output, calls: caseStep.calls });
       const failed = verdicts.filter((verdict) => !verdict.passed);
       const expected = caseStep.expect === "pass" ? [] : [...caseStep.expect.fail].sort();
@@ -143,7 +195,7 @@ export async function testGates(stepfile: Stepfile, cases: GateCase[]): Promise<
         problem: ok ? null : `expected ${expected.length === 0 ? "every gate to pass" : `${expected.join(", ")} to fail`}, but ${actual.length === 0 ? "every gate passed" : `${actual.join(", ")} failed`}`,
       });
       if (caseStep.expect === "pass") {
-        accepted[step.id] = caseStep.output as JsonObject;
+        accepted[step.id] = output as JsonObject;
       }
     }
   }

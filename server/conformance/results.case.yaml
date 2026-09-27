@@ -1,0 +1,58 @@
+name: results reads an operation's successful results, at a path or whole, and leaves out calls that failed
+api:
+  routes:
+    - method: GET
+      path: /items?shelf=A
+      answers: [{ status: 200, json: { items: [{ id: K-1 }, { id: K-2 }] } }]
+    - method: GET
+      path: /items?shelf=B
+      answers: [{ status: 404, json: { items: [{ id: K-9 }] } }]
+stepfile:
+  stepgate: "1"
+  id: shelves
+  inputs: { type: object, properties: {} }
+  tools:
+    catalogue:
+      openapi:
+        server: "${api.origin}"
+        document:
+          openapi: 3.1.0
+          info: { title: Catalogue, version: "1" }
+          paths:
+            /items:
+              get:
+                operationId: listItems
+                parameters: [{ name: shelf, in: query, required: true, schema: { type: string } }]
+      exposes: [listItems]
+  steps:
+    - id: list
+      tools: [listItems]
+      instructions: List the items on shelves A and B.
+      produces: { type: object, required: [ids], properties: { ids: { type: array, items: { type: string } } } }
+      gates:
+        - id: listed
+          message: every id must be one a successful listItems call returned
+          predicate: { subset: [{ var: output.ids }, { map: [{ results: [listItems, items] }, { var: id }] }] }
+        - id: one-success
+          message: exactly one listItems call succeeded
+          predicate: { "==": [{ length: { results: [listItems] } }, 1] }
+      retries: 1
+inputs: {}
+actions:
+  - call: listItems
+    arguments: { shelf: A }
+  - call: listItems
+    arguments: { shelf: B }
+  - submit: { ids: [K-1, K-9] }
+  - submit: { ids: [K-1, K-2] }
+expect:
+  replies:
+    - { state: running, step: list }
+    - { state: running, is_error: false, contain: K-2 }
+    - { state: running, is_error: true }
+    - { state: running, failures: [listed] }
+    - { state: finished }
+  ledger: [run_started, step_started, tool_call, tool_call, submit, gate, gate, submit, gate, gate, step_passed, run_finished]
+  requests:
+    - { method: GET, path: /items?shelf=A }
+    - { method: GET, path: /items?shelf=B }

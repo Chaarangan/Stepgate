@@ -1,0 +1,21 @@
+name: a mechanical step whose output fails a gate stops the run with GateFailed, since no model can resubmit
+stepfile:
+  stepgate: "1"
+  id: tally
+  inputs: { type: object, required: [prices], properties: { prices: { type: array, items: { type: number } } } }
+  steps:
+    - id: total
+      do:
+        output:
+          total: { reduce: [{ var: inputs.prices }, { "+": [{ var: accumulator }, { var: current }] }, 0] }
+      produces: { type: object, required: [total], properties: { total: { type: number } } }
+      gates:
+        - id: within-budget
+          message: the total must be at most 5
+          predicate: { "<=": [{ var: output.total }, 5] }
+inputs: { prices: [2.5, 4] }
+actions: []
+expect:
+  replies:
+    - { state: failed, error: GateFailed, contain: "within-budget: the total must be at most 5" }
+  ledger: [run_started, step_started, computed, gate, run_failed]

@@ -1,0 +1,172 @@
+# Recorded calls and outputs for `stepgate --test snowflake-metric-to-jira`, which runs the gates offline.
+# Approve gates need a person, so the offline test skips them.
+cases:
+  - name: a breached metric drafts, creates and reports one issue
+    inputs: &breach-inputs
+      sql: "SELECT COUNT_IF(status = 'error') AS ERRORS, COUNT(*) AS TOTAL, ROUND(ERRORS / NULLIF(TOTAL, 0), 4) AS ERROR_RATE FROM analytics.checkout.events WHERE event_date = CURRENT_DATE()"
+      metric_name: Checkout error rate
+      metric_column: ERROR_RATE
+      threshold: 0.02
+      breach_when: above
+      warehouse: REPORTING_WH
+      role: METRICS_READER
+      jira_project: DATA
+      jira_issue_type: Task
+    steps:
+      - step: confirm
+        output: {}
+        expect: pass
+      - step: query
+        calls:
+          - &breach-call
+            tool: executeStatement
+            arguments:
+              body:
+                statement: "SELECT COUNT_IF(status = 'error') AS ERRORS, COUNT(*) AS TOTAL, ROUND(ERRORS / NULLIF(TOTAL, 0), 4) AS ERROR_RATE FROM analytics.checkout.events WHERE event_date = CURRENT_DATE()"
+                warehouse: REPORTING_WH
+                role: METRICS_READER
+            result:
+              resultSetMetaData:
+                numRows: 1
+                format: jsonv2
+                partitionInfo: [{ rowCount: 1, uncompressedSize: 24 }]
+                rowType:
+                  - { name: ERRORS, database: "", schema: "", table: "", type: fixed, nullable: true, precision: 18, scale: 0, length: null, byteLength: null, collation: null }
+                  - { name: TOTAL, database: "", schema: "", table: "", type: fixed, nullable: false, precision: 18, scale: 0, length: null, byteLength: null, collation: null }
+                  - { name: ERROR_RATE, database: "", schema: "", table: "", type: fixed, nullable: true, precision: 24, scale: 4, length: null, byteLength: null, collation: null }
+              data: [["12", "400", "0.0300"]]
+              code: "090001"
+              statementStatusUrl: /api/v2/statements/01b6c3a2-0000-3f1d-0000-a4b10002c1e2?requestId=6a1f2c7e-3b0d-4f55-9a44-0c1d2e3f4a5b
+              requestId: 6a1f2c7e-3b0d-4f55-9a44-0c1d2e3f4a5b
+              sqlState: "00000"
+              statementHandle: 01b6c3a2-0000-3f1d-0000-a4b10002c1e2
+              message: Statement executed successfully.
+              createdOn: 1790500000000
+        output: &breach-query
+          code: "090001"
+          statement_handle: 01b6c3a2-0000-3f1d-0000-a4b10002c1e2
+          num_rows: 1
+          columns: [ERRORS, TOTAL, ERROR_RATE]
+          column_index: 2
+          row: ["12", "400", "0.0300"]
+          metric_raw: "0.0300"
+          metric_value: 0.03
+          breached: true
+        expect: pass
+      - step: draft
+        output:
+          description: "Checkout error rate (ERROR_RATE) returned 0.0300, above the threshold 0.02. Snowflake statement 01b6c3a2-0000-3f1d-0000-a4b10002c1e2 returned ERRORS 12, TOTAL 400, ERROR_RATE 0.0300."
+        expect: pass
+      - step: create
+        calls:
+          - tool: createJiraIssue
+            arguments:
+              body:
+                fields:
+                  project: { key: DATA }
+                  issuetype: { name: Task }
+                  summary: "Checkout error rate breached: 0.0300"
+                  labels: [stepgate-draft]
+                  description:
+                    type: doc
+                    version: 1
+                    content:
+                      - { type: paragraph, content: [{ type: text, text: "Checkout error rate (ERROR_RATE) returned 0.0300, above the threshold 0.02. Snowflake statement 01b6c3a2-0000-3f1d-0000-a4b10002c1e2 returned ERRORS 12, TOTAL 400, ERROR_RATE 0.0300." }] }
+                      - { type: codeBlock, content: [{ type: text, text: "SELECT COUNT_IF(status = 'error') AS ERRORS, COUNT(*) AS TOTAL, ROUND(ERRORS / NULLIF(TOTAL, 0), 4) AS ERROR_RATE FROM analytics.checkout.events WHERE event_date = CURRENT_DATE()" }] }
+            result: { id: "10042", key: DATA-17, self: "https://acme.atlassian.net/rest/api/3/issue/10042" }
+        output: { jira_key: DATA-17 }
+        expect: pass
+      - step: report
+        output:
+          sql: "SELECT COUNT_IF(status = 'error') AS ERRORS, COUNT(*) AS TOTAL, ROUND(ERRORS / NULLIF(TOTAL, 0), 4) AS ERROR_RATE FROM analytics.checkout.events WHERE event_date = CURRENT_DATE()"
+          metric_raw: "0.0300"
+          threshold: 0.02
+          breached: true
+          jira_key: DATA-17
+          summary: "**Checkout error rate** (ERROR_RATE) returned 0.0300; the threshold is 0.02, breached when the metric is above it. The threshold is breached, so Jira issue DATA-17 was created, labelled stepgate-draft for review.\n\nSnowflake statement handle: 01b6c3a2-0000-3f1d-0000-a4b10002c1e2\n\n```sql\nSELECT COUNT_IF(status = 'error') AS ERRORS, COUNT(*) AS TOTAL, ROUND(ERRORS / NULLIF(TOTAL, 0), 4) AS ERROR_RATE FROM analytics.checkout.events WHERE event_date = CURRENT_DATE()\n```\n"
+        expect: pass
+
+  - name: a metric within the threshold creates nothing and says so
+    inputs: { sql: "SELECT 0.0100 AS ERROR_RATE", metric_name: Checkout error rate, metric_column: ERROR_RATE, threshold: 0.02, breach_when: above, warehouse: REPORTING_WH, role: METRICS_READER, jira_project: DATA, jira_issue_type: Task }
+    steps:
+      - step: confirm
+        output: {}
+        expect: pass
+      - step: query
+        calls:
+          - tool: executeStatement
+            arguments: { body: { statement: "SELECT 0.0100 AS ERROR_RATE", warehouse: REPORTING_WH, role: METRICS_READER } }
+            result:
+              resultSetMetaData: { numRows: 1, format: jsonv2, rowType: [{ name: ERROR_RATE, type: fixed, nullable: false, precision: 5, scale: 4 }] }
+              data: [["0.0100"]]
+              code: "090001"
+              sqlState: "00000"
+              statementHandle: 01b6c3a2-0000-3f1d-0000-a4b10002c1f7
+              message: Statement executed successfully.
+        output:
+          code: "090001"
+          statement_handle: 01b6c3a2-0000-3f1d-0000-a4b10002c1f7
+          num_rows: 1
+          columns: [ERROR_RATE]
+          column_index: 0
+          row: ["0.0100"]
+          metric_raw: "0.0100"
+          metric_value: 0.01
+          breached: false
+        expect: pass
+      - step: report
+        output:
+          sql: "SELECT 0.0100 AS ERROR_RATE"
+          metric_raw: "0.0100"
+          threshold: 0.02
+          breached: false
+          jira_key: null
+          summary: "**Checkout error rate** (ERROR_RATE) returned 0.0100; the threshold is 0.02, breached when the metric is above it. The threshold is not breached, so no Jira issue was created.\n\nSnowflake statement handle: 01b6c3a2-0000-3f1d-0000-a4b10002c1f7\n\n```sql\nSELECT 0.0100 AS ERROR_RATE\n```\n"
+        expect: pass
+
+  - name: a metric column that is missing, or a result of two rows, stops the run
+    inputs: { sql: "SELECT region, error_rate FROM analytics.checkout.daily", metric_name: Checkout error rate, metric_column: ERROR_RATE, threshold: 0.02, breach_when: above, warehouse: REPORTING_WH, role: METRICS_READER, jira_project: DATA, jira_issue_type: Task }
+    steps:
+      - step: confirm
+        output: {}
+        expect: pass
+      - step: query
+        calls:
+          - tool: executeStatement
+            arguments: { body: { statement: "SELECT region, error_rate FROM analytics.checkout.daily", warehouse: REPORTING_WH, role: METRICS_READER } }
+            result:
+              resultSetMetaData: { numRows: 2, format: jsonv2, rowType: [{ name: REGION, type: text, nullable: true }, { name: RATE, type: fixed, nullable: true, precision: 6, scale: 4 }] }
+              data: [["eu", "0.0300"], ["us", "0.0100"]]
+              code: "090001"
+              statementHandle: 01b6c3a2-0000-3f1d-0000-a4b10002c203
+        output:
+          code: "090001"
+          statement_handle: 01b6c3a2-0000-3f1d-0000-a4b10002c203
+          num_rows: 2
+          columns: [REGION, RATE]
+          column_index: null
+          row: ["eu", "0.0300"]
+          metric_raw: null
+          metric_value: null
+          breached: null
+        expect: { fail: [one-complete-row, metric-is-number] }
+
+  - name: a description that changes the opening, drops the handle or a value is rejected
+    inputs: *breach-inputs
+    steps:
+      - step: confirm
+        output: {}
+        expect: pass
+      - step: query
+        calls: [*breach-call]
+        output: *breach-query
+        expect: pass
+      - step: draft
+        output:
+          description: "The checkout error rate reached 0.03, above the threshold 0.02. ERRORS 12, TOTAL 400."
+        expect: { fail: [description-opening, description-cites-handle, description-quotes-row] }
+      - step: draft
+        output:
+          project_key: OPS
+          description: "Checkout error rate (ERROR_RATE) returned 0.0300, above the threshold 0.02. Statement 01b6c3a2-0000-3f1d-0000-a4b10002c1e2."
+        expect: { fail: [derive] }

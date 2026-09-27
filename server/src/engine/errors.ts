@@ -16,6 +16,24 @@ export class StepfileInvalid extends StepgateError {
 }
 
 /** A precondition checked before step 1 did not hold, so no step ran. */
+/** A procedure given to stepgate_outline cannot be read as markdown with optional YAML frontmatter. */
+export class ProcedureInvalid extends StepgateError {
+  override name = "ProcedureInvalid";
+  constructor(reason: string) {
+    super(`the procedure cannot be outlined: ${reason}`);
+  }
+}
+
+/** A stepfile's file could not be read, as when --watch finds it removed. */
+export class StepfileUnreadable extends StepgateError {
+  override name = "StepfileUnreadable";
+  readonly file: string;
+  constructor(file: string, reason: string, options?: ErrorOptions) {
+    super(`cannot read stepfile ${file}: ${reason}`, options);
+    this.file = file;
+  }
+}
+
 export class PreflightFailed extends StepgateError {
   override name = "PreflightFailed";
   readonly item: string;
@@ -111,6 +129,28 @@ export class GateFailed extends StepgateError {
     super(`step ${step} failed gates: ${failures.map((failure) => `${failure.gate}: ${failure.diagnosis}`).join("; ")}`);
     this.step = step;
     this.failures = failures;
+  }
+}
+
+/** Authorizing a credential with an MCP server's authorization server failed, or its metadata could not be read. */
+export class AuthorizationFailed extends StepgateError {
+  override name = "AuthorizationFailed";
+  readonly subject: string;
+  constructor(subject: string, reason: string, options?: ErrorOptions) {
+    super(`authorization for ${subject} failed: ${reason}`, options);
+    this.subject = subject;
+  }
+}
+
+/** A mechanical step computed arguments its operation's schema refuses, which no model is there to correct. */
+export class CallArgumentsInvalid extends StepgateError {
+  override name = "CallArgumentsInvalid";
+  readonly step: string;
+  readonly call: string;
+  constructor(step: string, call: string, operation: string, problems: string) {
+    super(`step ${step} computed arguments for call ${call} (${operation}) that its schema refuses: ${problems}`);
+    this.step = step;
+    this.call = call;
   }
 }
 

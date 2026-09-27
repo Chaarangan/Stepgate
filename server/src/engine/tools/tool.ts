@@ -2,8 +2,11 @@ import type { HttpContext } from "../http.ts";
 import type { CredentialBinding } from "../http.ts";
 import type { JsonObject, ToolDeclaration, ToolDefinition } from "../types.ts";
 
-/** What a tool call returns to the step loop. `status` is the HTTP status where there was one. */
-export type ToolResult = { content: string; isError: boolean; status: number | null };
+/**
+ * What a tool call returns to the step loop. `content` is what the client and gates see, which for an HTTP error starts
+ * with its status; `body` is the response as the API sent it; `status` is the HTTP status where there was one.
+ */
+export type ToolResult = { content: string; body: string; isError: boolean; status: number | null };
 
 /** A declared tool after preflight: the operations it exposes, how to call one, and how to release it. */
 export type PreparedTool = {

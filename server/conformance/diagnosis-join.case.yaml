@@ -1,0 +1,24 @@
+name: a failed none over a join with no explain lists the rows that broke the condition
+stepfile:
+  stepgate: "1"
+  id: stock
+  inputs: { type: object, required: [catalogue], properties: { catalogue: { type: array } } }
+  steps:
+    - id: count
+      instructions: "Report the stock of every item in {{inputs.catalogue}}"
+      produces: { type: object, required: [rows], properties: { rows: { type: array } } }
+      gates:
+        - id: counts-match
+          message: every row's stock must match the catalogue
+          predicate:
+            none:
+              - join: [{ var: output.rows }, { var: inputs.catalogue }, id, id]
+              - "!=": [{ var: left.stock }, { var: right.stock }]
+inputs: { catalogue: [{ id: K-1, stock: 4 }, { id: K-2, stock: 0 }] }
+actions:
+  - submit: { rows: [{ id: K-1, stock: 4 }, { id: K-2, stock: 3 }] }
+expect:
+  replies:
+    - { state: running, step: count }
+    - { state: failed, error: GateFailed, contain: 'counts-match: every row''s stock must match the catalogue [{"id":"K-2","stock":3}]' }
+  ledger: [run_started, step_started, submit, gate, run_failed]

@@ -1,0 +1,36 @@
+name: a mechanical call whose computed arguments break the operation's schema stops the run before any request
+api:
+  routes:
+    - method: GET
+      path: /items?shelf=A
+      answers: [{ status: 200, json: { items: [] } }]
+stepfile:
+  stepgate: "1"
+  id: shelves
+  inputs: { type: object, required: [shelf], properties: { shelf: { type: integer } } }
+  tools:
+    catalogue:
+      openapi:
+        server: "${api.origin}"
+        document:
+          openapi: 3.1.0
+          info: { title: Catalogue, version: "1" }
+          paths:
+            /items:
+              get:
+                operationId: listItems
+                parameters: [{ name: shelf, in: query, required: true, schema: { type: string } }]
+      exposes: [listItems]
+  steps:
+    - id: fetch
+      do:
+        calls: [{ id: shelf, operation: listItems, arguments: { shelf: { var: inputs.shelf } } }]
+        output: { items: { var: responses.shelf.items } }
+      produces: { type: object }
+inputs: { shelf: 7 }
+actions: []
+expect:
+  replies:
+    - { state: failed, error: CallArgumentsInvalid, contain: "call shelf (listItems)" }
+  ledger: [run_started, step_started, run_failed]
+  requests: []

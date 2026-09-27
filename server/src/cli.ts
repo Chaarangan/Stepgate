@@ -19,6 +19,9 @@ import { catalogDirectory, catalogFile, listCatalog } from "./catalog.ts";
 import { parseCases, testGates } from "./gate-test.ts";
 import { serveHttp } from "./http-server.ts";
 import { environmentCredentials, environmentSettings } from "./operator.ts";
+import { authorizeCredential } from "./authorize.ts";
+import { directoryCaseSink } from "./record-cases.ts";
+import { fixedStepfiles, watchStepfiles } from "./served.ts";
 import { createStepgateServer, type StepgateServerOptions } from "./server.ts";
 import { userAgent } from "./version.ts";
 import type { LedgerRecord } from "./engine/types.ts";
@@ -27,12 +30,15 @@ const HELP = `usage: stepgate [options] [<stepfile.yaml | catalog name>...]
        stepgate --list
        stepgate --verify <ledger.jsonl>...
        stepgate --test <stepfile.yaml | catalog name> [<cases.yaml>]
+       stepgate --auth <stepfile.yaml | catalog name> <credential> [--client-id <id>]
 
 With no stepfiles it serves only the tools for writing new ones.
 
   --list                     show the stepfiles in the bundled catalog
   --verify                   check that each ledger file's hash chain is intact; exits 1 if one is broken
   --test                     run a stepfile's gates over recorded cases, offline; the cases default to <id>.cases.yaml beside it
+  --auth                     authorize an oauth2 credential with its MCP server's authorization server, and print what to set
+  --client-id <id>           with --auth, a client registered for http://127.0.0.1 redirects, where the server offers no registration
   --contact <email>          your contact email, sent in the User-Agent (SEC EDGAR and USAJOBS require one)
   --http <port>              serve Streamable HTTP on 127.0.0.1:<port>/mcp instead of stdio
   --ledger-dir <dir>         write one ledger file per run there; otherwise records go to stderr
@@ -43,7 +49,9 @@ With no stepfiles it serves only the tools for writing new ones.
   --response-bytes <n>       largest response Stepgate reads from an API (10485760)
   --draft-credential <name>=<host>[,<host>...]
                              let drafts use credential <name>, sent only to these hosts; repeatable
-  --draft-setting <name>     let drafts use setting <name> from the environment; repeatable`;
+  --draft-setting <name>     let drafts use setting <name> from the environment; repeatable
+  --record-cases <dir>       write each finished or failed run there as a cases file for --test; it holds the APIs' full responses
+  --watch                    reload a stepfile when its file changes; runs in progress keep the version they started with`;
 
 const { values, positionals } = parseArgs({
   allowPositionals: true,
@@ -62,6 +70,10 @@ const { values, positionals } = parseArgs({
     contact: { type: "string" },
     "draft-credential": { type: "string", multiple: true },
     "draft-setting": { type: "string", multiple: true },
+    watch: { type: "boolean" },
+    auth: { type: "boolean" },
+    "client-id": { type: "string" },
+    "record-cases": { type: "string" },
   },
 });
 
@@ -89,6 +101,22 @@ if (values.verify === true) {
   process.exit(broken ? 1 : 0);
 }
 
+if (values.auth === true) {
+  const [target, credential] = positionals;
+  if (target === undefined || credential === undefined) {
+    throw new Error("--auth needs a stepfile path or catalog name and a credential name");
+  }
+  const stepfile = load(readFileSync(stepfilePath(target), "utf8"));
+  const variables = await authorizeCredential(stepfile, credential, values["client-id"] ?? null, { userAgent: userAgent(contactEmail(values.contact)) }, environmentSettings(process.env), async (url) => {
+    console.error(`stepgate: open this URL in a browser and approve access for ${credential}:\n\n  ${url.href}\n`);
+  });
+  console.error("stepgate: authorized. Set these in the server's environment, and keep them secret:");
+  for (const [name, value] of Object.entries(variables)) {
+    console.log(`${name}=${value}`);
+  }
+  process.exit(0);
+}
+
 if (values.test === true) {
   const [target, casesArgument] = positionals;
   if (target === undefined) {
@@ -99,7 +127,7 @@ if (values.test === true) {
   const casesFile = casesArgument ?? new URL(`${stepfile.document.id}.cases.yaml`, typeof file === "string" ? pathToFileURL(file) : file);
   const reports = await testGates(stepfile, parseCases(stepfile, readFileSync(casesFile, "utf8")));
   for (const report of reports) {
-    const skipped = report.skipped.length === 0 ? "" : ` (verifier gates not run offline: ${report.skipped.join(", ")})`;
+    const skipped = report.skipped.length === 0 ? "" : ` (verifier and approve gates not run offline: ${report.skipped.join(", ")})`;
     console.log(`${report.ok ? "ok" : "FAIL"}  ${report.case} / ${report.step}${skipped}${report.problem === null ? "" : `\n      ${report.problem}`}`);
     for (const failure of report.ok ? [] : report.failed) {
       console.log(`      ${failure.gate}: ${failure.diagnosis ?? ""}`);
@@ -144,8 +172,10 @@ function stepfilePath(argument: string): URL | string {
   return /\.(ya?ml|json)$/i.test(argument) ? argument : catalogFile(catalogDirectory(), argument);
 }
 
-// Loading every file first means a bad stepfile stops the server at start, not at first call.
-const stepfiles = positionals.map((argument) => load(readFileSync(stepfilePath(argument), "utf8")));
+// Loading every file first means a bad stepfile stops the server at start, not at first call; --watch then reloads edits.
+const stepfiles = values.watch === true
+  ? watchStepfiles(positionals.map(stepfilePath))
+  : fixedStepfiles(positionals.map((argument) => load(readFileSync(stepfilePath(argument), "utf8"))));
 const ledgerDir = values["ledger-dir"];
 
 const limits = {
@@ -160,6 +190,7 @@ const options: StepgateServerOptions = {
   credentials: environmentCredentials(process.env, { userAgent: agent, limits }),
   settings: environmentSettings(process.env),
   ledger: ledgerDir === undefined ? streamSink(process.stderr) : directorySink(ledgerDir),
+  recordCases: values["record-cases"] === undefined ? null : directoryCaseSink(values["record-cases"]),
   limits,
   runIdleMs: positiveInteger("run-idle-ms", values["run-idle-ms"]),
   userAgent: agent,
@@ -171,7 +202,12 @@ const options: StepgateServerOptions = {
 };
 
 function served(): string {
-  return stepfiles.length === 0 ? "the authoring tools only" : stepfiles.map((stepfile) => stepfile.document.id).join(", ");
+  const ids = stepfiles.entries().map((entry) => entry.id);
+  return `${ids.length === 0 ? "the authoring tools only" : ids.join(", ")}${values.watch === true ? ", reloading edited files" : ""}`;
+}
+
+if (values["record-cases"] !== undefined) {
+  console.error(`stepgate: recording cases in ${values["record-cases"]}; each file holds the APIs' full responses, so trim them before sharing`);
 }
 
 if (values.http === undefined) {

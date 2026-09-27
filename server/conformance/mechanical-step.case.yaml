@@ -1,0 +1,63 @@
+name: a mechanical step's calls and output are made by Stepgate, the client never sees it, and later steps read its output
+api:
+  routes:
+    - method: GET
+      path: /items?shelf=A
+      answers: [{ status: 200, json: { items: [{ id: K-1 }, { id: K-2 }] } }]
+stepfile:
+  stepgate: "1"
+  id: shelves
+  inputs: { type: object, required: [shelf], properties: { shelf: { type: string } } }
+  tools:
+    catalogue:
+      openapi:
+        server: "${api.origin}"
+        document:
+          openapi: 3.1.0
+          info: { title: Catalogue, version: "1" }
+          paths:
+            /items:
+              get:
+                operationId: listItems
+                parameters: [{ name: shelf, in: query, required: true, schema: { type: string } }]
+      exposes: [listItems]
+  steps:
+    - id: fetch
+      do:
+        calls:
+          - id: shelf
+            operation: listItems
+            arguments: { shelf: { var: inputs.shelf } }
+        output:
+          ids: { map: [{ var: responses.shelf.items }, { var: id }] }
+          count: { length: { var: responses.shelf.items } }
+          where: { shelf: { var: inputs.shelf } }
+          note: { literal: { var: raw } }
+      produces:
+        type: object
+        required: [ids, count, where, note]
+        properties:
+          ids: { type: array, items: { type: string } }
+          count: { type: integer }
+          where: { type: object }
+          note: { type: object }
+      gates:
+        - id: literal-kept
+          message: a literal is kept as written
+          predicate: { "==": [{ var: output.note.var }, raw] }
+    - id: report
+      instructions: "Report that shelf {{inputs.shelf}} holds {{steps.fetch.count}} items."
+      produces: { type: object, required: [summary], properties: { summary: { type: string } } }
+      gates:
+        - id: counted
+          schema: { properties: { summary: { pattern: "2" } } }
+inputs: { shelf: A }
+actions:
+  - submit: { summary: Shelf A holds 2 items. }
+expect:
+  replies:
+    - { state: running, step: report, contain: "Stepgate did these steps itself: fetch." }
+    - { state: finished, contain: '"shelf": "A"' }
+  ledger: [run_started, step_started, tool_call, computed, gate, step_passed, step_started, submit, gate, step_passed, run_finished]
+  requests:
+    - { method: GET, path: /items?shelf=A }

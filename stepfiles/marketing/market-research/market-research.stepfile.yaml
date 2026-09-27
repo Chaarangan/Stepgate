@@ -28,7 +28,7 @@ tools:
   tavily:
     mcp: { url: "https://mcp.tavily.com/mcp/" }
     credential: tavily
-    exposes: [tavily_search]
+    exposes: [{ name: tavily_search, effect: read }]
 
 steps:
   - id: search
@@ -48,6 +48,8 @@ steps:
       properties:
         sources: { $ref: "#/$defs/sources" }
         query_count: { type: integer }
+    derive:
+      query_count: { length: { unique: { map: [{ filter: [{ var: calls }, { and: [{ "==": [{ var: tool }, tavily_search] }, { "!": { var: is_error } }] }] }, { var: arguments.query }] } } }
     gates:
       - id: enough-coverage
         schema:
@@ -78,7 +80,7 @@ steps:
       For every source, decide whether it is relevant and state why in at least
       ten characters. Every source id must appear exactly once. Do not add ids
       that were not given. Do not drop an irrelevant source silently; submit it
-      with keep set to false and the reason.
+      with keep set to false and the reason. Keep at least five.
     produces:
       type: object
       required: [decisions, kept]
@@ -93,6 +95,8 @@ steps:
               keep: { type: boolean }
               reason: { type: string, minLength: 10 }
         kept: { type: integer }
+    derive:
+      kept: { length: { filter: [{ var: output.decisions }, { var: keep }] } }
     gates:
       - id: every-source-once
         message: Decide on every source id exactly once, and invent none.
@@ -107,12 +111,6 @@ steps:
             - "==":
                 - { length: { unique: { map: [{ var: output.decisions }, { var: id }] } } }
                 - { length: { var: output.decisions } }
-      - id: kept-count-matches
-        message: kept must equal the number of decisions with keep set to true.
-        predicate:
-          "==":
-            - { var: output.kept }
-            - { length: { filter: [{ var: output.decisions }, { var: keep }] } }
       - id: kept-at-least-five
         schema:
           properties:
@@ -149,13 +147,10 @@ steps:
       # Discarded and never-existed share one message: both mean the claim
       # rests on something the filter step rejected.
       - id: claims-cite-kept-sources
-        message: Every cited id must be a source the filter step kept.
+        message: "Every cited id must be a source the filter step kept; these are not:"
         predicate:
           subset:
-            - reduce:
-                - { map: [{ var: output.claims }, { var: source_ids }] }
-                - { merge: [{ var: accumulator }, { var: current }] }
-                - []
+            - flatten: { map: [{ var: output.claims }, { var: source_ids }] }
             - map:
                 - { filter: [{ var: steps.filter.decisions }, { var: keep }] }
                 - { var: id }
@@ -179,6 +174,8 @@ steps:
       required: [report]
       properties:
         report: { type: string }
+    let:
+      cited: { match_all: [{ var: output.report }, "\\[(S-\\d{2,})\\]"] }
     gates:
       - id: sections-in-order
         schema:
@@ -193,15 +190,8 @@ steps:
         message: The report must cite at least one source, and only sources an analysed claim uses.
         predicate:
           and:
-            - ">":
-                - { length: { match_all: [{ var: output.report }, "\\[(S-\\d{2,})\\]"] } }
-                - 0
-            - subset:
-                - { match_all: [{ var: output.report }, "\\[(S-\\d{2,})\\]"] }
-                - reduce:
-                    - { map: [{ var: steps.analyse.claims }, { var: source_ids }] }
-                    - { merge: [{ var: accumulator }, { var: current }] }
-                    - []
+            - ">": [{ length: { var: let.cited } }, 0]
+            - subset: [{ var: let.cited }, { flatten: { map: [{ var: steps.analyse.claims }, { var: source_ids }] } }]
     retries: 2
 
 $defs:

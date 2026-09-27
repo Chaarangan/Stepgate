@@ -1,0 +1,172 @@
+# A run of event-weather-contingency against the live APIs on 2026-09-27, recorded with --record-cases, for `stepgate --test event-weather-contingency`.
+# Each step's first attempt was a deliberately wrong submission; the gates it breaks are expected to fail.
+cases:
+  - name: a recorded run rejects each wrong submission and accepts the corrected one
+    inputs:
+      place: Edinburgh
+      country_code: GB
+      date: 2026-09-29
+    steps:
+      - step: locate
+        calls:
+          - tool: searchPlace
+            arguments:
+              name: Edinburgh
+              count: 5
+              language: en
+              countryCode: GB
+            result:
+              results:
+                - id: 2650225
+                  name: Edinburgh
+                  latitude: 55.95206
+                  longitude: -3.19648
+                  elevation: 66
+                  feature_code: PPLA
+                  country_code: GB
+                  admin1_id: 2638360
+                  admin2_id: 3333229
+                  timezone: Europe/London
+                  population: 514990
+                  country_id: 2635167
+                  country: United Kingdom
+                  admin1: Scotland
+                  admin2: Edinburgh
+                - id: 6296627
+                  name: Edinburgh Airport
+                  latitude: 55.95
+                  longitude: -3.3725
+                  elevation: 41
+                  feature_code: AIRP
+                  country_code: GB
+                  admin1_id: 2638360
+                  admin2_id: 3333229
+                  timezone: Europe/London
+                  country_id: 2635167
+                  country: United Kingdom
+                  admin1: Scotland
+                  admin2: Edinburgh
+              generationtime_ms: 0.22995472
+            is_error: false
+        output:
+          geocoding_id: 2650225
+          name: Edinburgh
+          latitude: 55.95206
+          longitude: -3.19648
+          country_code: GB
+          country: United Kingdom
+          admin1: Scotland
+        expect: pass
+      - step: forecast
+        calls:
+          - tool: getForecast
+            arguments:
+              latitude: 55.95206
+              longitude: -3.19648
+              start_date: 2026-09-29
+              end_date: 2026-09-29
+            result:
+              latitude: 55.959167
+              longitude: -3.2068481
+              generationtime_ms: 2.2732019424438477
+              utc_offset_seconds: 3600
+              timezone: Europe/London
+              timezone_abbreviation: GMT+1
+              elevation: 74
+              daily_units:
+                time: iso8601
+                weather_code: wmo code
+                temperature_2m_max: °C
+                temperature_2m_min: °C
+                precipitation_sum: mm
+                precipitation_probability_max: "%"
+                wind_speed_10m_max: km/h
+                wind_gusts_10m_max: km/h
+              daily:
+                time:
+                  - 2026-09-29
+                weather_code:
+                  - 3
+                temperature_2m_max:
+                  - 16.5
+                temperature_2m_min:
+                  - 8.5
+                precipitation_sum:
+                  - 0
+                precipitation_probability_max:
+                  - 29
+                wind_speed_10m_max:
+                  - 22.3
+                wind_gusts_10m_max:
+                  - 48.2
+            is_error: false
+        output:
+          forecast_date: 2026-09-29
+          weather_code: 3
+          temperature_max_c: 16.5
+          temperature_min_c: 8.5
+          precipitation_sum_mm: 0
+          precipitation_probability_max_pct: 29
+          wind_speed_max_kmh: 22.3
+          wind_gusts_max_kmh: 48.2
+        expect: pass
+      - step: decide
+        calls: []
+        output:
+          triggered:
+            - contingency-gusts
+          decision: contingency
+        expect: pass
+      - step: plan
+        calls: &a1 []
+        output:
+          markdown: >-
+            ## Decision
+
+            **postpone**
+
+
+            ## Forecast
+
+            WMO code 3, 16.5 °C max, 8.5 °C min, 0 mm, 29 %, wind 22.3 km/h,
+            gusts 48.2 km/h (Open-Meteo forecast).
+
+
+            ## Thresholds triggered
+
+            - `contingency-gusts`
+
+
+            ## Plan
+
+            Brief stewards and check the forecast again the evening before.
+
+            Also `postpone-gusts`.
+        expect:
+          fail:
+            - decision-bolded
+            - thresholds-cited
+      - step: plan
+        calls: *a1
+        output:
+          markdown: >-
+            ## Decision
+
+            **contingency**
+
+
+            ## Forecast
+
+            WMO code 3, 16.5 °C max, 8.5 °C min, 0 mm, 29 %, wind 22.3 km/h,
+            gusts 48.2 km/h (Open-Meteo forecast).
+
+
+            ## Thresholds triggered
+
+            - `contingency-gusts`
+
+
+            ## Plan
+
+            Brief stewards and check the forecast again the evening before.
+        expect: pass

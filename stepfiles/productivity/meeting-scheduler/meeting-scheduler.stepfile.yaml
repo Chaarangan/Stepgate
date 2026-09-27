@@ -94,7 +94,8 @@ tools:
                             additionalProperties: false
                             properties: { id: { type: string, minLength: 3 } }
     credential: google-calendar
-    exposes: [queryFreeBusy]
+    # Google documents freeBusy.query as returning free/busy information only; it changes no calendar.
+    exposes: [{ name: queryFreeBusy, effect: read }]
 
   gmail:
     openapi:
@@ -134,19 +135,18 @@ tools:
 
 steps:
   - id: availability
-    tools: [queryFreeBusy]
-    instructions: |
-      Fetch free/busy for every attendee with one queryFreeBusy call whose
-      body is exactly:
-        timeMin: {{inputs.start_date}}T00:00:00{{inputs.utc_offset}}
-        timeMax: {{inputs.end_date}}T23:59:59{{inputs.utc_offset}}
-        timeZone: UTC
-        items: one { "id": <email> } per attendee, in this order:
-      {{inputs.attendees}}
-
-      Submit calendars: the calendars object from the response, copied
-      exactly, with every key and every busy interval. Do not summarise,
-      reorder or convert it.
+    do:
+      calls:
+        - id: busy
+          operation: queryFreeBusy
+          arguments:
+            body:
+              timeMin: { cat: [{ var: inputs.start_date }, "T00:00:00", { var: inputs.utc_offset }] }
+              timeMax: { cat: [{ var: inputs.end_date }, "T23:59:59", { var: inputs.utc_offset }] }
+              timeZone: UTC
+              items: { map: [{ var: inputs.attendees }, { object: [[id, { var: "" }]] }] }
+      output:
+        calendars: { var: responses.busy.calendars }
     produces:
       type: object
       required: [calendars]
@@ -177,40 +177,10 @@ steps:
                     - { "+": [{ "*": [{ substr: [{ var: inputs.work_end }, 0, 2] }, 60] }, { substr: [{ var: inputs.work_end }, 3, 2] }] }
                     - { "+": [{ "*": [{ substr: [{ var: inputs.work_start }, 0, 2] }, 60] }, { substr: [{ var: inputs.work_start }, 3, 2] }] }
                 - { var: inputs.duration_minutes }
-      # One tuple ties the window, the attendee list and the copied calendars to the same call.
-      - id: calendars-from-full-query
-        message: >
-          Make a successful queryFreeBusy call with timeMin
-          <start_date>T00:00:00<utc_offset>, timeMax
-          <end_date>T23:59:59<utc_offset>, timeZone UTC and one item per
-          attendee in input order, and submit its calendars object exactly.
-        predicate:
-          subset:
-            - - - { cat: [{ var: inputs.start_date }, "T00:00:00", { var: inputs.utc_offset }] }
-                - { cat: [{ var: inputs.end_date }, "T23:59:59", { var: inputs.utc_offset }] }
-                - UTC
-                - { var: inputs.attendees }
-                - { var: output.calendars }
-            - map:
-                - filter: [{ var: calls }, { "!": { var: is_error } }]
-                - - { var: arguments.body.timeMin }
-                  - { var: arguments.body.timeMax }
-                  - { var: arguments.body.timeZone }
-                  - { map: [{ var: arguments.body.items }, { var: id }] }
-                  - { var: result.calendars }
-      # get reads keys containing dots; the reduce carries [ok, calendars] so each attendee sees the object.
       - id: every-attendee-answered
-        message: The calendars object must hold an entry for every attendee, keyed by their email address.
+        message: "Google must return a calendar for every attendee; these are missing:"
         predicate:
-          "==":
-            - get:
-                - reduce:
-                    - { var: inputs.attendees }
-                    - - and: [{ var: accumulator.0 }, { "!=": [{ get: [{ var: accumulator.1 }, { var: current }] }, null] }]
-                      - { var: accumulator.1 }
-                    - [true, { var: output.calendars }]
-                - 0
-            - true
+          subset: [{ var: inputs.attendees }, { keys: { var: output.calendars } }]
       - id: every-calendar-readable
         schema:
           properties:
@@ -218,7 +188,6 @@ steps:
               additionalProperties:
                 properties:
                   errors: { maxItems: 0 }
-    retries: 2
 
   - id: slots
     tools: [queryFreeBusy]
@@ -237,32 +206,52 @@ steps:
         does not overlap it).
       Prefer slots on different dates, starting on the hour or half hour.
 
-      Confirm every slot before submitting it: call queryFreeBusy with
-      timeMin the slot start, timeMax the slot end, timeZone UTC, and one
-      item per attendee in this order: {{inputs.attendees}}
+      Write each slot's start and end as local time with the offset,
+      YYYY-MM-DDTHH:MM:00{{inputs.utc_offset}} (for example
+      2026-10-06T10:00:00{{inputs.utc_offset}}). Confirm every slot before
+      submitting it: call queryFreeBusy with timeMin the slot start, timeMax
+      the slot end, both written exactly that way, timeZone UTC, and one item
+      per attendee in this order: {{inputs.attendees}}
       A slot is free only if every calendar in that response has an empty
       busy list and no errors. Drop any slot that is not, and try another.
 
-      Submit slots, each with start and end written as local time with the
-      offset, YYYY-MM-DDTHH:MM:00{{inputs.utc_offset}} (for example
-      2026-10-06T10:00:00{{inputs.utc_offset}}), and check: the calendars
-      object from that slot's confirming response, copied exactly.
+      Submit proposed: the confirmed slots, each with start and end.
     produces:
       type: object
-      required: [slots]
+      required: [proposed, slots]
       properties:
-        slots:
+        proposed:
           type: array
           minItems: 1
           maxItems: 3
           items:
             type: object
-            required: [start, end, check]
+            required: [start, end]
             additionalProperties: false
             properties:
               start: { type: string, pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:00[+-][0-9]{2}:[0-9]{2}$" }
               end: { type: string, pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:00[+-][0-9]{2}:[0-9]{2}$" }
-              check: { type: object, minProperties: 1 }
+        slots:
+          type: array
+          items:
+            type: object
+            required: [start, end, check]
+            properties:
+              start: { type: string }
+              end: { type: string }
+              check: { type: [object, "null"] }
+    # Each proposed slot is paired with the successful query for exactly its window.
+    let:
+      windows: { map: [{ var: output.proposed }, { object: [[start, { var: start }], [end, { var: end }], [window, { cat: [{ var: start }, "|", { var: end }] }]] }] }
+      queried:
+        map:
+          - filter: [{ var: calls }, { "!": { var: is_error } }]
+          - object: [[window, { cat: [{ var: arguments.body.timeMin }, "|", { var: arguments.body.timeMax }] }], [calendars, { var: result.calendars }]]
+    derive:
+      slots:
+        map:
+          - join: [{ var: let.windows }, { var: let.queried }, window, window]
+          - object: [[start, { var: left.start }], [end, { var: left.end }], [check, { var: right.calendars }]]
     gates:
       - id: every-query-covers-all-attendees
         message: Every queryFreeBusy call must use timeZone UTC and exactly the attendee list, in input order.
@@ -271,16 +260,11 @@ steps:
             - map: [{ var: calls }, [{ var: arguments.body.timeZone }, { map: [{ var: arguments.body.items }, { var: id }] }]]
             - [[UTC, { var: inputs.attendees }]]
       - id: slot-confirmed-by-google
-        message: >
-          Each slot's check must be the calendars object of a successful
-          queryFreeBusy call whose timeMin and timeMax are exactly that slot's
-          start and end.
+        message: "Each slot needs a successful queryFreeBusy call whose timeMin and timeMax are exactly its start and end; these have none:"
         predicate:
-          subset:
-            - map: [{ var: output.slots }, [{ var: start }, { var: end }, { var: check }]]
-            - map:
-                - filter: [{ var: calls }, { "!": { var: is_error } }]
-                - [{ var: arguments.body.timeMin }, { var: arguments.body.timeMax }, { var: result.calendars }]
+          none:
+            - join: [{ var: let.windows }, { var: let.queried }, window, window]
+            - "!": { var: right }
       - id: slot-free-for-everyone
         schema:
           properties:
@@ -292,32 +276,18 @@ steps:
                       properties:
                         busy: { maxItems: 0 }
                         errors: { maxItems: 0 }
-      # Outer reduce carries [ok, attendees]; the inner one checks every attendee's key in the slot's check.
+      # Keys are unique, so each check holding as many keys as there are attendees, all attendees, holds every attendee.
       - id: slot-answered-for-every-attendee
-        message: Each slot's check must hold an entry for every attendee, keyed by their email address.
+        message: Google's answer for each slot must hold an entry for every attendee, keyed by their email address.
         predicate:
-          "==":
-            - get:
-                - reduce:
-                    - { var: output.slots }
-                    - - and:
-                          - { var: accumulator.0 }
-                          - get:
-                              - reduce:
-                                  - { var: accumulator.1 }
-                                  - - and: [{ var: accumulator.0 }, { "!=": [{ get: [{ var: accumulator.1 }, { var: current }] }, null] }]
-                                    - { var: accumulator.1 }
-                                  - [true, { var: current.check }]
-                              - 0
-                      - { var: accumulator.1 }
-                    - [true, { var: inputs.attendees }]
-                - 0
-            - true
+          and:
+            - subset: [{ flatten: { map: [{ var: output.slots }, { keys: { var: check } }] } }, { var: inputs.attendees }]
+            - subset: [{ map: [{ var: output.slots }, { length: { keys: { var: check } } }] }, [{ length: { var: inputs.attendees } }]]
       - id: slots-use-input-offset
         message: Every slot start and end must carry the input utc_offset.
         predicate:
           subset:
-            - map: [{ var: output.slots }, [{ substr: [{ var: start }, 19] }, { substr: [{ var: end }, 19] }]]
+            - map: [{ var: output.proposed }, [{ substr: [{ var: start }, 19] }, { substr: [{ var: end }, 19] }]]
             - [[{ var: inputs.utc_offset }, { var: inputs.utc_offset }]]
       # The reduce carries [ok, start_date, end_date, work_start, work_end, duration] so each slot sees the inputs.
       - id: slots-inside-range-and-hours
@@ -330,7 +300,7 @@ steps:
             in:
               - false
               - reduce:
-                  - { var: output.slots }
+                  - { var: output.proposed }
                   - - and:
                         - { var: accumulator.0 }
                         - and:
@@ -353,18 +323,17 @@ steps:
       - id: slots-distinct
         message: No two slots may start at the same time.
         predicate:
-          "==": [{ length: { unique: { map: [{ var: output.slots }, { var: start }] } } }, { length: { var: output.slots } }]
+          "==": [{ length: { unique: { map: [{ var: output.proposed }, { var: start }] } } }, { length: { var: output.proposed } }]
     retries: 2
 
   - id: invite
     instructions: |
-      Write the invite email for "{{inputs.title}}". Do not send it anywhere;
-      submit it.
+      Write the invite email for "{{inputs.title}}" to {{inputs.attendees}}.
+      It will be saved as a Gmail draft; nothing is sent.
 
       Confirmed slots: {{steps.slots.slots}}
 
-      - to: the attendees, in this order: {{inputs.attendees}}
-      - subject: include "{{inputs.title}}".
+      - subject: one line that includes "{{inputs.title}}".
       - body: plain text. A short greeting, the purpose, then the line
         "Proposed times ({{inputs.duration_minutes}} minutes, local time
         UTC{{inputs.utc_offset}}):" and one line per slot, in the order above,
@@ -375,131 +344,65 @@ steps:
         or time in that format.
     produces:
       type: object
-      required: [to, subject, body]
+      required: [to, subject, body, raw]
       properties:
         to: { type: array, minItems: 1, items: { type: string } }
-        subject: { type: string, minLength: 3, maxLength: 200 }
+        subject: { type: string, minLength: 3, maxLength: 200, pattern: "^[^\\r\\n]+$" }
         body: { type: string, minLength: 20, maxLength: 5000 }
+        raw: { type: string }
+    derive:
+      to: { var: inputs.attendees }
+      # Five fixed headers, an empty line, then every body line ending in CRLF.
+      raw:
+        reduce:
+          - match_all: [{ var: output.body }, "([^\\r\\n]*)\\r?\\n|[^\\r\\n]+$"]
+          - cat: [{ var: accumulator }, { var: current }, "\r\n"]
+          - cat:
+              - "To: "
+              - reduce:
+                  - { var: inputs.attendees }
+                  - if: [{ "==": [{ var: accumulator }, ""] }, { var: current }, { cat: [{ var: accumulator }, ", ", { var: current }] }]
+                  - ""
+              - "\r\nSubject: "
+              - { var: output.subject }
+              - "\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8\r\nContent-Transfer-Encoding: 8bit\r\n\r\n"
+    let:
+      quoted: { match_all: [{ var: output.body }, "(\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2} to \\d{2}:\\d{2} \\(UTC[+-]\\d{2}:\\d{2}\\))"] }
+      expected:
+        map:
+          - { var: steps.slots.slots }
+          - cat: [{ substr: [{ var: start }, 0, 10] }, " ", { substr: [{ var: start }, 11, 5] }, " to ", { substr: [{ var: end }, 11, 5] }, " (UTC", { substr: [{ var: start }, 19] }, ")"]
     gates:
-      - id: recipients-are-attendees
-        message: to must list exactly the input attendees, each once.
-        predicate:
-          and:
-            - "==": [{ length: { var: output.to } }, { length: { var: inputs.attendees } }]
-            - subset: [{ map: [{ var: output.to }, { lower: { var: "" } }] }, { var: inputs.attendees }]
-            - subset: [{ var: inputs.attendees }, { map: [{ var: output.to }, { lower: { var: "" } }] }]
       - id: subject-names-meeting
         message: The subject must contain the meeting title.
         predicate:
           in: [{ var: inputs.title }, { var: output.subject }]
+      - id: duration-stated
+        message: The body must state the duration as "<duration_minutes> minutes".
+        predicate:
+          in: [{ cat: [{ var: inputs.duration_minutes }, " minutes"] }, { var: output.body }]
       - id: slots-quoted-exactly
         message: >
           The body must list every confirmed slot as
-          "YYYY-MM-DD HH:MM to HH:MM (UTC±hh:mm)" and no other time in that
-          form, and state the duration as "<duration_minutes> minutes".
+          "YYYY-MM-DD HH:MM to HH:MM (UTC±hh:mm)" and no other time in that form.
         predicate:
           and:
-            - in: [{ cat: [{ var: inputs.duration_minutes }, " minutes"] }, { var: output.body }]
-            - subset:
-                - &quoted { match_all: [{ var: output.body }, "(\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2} to \\d{2}:\\d{2} \\(UTC[+-]\\d{2}:\\d{2}\\))"] }
-                - &expected
-                  map:
-                    - { var: steps.slots.slots }
-                    - cat: [{ substr: [{ var: start }, 0, 10] }, " ", { substr: [{ var: start }, 11, 5] }, " to ", { substr: [{ var: end }, 11, 5] }, " (UTC", { substr: [{ var: start }, 19] }, ")"]
-            - subset: [*expected, *quoted]
-    retries: 2
-
-  - id: plan
-    instructions: |
-      Write the raw RFC 2822 message for a Gmail draft of this invite.
-      Nothing is sent.
-
-      To: {{steps.invite.to}}
-      Subject: {{steps.invite.subject}}
-      Body:
-      {{steps.invite.body}}
-
-      Submit raw: these header lines, in this order, then an empty line, then
-      every line of the body unchanged, in order:
-        To: <the addresses above, in that order, separated by ", ">
-        Subject: {{steps.invite.subject}}
-        MIME-Version: 1.0
-        Content-Type: text/plain; charset=UTF-8
-        Content-Transfer-Encoding: 8bit
-      End every line with CRLF (\r\n in JSON), including the header lines,
-      the empty line and the last body line. Add no other header, no Cc and
-      no Bcc.
-    produces:
-      type: object
-      required: [raw]
-      additionalProperties: false
-      properties:
-        raw: { type: string, minLength: 1, maxLength: 12000 }
-    gates:
-      # The body is split into lines (LF or CRLF) and each is re-joined with CRLF after the fixed headers.
-      - id: raw-built-from-invite
-        message: >
-          raw must be exactly the five headers as instructed, an empty line,
-          and the invite body, every line ending in CRLF.
-        predicate:
-          "==":
-            - var: output.raw
-            - reduce:
-                - match_all: [{ var: steps.invite.body }, "([^\\r\\n]*)\\r?\\n|[^\\r\\n]+$"]
-                - cat: [{ var: accumulator }, { var: current }, "\r\n"]
-                - cat:
-                    - "To: "
-                    - &to-header
-                      reduce:
-                        - { var: steps.invite.to }
-                        - if: [{ "==": [{ var: accumulator }, ""] }, { var: current }, { cat: [{ var: accumulator }, ", ", { var: current }] }]
-                        - ""
-                    - "\r\nSubject: "
-                    - { var: steps.invite.subject }
-                    - "\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8\r\nContent-Transfer-Encoding: 8bit\r\n\r\n"
-      - id: headers-only-expected
-        message: >
-          The header block must be exactly five lines, To, Subject,
-          MIME-Version, Content-Type and Content-Transfer-Encoding, with no Cc
-          or Bcc, followed by an empty line.
-        predicate:
-          and:
-            - "==":
-                - reduce:
-                    - match_all:
-                        - &header-block
-                          cat: ["\r\n", { get: [{ match_all: [{ var: output.raw }, "^([\\s\\S]*?)\\r\\n\\r\\n"] }, 0] }]
-                        - "\\r\\n([^:\\r\\n]*):"
-                    - cat: [{ var: accumulator }, "|", { lower: { var: current } }]
-                    - ""
-                - "|to|subject|mime-version|content-type|content-transfer-encoding"
-            - "==": [{ length: { match_all: [*header-block, "\\r\\n"] } }, 5]
-      - id: to-and-subject-gated
-        message: >
-          The To header must list the invite's gated recipients in order and
-          the Subject header must be its gated subject, each on one line.
-        predicate:
-          and:
-            - "==": [{ length: { match_all: [{ cat: [*to-header, { var: steps.invite.subject }] }, "[\\r\\n]"] } }, 0]
-            - "==":
-                - get: [{ match_all: [{ var: output.raw }, "^To: ([^\\r\\n]*)\\r\\n"] }, 0]
-                - *to-header
-            - "==":
-                - get: [{ match_all: [{ get: [{ match_all: [{ var: output.raw }, "^([\\s\\S]*?)\\r\\n\\r\\n"] }, 0] }, "\\r\\nSubject: ([^\\r\\n]*)"] }, 0]
-                - var: steps.invite.subject
-    retries: 2
+            - subset: [{ var: let.quoted }, { var: let.expected }]
+            - subset: [{ var: let.expected }, { var: let.quoted }]
+      - id: approved
+        approve:
+          message: >
+            Create this Gmail draft of the invite in your mailbox? raw is the
+            exact message, addressed to the attendees in to. Nothing is sent
+            and no calendar event is created.
 
   - id: draft
-    tools: [createDraft]
-    instructions: |
-      Create the Gmail draft. Call createDraft exactly once with body set to
-      this raw message, character for character, keeping every CRLF (\r\n)
-      line ending. It creates a draft and sends nothing.
-
-      {{steps.plan.raw}}
-
-      Submit draft_id, the id of the Draft the call returned, and message_id,
-      its message.id, copied exactly.
+    do:
+      calls:
+        - { id: draft, operation: createDraft, arguments: { body: { var: steps.invite.raw } } }
+      output:
+        draft_id: { var: responses.draft.id }
+        message_id: { var: responses.draft.message.id }
     produces:
       type: object
       required: [draft_id, message_id]
@@ -507,53 +410,3 @@ steps:
       properties:
         draft_id: { type: string, minLength: 1 }
         message_id: { type: string, minLength: 1 }
-    gates:
-      - id: exactly-the-planned-draft
-        message: >
-          Make exactly one createDraft call, whose body is the planned raw
-          message byte for byte, and it must succeed.
-        predicate:
-          and:
-            - "==": [{ length: { filter: [{ var: calls }, { "==": [{ var: tool }, createDraft] }] } }, 1]
-            - subset:
-                - map:
-                    - filter: [{ var: calls }, { and: [{ "==": [{ var: tool }, createDraft] }, { "!": { var: is_error } }] }]
-                    - var: arguments.body
-                - [{ var: steps.plan.raw }]
-            - "==": [{ length: { filter: [{ var: calls }, { and: [{ "==": [{ var: tool }, createDraft] }, { "!": { var: is_error } }] }] } }, 1]
-      - id: ids-from-gmail
-        message: draft_id and message_id must be the id and message.id of the Draft that createDraft returned.
-        predicate:
-          in:
-            - cat: [{ var: output.draft_id }, "|", { var: output.message_id }]
-            - map:
-                - filter: [{ var: calls }, { and: [{ "==": [{ var: tool }, createDraft] }, { "!": { var: is_error } }] }]
-                - cat: [{ var: result.id }, "|", { var: result.message.id }]
-    retries: 2
-
-  - id: report
-    instructions: |
-      Report the Gmail draft just created for "{{inputs.title}}": draft id
-      {{steps.draft.draft_id}}, subject "{{steps.invite.subject}}". It has not
-      been sent.
-
-      Submit draft_id and message_id ({{steps.draft.message_id}}) as given,
-      and summary: one or two sentences that cite the draft id and say it is a
-      draft to review and send.
-    produces:
-      type: object
-      required: [draft_id, message_id, summary]
-      additionalProperties: false
-      properties:
-        draft_id: { type: string }
-        message_id: { type: string }
-        summary: { type: string, minLength: 1, maxLength: 600 }
-    gates:
-      - id: cites-the-draft
-        message: draft_id and message_id must be the created draft's, and summary must cite the draft id.
-        predicate:
-          and:
-            - "==": [{ var: output.draft_id }, { var: steps.draft.draft_id }]
-            - "==": [{ var: output.message_id }, { var: steps.draft.message_id }]
-            - in: [{ var: steps.draft.draft_id }, { var: output.summary }]
-    retries: 2

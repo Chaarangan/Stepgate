@@ -1,0 +1,440 @@
+# A run of disaster-declaration-brief against the live APIs on 2026-09-27, recorded with --record-cases, for `stepgate --test disaster-declaration-brief`.
+# Each step's first attempt was a deliberately wrong submission; the gates it breaks are expected to fail.
+cases:
+  - name: a recorded run rejects each wrong submission and accepts the corrected one
+    inputs:
+      state: TX
+      start_date: 2024-01-01
+      end_date: 2025-12-31
+    steps:
+      - step: declarations
+        calls:
+          - tool: listDeclarations
+            arguments:
+              state: TX
+              start_date: 2024-01-01
+              end_date: 2025-12-31
+            result:
+              metadata:
+                skip: 0
+                select: disasterNumber, declarationDate, disasterName, declarationType,
+                  incidentType, ihProgramDeclared, iaProgramDeclared,
+                  paProgramDeclared, hmProgramDeclared
+                rundate: 2026-09-27T23:29:31.883Z
+                top: 1000
+                filter: stateCode eq 'TX' and declarationDate ge '2024-01-01' and
+                  declarationDate le '2025-12-31T23%3A59%3A59.999Z'
+                format: json
+                metadata: true
+                orderby: declarationDate ASC, disasterNumber ASC
+                entityname: FemaWebDisasterDeclarations
+                version: v1
+                url: /api/open/v1/FemaWebDisasterDeclarations?$filter=stateCode%20eq%20%27TX%27%20and%20declarationDate%20ge%20%272024-01-01%27%20and%20declarationDate%20le%20%272025-12-31T23:59:59.999Z%27&$select=disasterNumber,declarationDate,disasterName,declarationType,incidentType,ihProgramDeclared,iaProgramDeclared,paProgramDeclared,hmProgramDeclared&$orderby=declarationDate,disasterNumber&$top=1000&$skip=0&$inlinecount=allpages
+                count: 12
+              FemaWebDisasterDeclarations:
+                - disasterNumber: 5487
+                  declarationDate: 2024-02-27T00:00:00.000Z
+                  disasterName: WINDY DEUCE FIRE
+                  declarationType: Fire Management
+                  incidentType: Fire
+                  ihProgramDeclared: false
+                  iaProgramDeclared: false
+                  paProgramDeclared: true
+                  hmProgramDeclared: true
+                - disasterNumber: 5488
+                  declarationDate: 2024-02-27T00:00:00.000Z
+                  disasterName: SMOKEHOUSE CREEK FIRE
+                  declarationType: Fire Management
+                  incidentType: Fire
+                  ihProgramDeclared: false
+                  iaProgramDeclared: false
+                  paProgramDeclared: true
+                  hmProgramDeclared: true
+                - disasterNumber: 4781
+                  declarationDate: 2024-05-17T00:00:00.000Z
+                  disasterName: SEVERE STORMS, STRAIGHT-LINE WINDS, TORNADOES, AND FLOODING
+                  declarationType: Major Disaster
+                  incidentType: Flood
+                  ihProgramDeclared: true
+                  iaProgramDeclared: false
+                  paProgramDeclared: true
+                  hmProgramDeclared: true
+                - disasterNumber: 4798
+                  declarationDate: 2024-07-09T00:00:00.000Z
+                  disasterName: HURRICANE BERYL
+                  declarationType: Major Disaster
+                  incidentType: Hurricane
+                  ihProgramDeclared: true
+                  iaProgramDeclared: false
+                  paProgramDeclared: true
+                  hmProgramDeclared: true
+                - disasterNumber: 5552
+                  declarationDate: 2025-03-04T00:00:00.000Z
+                  disasterName: WELDER FIRE
+                  declarationType: Fire Management
+                  incidentType: Fire
+                  ihProgramDeclared: false
+                  iaProgramDeclared: false
+                  paProgramDeclared: true
+                  hmProgramDeclared: true
+                - disasterNumber: 5553
+                  declarationDate: 2025-03-05T00:00:00.000Z
+                  disasterName: DUKE FIRE
+                  declarationType: Fire Management
+                  incidentType: Fire
+                  ihProgramDeclared: false
+                  iaProgramDeclared: false
+                  paProgramDeclared: true
+                  hmProgramDeclared: true
+                - disasterNumber: 5555
+                  declarationDate: 2025-03-14T00:00:00.000Z
+                  disasterName: REST AREA FIRE
+                  declarationType: Fire Management
+                  incidentType: Fire
+                  ihProgramDeclared: false
+                  iaProgramDeclared: false
+                  paProgramDeclared: true
+                  hmProgramDeclared: true
+                - disasterNumber: 5570
+                  declarationDate: 2025-03-15T00:00:00.000Z
+                  disasterName: CRABAPPLE FIRE
+                  declarationType: Fire Management
+                  incidentType: Fire
+                  ihProgramDeclared: false
+                  iaProgramDeclared: false
+                  paProgramDeclared: true
+                  hmProgramDeclared: true
+                - disasterNumber: 5571
+                  declarationDate: 2025-03-18T00:00:00.000Z
+                  disasterName: DOUBLE S FIRE
+                  declarationType: Fire Management
+                  incidentType: Fire
+                  ihProgramDeclared: false
+                  iaProgramDeclared: false
+                  paProgramDeclared: true
+                  hmProgramDeclared: true
+                - disasterNumber: 5573
+                  declarationDate: 2025-03-20T00:00:00.000Z
+                  disasterName: PAULINE ROAD FIRE
+                  declarationType: Fire Management
+                  incidentType: Fire
+                  ihProgramDeclared: false
+                  iaProgramDeclared: false
+                  paProgramDeclared: true
+                  hmProgramDeclared: true
+                - disasterNumber: 4871
+                  declarationDate: 2025-05-21T00:00:00.000Z
+                  disasterName: SEVERE STORMS AND FLOODING
+                  declarationType: Major Disaster
+                  incidentType: Flood
+                  ihProgramDeclared: true
+                  iaProgramDeclared: false
+                  paProgramDeclared: false
+                  hmProgramDeclared: false
+                - disasterNumber: 4879
+                  declarationDate: 2025-07-06T00:00:00.000Z
+                  disasterName: SEVERE STORMS, STRAIGHT-LINE WINDS, AND FLOODING
+                  declarationType: Major Disaster
+                  incidentType: Flood
+                  ihProgramDeclared: true
+                  iaProgramDeclared: false
+                  paProgramDeclared: true
+                  hmProgramDeclared: false
+            is_error: false
+        output:
+          total_count: 12
+          declarations:
+            - disaster_number: 5487
+              declaration_date: 2024-02-27
+              title: WINDY DEUCE FIRE
+              declaration_type: Fire Management
+              incident_type: Fire
+              ih_program: false
+              ia_program: false
+              pa_program: true
+              hm_program: true
+            - disaster_number: 5488
+              declaration_date: 2024-02-27
+              title: SMOKEHOUSE CREEK FIRE
+              declaration_type: Fire Management
+              incident_type: Fire
+              ih_program: false
+              ia_program: false
+              pa_program: true
+              hm_program: true
+            - disaster_number: 4781
+              declaration_date: 2024-05-17
+              title: SEVERE STORMS, STRAIGHT-LINE WINDS, TORNADOES, AND FLOODING
+              declaration_type: Major Disaster
+              incident_type: Flood
+              ih_program: true
+              ia_program: false
+              pa_program: true
+              hm_program: true
+            - disaster_number: 4798
+              declaration_date: 2024-07-09
+              title: HURRICANE BERYL
+              declaration_type: Major Disaster
+              incident_type: Hurricane
+              ih_program: true
+              ia_program: false
+              pa_program: true
+              hm_program: true
+            - disaster_number: 5552
+              declaration_date: 2025-03-04
+              title: WELDER FIRE
+              declaration_type: Fire Management
+              incident_type: Fire
+              ih_program: false
+              ia_program: false
+              pa_program: true
+              hm_program: true
+            - disaster_number: 5553
+              declaration_date: 2025-03-05
+              title: DUKE FIRE
+              declaration_type: Fire Management
+              incident_type: Fire
+              ih_program: false
+              ia_program: false
+              pa_program: true
+              hm_program: true
+            - disaster_number: 5555
+              declaration_date: 2025-03-14
+              title: REST AREA FIRE
+              declaration_type: Fire Management
+              incident_type: Fire
+              ih_program: false
+              ia_program: false
+              pa_program: true
+              hm_program: true
+            - disaster_number: 5570
+              declaration_date: 2025-03-15
+              title: CRABAPPLE FIRE
+              declaration_type: Fire Management
+              incident_type: Fire
+              ih_program: false
+              ia_program: false
+              pa_program: true
+              hm_program: true
+            - disaster_number: 5571
+              declaration_date: 2025-03-18
+              title: DOUBLE S FIRE
+              declaration_type: Fire Management
+              incident_type: Fire
+              ih_program: false
+              ia_program: false
+              pa_program: true
+              hm_program: true
+            - disaster_number: 5573
+              declaration_date: 2025-03-20
+              title: PAULINE ROAD FIRE
+              declaration_type: Fire Management
+              incident_type: Fire
+              ih_program: false
+              ia_program: false
+              pa_program: true
+              hm_program: true
+            - disaster_number: 4871
+              declaration_date: 2025-05-21
+              title: SEVERE STORMS AND FLOODING
+              declaration_type: Major Disaster
+              incident_type: Flood
+              ih_program: true
+              ia_program: false
+              pa_program: false
+              hm_program: false
+            - disaster_number: 4879
+              declaration_date: 2025-07-06
+              title: SEVERE STORMS, STRAIGHT-LINE WINDS, AND FLOODING
+              declaration_type: Major Disaster
+              incident_type: Flood
+              ih_program: true
+              ia_program: false
+              pa_program: true
+              hm_program: false
+        expect: pass
+      - step: summary
+        calls: []
+        output:
+          by_incident_type:
+            - incident_type: Fire
+              count: 8
+              disaster_numbers:
+                - 5487
+                - 5488
+                - 5552
+                - 5553
+                - 5555
+                - 5570
+                - 5571
+                - 5573
+            - incident_type: Flood
+              count: 3
+              disaster_numbers:
+                - 4781
+                - 4871
+                - 4879
+            - incident_type: Hurricane
+              count: 1
+              disaster_numbers:
+                - 4798
+          programs:
+            individual_and_households:
+              count: 4
+              disaster_numbers:
+                - 4781
+                - 4798
+                - 4871
+                - 4879
+            individual_assistance:
+              count: 0
+              disaster_numbers: []
+            public_assistance:
+              count: 11
+              disaster_numbers:
+                - 5487
+                - 5488
+                - 4781
+                - 4798
+                - 5552
+                - 5553
+                - 5555
+                - 5570
+                - 5571
+                - 5573
+                - 4879
+            hazard_mitigation:
+              count: 10
+              disaster_numbers:
+                - 5487
+                - 5488
+                - 4781
+                - 4798
+                - 5552
+                - 5553
+                - 5555
+                - 5570
+                - 5571
+                - 5573
+        expect: pass
+      - step: brief
+        calls: &a1 []
+        output:
+          markdown: >-
+            ## Overview
+
+            TX, 12 declarations.
+
+
+            ## By incident type
+
+            - **Fire**: 8 [FEMA-5487] [FEMA-5488] [FEMA-5552] [FEMA-5553]
+            [FEMA-5555] [FEMA-5570] [FEMA-5571] [FEMA-5573]
+
+            - **Flood**: 3 [FEMA-4781] [FEMA-4871] [FEMA-4879]
+
+            - **Hurricane**: 1 [FEMA-4798]
+
+
+            ## By program
+
+            - **Individuals and Households**: 4
+
+            - **Individual Assistance**: 0
+
+            - **Public Assistance**: 99
+
+            - **Hazard Mitigation**: 10
+
+
+            ## Declarations
+
+            - 2024-02-27 WINDY DEUCE FIRE (Fire Management) [FEMA-5487]
+
+            - 2024-02-27 SMOKEHOUSE CREEK FIRE (Fire Management) [FEMA-5488]
+
+            - 2024-05-17 SEVERE STORMS, STRAIGHT-LINE WINDS, TORNADOES, AND
+            FLOODING (Major Disaster) [FEMA-4781]
+
+            - 2024-07-09 HURRICANE BERYL (Major Disaster) [FEMA-4798]
+
+            - 2025-03-04 WELDER FIRE (Fire Management) [FEMA-5552]
+
+            - 2025-03-05 DUKE FIRE (Fire Management) [FEMA-5553]
+
+            - 2025-03-14 REST AREA FIRE (Fire Management) [FEMA-5555]
+
+            - 2025-03-15 CRABAPPLE FIRE (Fire Management) [FEMA-5570]
+
+            - 2025-03-18 DOUBLE S FIRE (Fire Management) [FEMA-5571]
+
+            - 2025-03-20 PAULINE ROAD FIRE (Fire Management) [FEMA-5573]
+
+            - 2025-05-21 SEVERE STORMS AND FLOODING (Major Disaster) [FEMA-4871]
+
+            - 2025-07-06 SEVERE STORMS, STRAIGHT-LINE WINDS, AND FLOODING (Major
+            Disaster) [FEMA-4879]
+
+            Also [FEMA-1].
+        expect:
+          fail:
+            - citations-real-and-complete
+            - counts-match-summary
+      - step: brief
+        calls: *a1
+        output:
+          markdown: >-
+            ## Overview
+
+            TX, 12 declarations.
+
+
+            ## By incident type
+
+            - **Fire**: 8 [FEMA-5487] [FEMA-5488] [FEMA-5552] [FEMA-5553]
+            [FEMA-5555] [FEMA-5570] [FEMA-5571] [FEMA-5573]
+
+            - **Flood**: 3 [FEMA-4781] [FEMA-4871] [FEMA-4879]
+
+            - **Hurricane**: 1 [FEMA-4798]
+
+
+            ## By program
+
+            - **Individuals and Households**: 4
+
+            - **Individual Assistance**: 0
+
+            - **Public Assistance**: 11
+
+            - **Hazard Mitigation**: 10
+
+
+            ## Declarations
+
+            - 2024-02-27 WINDY DEUCE FIRE (Fire Management) [FEMA-5487]
+
+            - 2024-02-27 SMOKEHOUSE CREEK FIRE (Fire Management) [FEMA-5488]
+
+            - 2024-05-17 SEVERE STORMS, STRAIGHT-LINE WINDS, TORNADOES, AND
+            FLOODING (Major Disaster) [FEMA-4781]
+
+            - 2024-07-09 HURRICANE BERYL (Major Disaster) [FEMA-4798]
+
+            - 2025-03-04 WELDER FIRE (Fire Management) [FEMA-5552]
+
+            - 2025-03-05 DUKE FIRE (Fire Management) [FEMA-5553]
+
+            - 2025-03-14 REST AREA FIRE (Fire Management) [FEMA-5555]
+
+            - 2025-03-15 CRABAPPLE FIRE (Fire Management) [FEMA-5570]
+
+            - 2025-03-18 DOUBLE S FIRE (Fire Management) [FEMA-5571]
+
+            - 2025-03-20 PAULINE ROAD FIRE (Fire Management) [FEMA-5573]
+
+            - 2025-05-21 SEVERE STORMS AND FLOODING (Major Disaster) [FEMA-4871]
+
+            - 2025-07-06 SEVERE STORMS, STRAIGHT-LINE WINDS, AND FLOODING (Major
+            Disaster) [FEMA-4879]
+        expect: pass

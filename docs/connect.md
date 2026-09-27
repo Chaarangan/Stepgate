@@ -31,7 +31,7 @@ npx -y stepgate /Users/me/flows/invoice-check.stepfile.yaml market-research
 - **Use an absolute path.** A relative path is resolved from the folder the client starts the server in. Claude Code starts it in the project folder; other clients do not say.
 - **Each file becomes one tool named after its `id`,** so every file you serve needs its own `id`.
 - **Mistakes show when the server starts.** Every file is validated at startup, and a broken one stops the server with the reason, such as `StepfileInvalid: stepfile invalid: /stepgate must be equal to constant`. The client shows this as a server that failed to start; Claude Code's `/mcp` and Claude Desktop's logs carry the message.
-- **Restart after editing.** Files are read once, at startup. In Claude Code, reconnect the server from `/mcp`.
+- **Restart after editing, or pass `--watch`.** Without it, files are read once, at startup, and in Claude Code you reconnect the server from `/mcp`. With `--watch`, Stepgate reloads a file when it changes and tells the client its tools changed. A file that no longer loads, has been removed, or takes an id another served file has stays listed under its old name, and calling it reports why, rather than running the old version. A run in progress finishes on the version it started with.
 - **Credentials and settings work as for catalog entries:** credential `my-api` is read from `MY_API_API_KEY` and setting `erp-host` from `ERP_HOST`. An `oauth2` credential with a `token_url` can take `MY_API_REFRESH_TOKEN` and `MY_API_CLIENT_ID` instead, and Stepgate refreshes the access token itself ([stepfile.md](stepfile.md#credentials)).
 - **Your own files may call `http://localhost`,** which helps while testing against a local API. Catalog entries must use public `https` URLs.
 
@@ -40,6 +40,16 @@ To have your editor check the file as you type, start it with this line; editors
 ```yaml
 # yaml-language-server: $schema=https://raw.githubusercontent.com/Chaarangan/stepgate/main/server/schema/stepfile.schema.json
 ```
+
+## MCP servers that use MCP authorization
+
+Some remote MCP servers, such as Linear's and Notion's, issue tokens through their own OAuth authorization server rather than taking an API key. A stepfile declares such a credential as `oauth2` with the advertised `token_url`, and you authorize it once:
+
+```sh
+npx -y stepgate --auth <stepfile.yaml | catalog name> <credential>
+```
+
+Stepgate finds the server's authorization server, registers itself as a client, and prints a URL to open. After you approve access in the browser, it prints the variables to set in the server's configuration: `<NAME>_REFRESH_TOKEN`, `<NAME>_CLIENT_ID` and `<NAME>_RESOURCE`, or `<NAME>_API_KEY` when the server issues no refresh token. It writes nothing to disk. Where the authorization server offers no client registration, pass `--client-id` with a client you registered for `http://127.0.0.1` redirects.
 
 ## Writing stepfiles with an agent
 
@@ -52,8 +62,13 @@ Every Stepgate server also offers tools for writing new stepfiles, so you can as
 | `stepgate_guide` | The authoring workflow, the full format reference and the JSON Schema |
 | `stepgate_examples` | The catalog as a list, or one entry's stepfile and README to copy a pattern from |
 | `stepgate_inspect_api` | For an OpenAPI document: its sha256 to pin, servers, security schemes, operationIds, and each operation's arguments and success response. Operations without an operationId are listed with their definitions to copy inline. For an MCP server: its tools and their `schema_sha256` |
-| `stepgate_validate` | Every issue in a draft with its path, or the draft's identity and whether it can be tried |
+| `stepgate_outline` | A skeleton stepfile from a SKILL.md or markdown SOP: one step per top-level numbered item where there are two or more, otherwise per second-level heading, ignoring code fences, each rule it states (MUST, SHALL, never) as a gate to write, and `TODO(...)` markers for the rest |
+| `stepgate_validate` | Every `TODO(...)` marker still to write, or every issue in a draft with its path, or the draft's identity and whether it can be tried |
 | `stepgate_try` | A run of the draft from its text, driven with `stepgate_call` and `stepgate_submit` like any run |
+
+If you already have the procedure written down, as a skill or a runbook, start from it:
+
+> Turn my release-notes SKILL.md into a stepfile with stepgate_outline, then fill in the gates and try it.
 
 `npx -y stepgate` with no stepfiles starts a server that offers only these tools.
 

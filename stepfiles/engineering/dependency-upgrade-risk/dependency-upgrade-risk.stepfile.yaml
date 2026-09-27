@@ -61,72 +61,58 @@ tools:
         openapi: 3.1.0
         info: { title: OSV.dev API (trimmed), version: "1" }
         paths:
-          # querybatch rather than query: it returns advisory ids only, so an old release with dozens of
-          # advisories stays small enough for the model to read in full.
-          /querybatch:
+          /query:
             post:
-              operationId: queryVulnsBatch
+              operationId: queryVulns
               summary: >
-                List the ids of OSV advisories affecting one npm package version. Send exactly one query
-                per call. An empty object in results means no known advisory.
+                List the OSV advisories affecting one npm package version, each with id, summary and
+                database_specific.severity. An empty object means no known advisory.
               requestBody:
                 required: true
                 content:
                   application/json:
                     schema:
                       type: object
-                      required: [queries]
+                      required: [package, version]
                       additionalProperties: false
                       properties:
-                        queries:
-                          type: array
-                          minItems: 1
-                          maxItems: 1
-                          items:
-                            type: object
-                            required: [package, version]
-                            additionalProperties: false
-                            properties:
-                              package:
-                                type: object
-                                required: [name, ecosystem]
-                                additionalProperties: false
-                                properties:
-                                  name: { type: string, description: npm package name }
-                                  ecosystem: { type: string, enum: [npm] }
-                              version: { type: string, description: Exact version to check }
+                        package:
+                          type: object
+                          required: [name, ecosystem]
+                          additionalProperties: false
+                          properties:
+                            name: { type: string }
+                            ecosystem: { type: string, enum: [npm] }
+                        version: { type: string }
               responses:
-                "200": { description: "results[0].vulns lists { id, modified } per advisory" }
-          /vulns/{id}:
-            get:
-              operationId: getVuln
-              summary: >
-                Fetch one OSV advisory by id. database_specific.severity holds the GitHub severity
-                (CRITICAL, HIGH, MODERATE or LOW) and summary a one-line title.
-              parameters:
-                - name: id
-                  in: path
-                  required: true
-                  schema: { type: string, description: "Advisory id, for example GHSA-29mw-wpgm-hmr9" }
-              responses:
-                "200": { description: The advisory in OSV format }
-    exposes: [queryVulnsBatch, getVuln]
+                "200": { description: "vulns lists the advisories in OSV format" }
+    exposes: [{ name: queryVulns, effect: read }]
 
+# An each call's responses come back in the order of its items, so steps pair them by position: the
+# reduce numbers a list as { i, value } and join matches the numbers.
 steps:
   - id: resolve
-    tools: [getPackageVersion]
-    instructions: |
-      These npm dependencies are pinned at these versions:
-
-      {{inputs.packages}}
-
-      For every package make two getPackageVersion calls: one with the pinned version, and one with
-      version "latest". Submit one row per package with:
-      - name and current_version exactly as given;
-      - current_exists: true if the pinned-version call returned the manifest, false if it returned 404;
-      - latest_version: the version field of the "latest" call's response, or null if that call returned 404.
-
-      Copy versions from the responses. Do not guess a version you did not fetch.
+    do:
+      calls:
+        - { id: current, operation: getPackageVersion, each: { var: inputs.packages }, arguments: { package: { var: item.name }, version: { var: item.version } }, accept: [404] }
+        - { id: latest, operation: getPackageVersion, each: { var: inputs.packages }, arguments: { package: { var: item.name }, version: latest }, accept: [404] }
+      output:
+        packages:
+          map:
+            - join:
+                - join:
+                    - reduce: [{ var: inputs.packages }, { merge: [{ var: accumulator }, [{ object: [[i, { length: { var: accumulator } }], [value, { var: current }]] }]] }, []]
+                    - reduce: [{ var: responses.current }, { merge: [{ var: accumulator }, [{ object: [[i, { length: { var: accumulator } }], [value, { var: current }]] }]] }, []]
+                    - i
+                    - i
+                - reduce: [{ var: responses.latest }, { merge: [{ var: accumulator }, [{ object: [[i, { length: { var: accumulator } }], [value, { var: current }]] }]] }, []]
+                - left.i
+                - i
+            - object:
+                - [name, { var: left.left.value.name }]
+                - [current_version, { var: left.left.value.version }]
+                - ["current_exists", { "!!": [{ var: left.right.value.version }] }]
+                - [latest_version, { var: [right.value.version, null] }]
     produces:
       type: object
       required: [packages]
@@ -142,89 +128,39 @@ steps:
               current_version: { type: string }
               current_exists: { type: boolean }
               latest_version: { type: [string, "null"] }
-    gates:
-      - id: rows-match-inputs
-        message: Submit exactly one row per input package, with name and current_version as given.
-        predicate:
-          and:
-            - subset:
-                - map: [{ var: output.packages }, { cat: [{ var: name }, "@", { var: current_version }] }]
-                - map: [{ var: inputs.packages }, { cat: [{ var: name }, "@", { var: version }] }]
-            - subset:
-                - map: [{ var: inputs.packages }, { cat: [{ var: name }, "@", { var: version }] }]
-                - map: [{ var: output.packages }, { cat: [{ var: name }, "@", { var: current_version }] }]
-            - "==": [{ length: { var: output.packages } }, { length: { var: inputs.packages } }]
-      - id: current-checked
-        message: >
-          current_exists must match the registry: true only where a getPackageVersion call returned that
-          exact name and version, false only where the call for that name and version returned 404.
-        predicate:
-          and:
-            - subset:
-                - map:
-                    - filter: [{ var: output.packages }, { var: current_exists }]
-                    - cat: [{ var: name }, "@", { var: current_version }]
-                - map:
-                    - filter:
-                        - var: calls
-                        - and: [{ "==": [{ var: tool }, getPackageVersion] }, { "!": { var: is_error } }]
-                    - cat: [{ var: result.name }, "@", { var: result.version }]
-            - subset:
-                - map:
-                    - filter: [{ var: output.packages }, { "!": { var: current_exists } }]
-                    - cat: [{ var: name }, "@", { var: current_version }]
-                - map:
-                    - filter:
-                        - var: calls
-                        - and: [{ "==": [{ var: tool }, getPackageVersion] }, { var: is_error }]
-                    - cat: [{ var: arguments.package }, "@", { var: arguments.version }]
-      - id: latest-from-registry
-        message: >
-          latest_version must be the version field of a getPackageVersion call made with version "latest"
-          for that package, or null only where that call returned 404.
-        predicate:
-          and:
-            - subset:
-                - map:
-                    - filter: [{ var: output.packages }, { "!=": [{ var: latest_version }, null] }]
-                    - cat: [{ var: name }, "@", { var: latest_version }]
-                - map:
-                    - filter:
-                        - var: calls
-                        - and:
-                            - "==": [{ var: tool }, getPackageVersion]
-                            - "==": [{ var: arguments.version }, latest]
-                            - "!": { var: is_error }
-                    - cat: [{ var: result.name }, "@", { var: result.version }]
-            - subset:
-                - map:
-                    - filter: [{ var: output.packages }, { "==": [{ var: latest_version }, null] }]
-                    - cat: [{ var: name }, "@latest"]
-                - map:
-                    - filter:
-                        - var: calls
-                        - and: [{ "==": [{ var: tool }, getPackageVersion] }, { var: is_error }]
-                    - cat: [{ var: arguments.package }, "@", { var: arguments.version }]
-    retries: 2
 
   - id: vulns
-    tools: [queryVulnsBatch]
-    instructions: |
-      Registry results for the dependencies:
-
-      {{steps.resolve.packages}}
-
-      For every row with current_exists true, call queryVulnsBatch with a single query for the package
-      at current_version (ecosystem "npm"). If latest_version is not null and differs from
-      current_version, make a second call for latest_version. Send one query per call.
-
-      Submit one row per package with current_exists true, carrying name, current_version and
-      latest_version unchanged, plus:
-      - current_vulns: every advisory id OSV returned for current_version, each once;
-      - latest_vulns: every advisory id OSV returned for latest_version (the same list as current_vulns
-        when the two versions are equal), or an empty list when latest_version is null.
-
-      An empty object in results means no advisory. Do not add ids OSV did not return.
+    do:
+      calls:
+        - id: current
+          operation: queryVulns
+          each: { filter: [{ var: steps.resolve.packages }, { var: current_exists }] }
+          arguments: { body: { package: { name: { var: item.name }, ecosystem: npm }, version: { var: item.current_version } } }
+        - id: latest
+          operation: queryVulns
+          each: { filter: [{ var: steps.resolve.packages }, { var: current_exists }] }
+          arguments: { body: { package: { name: { var: item.name }, ecosystem: npm }, version: { var: item.latest_version } } }
+      output:
+        packages:
+          map:
+            - join:
+                - join:
+                    - reduce: [{ filter: [{ var: steps.resolve.packages }, { var: current_exists }] }, { merge: [{ var: accumulator }, [{ object: [[i, { length: { var: accumulator } }], [value, { var: current }]] }]] }, []]
+                    - reduce: [{ var: responses.current }, { merge: [{ var: accumulator }, [{ object: [[i, { length: { var: accumulator } }], [value, { var: current }]] }]] }, []]
+                    - i
+                    - i
+                - reduce: [{ var: responses.latest }, { merge: [{ var: accumulator }, [{ object: [[i, { length: { var: accumulator } }], [value, { var: current }]] }]] }, []]
+                - left.i
+                - i
+            - object:
+                - [name, { var: left.left.value.name }]
+                - [current_version, { var: left.left.value.current_version }]
+                - [latest_version, { var: left.left.value.latest_version }]
+                - - current_vulns
+                  - map:
+                      - { var: left.right.value.vulns }
+                      - object: [[id, { var: id }], [severity, { var: [database_specific.severity, UNKNOWN] }], [summary, { var: [summary, ""] }]]
+                - [latest_vulns, { map: [{ var: right.value.vulns }, { var: id }] }]
     produces:
       type: object
       required: [packages]
@@ -238,126 +174,8 @@ steps:
             properties:
               name: { type: string }
               current_version: { type: string }
-              latest_version: { type: [string, "null"] }
-              current_vulns: { type: array, items: { type: string } }
-              latest_vulns: { type: array, items: { type: string } }
-    gates:
-      - id: covers-resolved
-        message: Submit one row for every package whose current version exists, with versions copied from the resolve step.
-        predicate:
-          and:
-            - subset:
-                - map:
-                    - var: output.packages
-                    - cat: [{ var: name }, "@", { var: current_version }, "@", { var: latest_version }]
-                - map:
-                    - filter: [{ var: steps.resolve.packages }, { var: current_exists }]
-                    - cat: [{ var: name }, "@", { var: current_version }, "@", { var: latest_version }]
-            - subset:
-                - map:
-                    - filter: [{ var: steps.resolve.packages }, { var: current_exists }]
-                    - cat: [{ var: name }, "@", { var: current_version }, "@", { var: latest_version }]
-                - map:
-                    - var: output.packages
-                    - cat: [{ var: name }, "@", { var: current_version }, "@", { var: latest_version }]
-            - "==":
-                - length: { var: output.packages }
-                - length: { filter: [{ var: steps.resolve.packages }, { var: current_exists }] }
-      - id: no-duplicate-ids
-        message: List each advisory id at most once per version.
-        predicate:
-          none:
-            - var: output.packages
-            - or:
-                - "!=": [{ length: { unique: { var: current_vulns } } }, { length: { var: current_vulns } }]
-                - "!=": [{ length: { unique: { var: latest_vulns } } }, { length: { var: latest_vulns } }]
-      # Each string is "name@version" or "name@version#advisory". The reduce carries the name and version
-      # into the inner loop through its accumulator, which a plain map cannot see.
-      - id: ids-returned-by-osv
-        message: >
-          Every version must have been queried with queryVulnsBatch (ecosystem npm), and every advisory id
-          listed for it must be one OSV returned for that exact package and version.
-        predicate:
-          subset:
-            - merge:
-                - flatten:
-                    map:
-                      - var: output.packages
-                      - reduce:
-                          - var: current_vulns
-                          - merge: [{ var: accumulator }, [{ cat: [{ var: "accumulator.0" }, "#", { var: current }] }]]
-                          - [{ cat: [{ var: name }, "@", { var: current_version }] }]
-                - flatten:
-                    map:
-                      - filter: [{ var: output.packages }, { "!=": [{ var: latest_version }, null] }]
-                      - reduce:
-                          - var: latest_vulns
-                          - merge: [{ var: accumulator }, [{ cat: [{ var: "accumulator.0" }, "#", { var: current }] }]]
-                          - [{ cat: [{ var: name }, "@", { var: latest_version }] }]
-            - flatten:
-                map:
-                  - filter:
-                      - var: calls
-                      - and:
-                          - "==": [{ var: tool }, queryVulnsBatch]
-                          - "!": { var: is_error }
-                          - "==": [{ var: arguments.body.queries.0.package.ecosystem }, npm]
-                  - reduce:
-                      - map: [{ var: result.results.0.vulns }, { var: id }]
-                      - merge: [{ var: accumulator }, [{ cat: [{ var: "accumulator.0" }, "#", { var: current }] }]]
-                      - - cat: [{ var: arguments.body.queries.0.package.name }, "@", { var: arguments.body.queries.0.version }]
-      - id: no-advisory-dropped
-        message: List every advisory id OSV returned for each version; a count does not match the OSV response.
-        predicate:
-          subset:
-            - merge:
-                - map:
-                    - var: output.packages
-                    - cat: [{ var: name }, "@", { var: current_version }, "#", { length: { var: current_vulns } }]
-                - map:
-                    - filter: [{ var: output.packages }, { "!=": [{ var: latest_version }, null] }]
-                    - cat: [{ var: name }, "@", { var: latest_version }, "#", { length: { var: latest_vulns } }]
-            - map:
-                - filter:
-                    - var: calls
-                    - and:
-                        - "==": [{ var: tool }, queryVulnsBatch]
-                        - "!": { var: is_error }
-                        - "==": [{ var: arguments.body.queries.0.package.ecosystem }, npm]
-                - cat:
-                    - var: arguments.body.queries.0.package.name
-                    - "@"
-                    - var: arguments.body.queries.0.version
-                    - "#"
-                    - length: { map: [{ var: result.results.0.vulns }, { var: id }] }
-    retries: 2
-
-  - id: details
-    tools: [getVuln]
-    instructions: |
-      OSV advisories affecting the pinned versions:
-
-      {{steps.vulns.packages}}
-
-      Call getVuln once for every distinct id in any current_vulns list. Submit one row per package in
-      the list above (including packages with no advisories), with name and a vulns list holding, for
-      each id in that package's current_vulns:
-      - id;
-      - severity: database_specific.severity from the advisory, or UNKNOWN if it has none;
-      - summary: the advisory's summary field, copied exactly.
-    produces:
-      type: object
-      required: [packages]
-      properties:
-        packages:
-          type: array
-          items:
-            type: object
-            required: [name, vulns]
-            additionalProperties: false
-            properties:
-              name: { type: string }
-              vulns:
+              latest_version: { type: string }
+              current_vulns:
                 type: array
                 items:
                   type: object
@@ -367,101 +185,50 @@ steps:
                     id: { type: string }
                     severity: { enum: [CRITICAL, HIGH, MODERATE, LOW, UNKNOWN] }
                     summary: { type: string }
-    gates:
-      - id: covers-every-advisory
-        message: >
-          Submit one row per package from the vulns step, and under each exactly the advisory ids in its
-          current_vulns, each once.
-        predicate:
-          and:
-            - "==": [{ length: { var: output.packages } }, { length: { var: steps.vulns.packages } }]
-            - none:
-                - var: output.packages
-                - "!=":
-                    - length: { unique: { map: [{ var: vulns }, { var: id }] } }
-                    - length: { var: vulns }
-            - subset:
-                - flatten:
-                    map:
-                      - var: output.packages
-                      - reduce:
-                          - var: vulns
-                          - merge: [{ var: accumulator }, [{ cat: [{ var: "accumulator.0" }, "#", { var: current.id }] }]]
-                          - [{ var: name }]
-                - flatten:
-                    map:
-                      - var: steps.vulns.packages
-                      - reduce:
-                          - var: current_vulns
-                          - merge: [{ var: accumulator }, [{ cat: [{ var: "accumulator.0" }, "#", { var: current }] }]]
-                          - [{ var: name }]
-            - subset:
-                - flatten:
-                    map:
-                      - var: steps.vulns.packages
-                      - reduce:
-                          - var: current_vulns
-                          - merge: [{ var: accumulator }, [{ cat: [{ var: "accumulator.0" }, "#", { var: current }] }]]
-                          - [{ var: name }]
-                - flatten:
-                    map:
-                      - var: output.packages
-                      - reduce:
-                          - var: vulns
-                          - merge: [{ var: accumulator }, [{ cat: [{ var: "accumulator.0" }, "#", { var: current.id }] }]]
-                          - [{ var: name }]
-      - id: details-from-osv
-        message: >
-          Every severity and summary must be copied from a getVuln response for that id; use UNKNOWN only
-          when the advisory has no database_specific.severity.
-        predicate:
-          subset:
-            - flatten:
-                map:
-                  - var: output.packages
-                  - map: [{ var: vulns }, { cat: [{ var: id }, "|", { var: severity }, "|", { var: summary }] }]
-            - map:
-                - filter: [{ var: calls }, { and: [{ "==": [{ var: tool }, getVuln] }, { "!": { var: is_error } }] }]
-                - cat:
-                    - var: result.id
-                    - "|"
-                    - if:
-                        - var: result.database_specific.severity
-                        - var: result.database_specific.severity
-                        - UNKNOWN
-                    - "|"
-                    - var: result.summary
-    retries: 2
+              latest_vulns: { type: array, items: { type: string } }
 
   - id: recommend
-    instructions: |
-      Registry results:
-      {{steps.resolve.packages}}
-
-      Advisory ids per version:
-      {{steps.vulns.packages}}
-
-      Advisory details for the pinned versions:
-      {{steps.details.packages}}
-
-      Submit one row per input package with name, current_version and latest_version copied from the
-      registry results, and:
-      - action, by this rule:
-        - not-found: current_exists is false;
-        - upgrade: the pinned version has advisories and latest_version has none;
-        - review: the pinned version has advisories and so does latest_version (or it is null);
-        - optional: no advisories and latest_version differs from current_version;
-        - keep: no advisories and the pinned version is the latest;
-      - highest_severity: the most severe of the pinned version's advisories (CRITICAL, HIGH, MODERATE,
-        LOW, then UNKNOWN), or NONE when it has none or was not found;
-      - advisory_count: the number of advisories against the pinned version (0 when not found).
-
-      Then write summary: a short Markdown report with one line per package naming the package, both
-      versions, the action and the advisory ids with their severities, followed by a sentence on what to
-      upgrade first. Use only the data above.
+    do:
+      output:
+        packages:
+          merge:
+            - map:
+                - filter: [{ var: steps.resolve.packages }, { "!": { var: current_exists } }]
+                - object:
+                    - [name, { var: name }]
+                    - [current_version, { var: current_version }]
+                    - [latest_version, { var: latest_version }]
+                    - [action, not-found]
+                    - [highest_severity, NONE]
+                    - [advisory_count, 0]
+            - map:
+                - var: steps.vulns.packages
+                - object:
+                    - [name, { var: name }]
+                    - [current_version, { var: current_version }]
+                    - [latest_version, { var: latest_version }]
+                    - - action
+                      - if:
+                          - ">": [{ length: { var: current_vulns } }, 0]
+                          - if: [{ "==": [{ length: { var: latest_vulns } }, 0] }, upgrade, review]
+                          - if: [{ "!=": [{ var: latest_version }, { var: current_version }] }, optional, keep]
+                    - - highest_severity
+                      - if:
+                          - in: [CRITICAL, { map: [{ var: current_vulns }, { var: severity }] }]
+                          - CRITICAL
+                          - in: [HIGH, { map: [{ var: current_vulns }, { var: severity }] }]
+                          - HIGH
+                          - in: [MODERATE, { map: [{ var: current_vulns }, { var: severity }] }]
+                          - MODERATE
+                          - in: [LOW, { map: [{ var: current_vulns }, { var: severity }] }]
+                          - LOW
+                          - ">": [{ length: { var: current_vulns } }, 0]
+                          - UNKNOWN
+                          - NONE
+                    - [advisory_count, { length: { var: current_vulns } }]
     produces:
       type: object
-      required: [packages, summary]
+      required: [packages]
       properties:
         packages:
           type: array
@@ -476,93 +243,44 @@ steps:
               action: { enum: [upgrade, review, optional, keep, not-found] }
               highest_severity: { enum: [CRITICAL, HIGH, MODERATE, LOW, UNKNOWN, NONE] }
               advisory_count: { type: integer, minimum: 0 }
+
+  - id: report
+    instructions: |
+      Recommendations:
+      {{steps.recommend.packages}}
+
+      Advisories against the pinned versions:
+      {{steps.vulns.packages}}
+
+      Write summary: a short Markdown report with one line per package naming the package, both
+      versions, the action and the ids of the pinned version's advisories with their severities,
+      followed by a sentence on what to upgrade first. Use only the data above.
+    produces:
+      type: object
+      required: [summary]
+      properties:
         summary: { type: string, minLength: 1, maxLength: 8000 }
+    let:
+      cited: { match_all: [{ var: output.summary }, "\\b(GHSA(?:-[0-9a-z]{4}){3}|MAL-[0-9]{4}-[0-9]+)\\b"] }
+      pinned: { flatten: { map: [{ var: steps.vulns.packages }, { map: [{ var: current_vulns }, { var: id }] }] } }
     gates:
-      - id: versions-from-registry
-        message: Submit one row per input package, with current_version and latest_version copied from the resolve step.
-        predicate:
-          and:
-            - "==": [{ length: { var: output.packages } }, { length: { var: steps.resolve.packages } }]
-            - subset:
-                - map:
-                    - var: output.packages
-                    - cat: [{ var: name }, "@", { var: current_version }, "@", { var: latest_version }]
-                - map:
-                    - var: steps.resolve.packages
-                    - cat: [{ var: name }, "@", { var: current_version }, "@", { var: latest_version }]
-            - subset:
-                - map:
-                    - var: steps.resolve.packages
-                    - cat: [{ var: name }, "@", { var: current_version }, "@", { var: latest_version }]
-                - map:
-                    - var: output.packages
-                    - cat: [{ var: name }, "@", { var: current_version }, "@", { var: latest_version }]
-      - id: action-follows-rule
-        message: Each action must follow the stated rule applied to the registry and OSV results.
-        predicate:
-          subset:
-            - map: [{ var: output.packages }, { cat: [{ var: name }, "=", { var: action }] }]
-            - merge:
-                - map:
-                    - filter: [{ var: steps.resolve.packages }, { "!": { var: current_exists } }]
-                    - cat: [{ var: name }, "=not-found"]
-                - map:
-                    - var: steps.vulns.packages
-                    - cat:
-                        - var: name
-                        - "="
-                        - if:
-                            - ">": [{ length: { var: current_vulns } }, 0]
-                            - if:
-                                - and:
-                                    - "!=": [{ var: latest_version }, null]
-                                    - "==": [{ length: { var: latest_vulns } }, 0]
-                                - upgrade
-                                - review
-                            - if:
-                                - and:
-                                    - "!=": [{ var: latest_version }, null]
-                                    - "!=": [{ var: latest_version }, { var: current_version }]
-                                - optional
-                                - keep
-      - id: severity-and-count-match
-        message: highest_severity and advisory_count must match the advisory details for each package.
-        predicate:
-          subset:
-            - map:
-                - var: output.packages
-                - cat: [{ var: name }, "|", { var: highest_severity }, "|", { var: advisory_count }]
-            - merge:
-                - map:
-                    - filter: [{ var: steps.resolve.packages }, { "!": { var: current_exists } }]
-                    - cat: [{ var: name }, "|NONE|0"]
-                - map:
-                    - var: steps.details.packages
-                    - cat:
-                        - var: name
-                        - "|"
-                        - if:
-                            - in: [CRITICAL, { map: [{ var: vulns }, { var: severity }] }]
-                            - CRITICAL
-                            - in: [HIGH, { map: [{ var: vulns }, { var: severity }] }]
-                            - HIGH
-                            - in: [MODERATE, { map: [{ var: vulns }, { var: severity }] }]
-                            - MODERATE
-                            - in: [LOW, { map: [{ var: vulns }, { var: severity }] }]
-                            - LOW
-                            - ">": [{ length: { var: vulns } }, 0]
-                            - UNKNOWN
-                            - NONE
-                        - "|"
-                        - length: { var: vulns }
       # The reduce keeps the summary as its accumulator while every name is found, and empties it otherwise.
       - id: summary-names-every-package
         message: The summary must mention every package by name.
         predicate:
           "!=":
             - reduce:
-                - var: output.packages
+                - var: steps.recommend.packages
                 - if: [{ in: [{ var: current.name }, { var: accumulator }] }, { var: accumulator }, ""]
                 - var: output.summary
             - ""
+      - id: summary-lists-pinned-advisories
+        message: "The summary must name every advisory against a pinned version; these are missing:"
+        predicate: { subset: [{ var: let.pinned }, { var: let.cited }] }
+      - id: summary-cites-known-advisories
+        message: "Every advisory id in the summary must be one OSV returned; these are not:"
+        predicate:
+          subset:
+            - var: let.cited
+            - merge: [{ var: let.pinned }, { flatten: { map: [{ var: steps.vulns.packages }, { var: latest_vulns }] } }]
     retries: 2

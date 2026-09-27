@@ -1,11 +1,13 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { CallToolRequestSchema, ListToolsRequestSchema, type CallToolResult, type Tool } from "@modelcontextprotocol/sdk/types.js";
 import { draftProblems, examples, guide, inspectApi, validateDraft, type DraftPolicy } from "./authoring.ts";
-import { DraftRefused, RunNotActive, StepgateError, ToolCallFailed } from "./engine/errors.ts";
+import { outlineProcedure } from "./outline.ts";
+import { DraftRefused, ProcedureInvalid, RunNotActive, StepgateError, ToolCallFailed } from "./engine/errors.ts";
 import { load } from "./engine/load.ts";
 import type { Progress, StepView } from "./engine/run.ts";
 import { createRuns } from "./engine/runs.ts";
 import type { LedgerSink } from "./engine/ledger.ts";
+import type { Served } from "./served.ts";
 import { VERSION } from "./version.ts";
 import type { Approvals, Json, JsonObject, RunContext, Stepfile } from "./engine/types.ts";
 
@@ -14,6 +16,8 @@ export type StepgateServerOptions = {
   settings: RunContext["settings"];
   /** Receives every ledger record; each carries the run and stepfile it belongs to. */
   ledger: LedgerSink;
+  /** Where finished and failed runs are written as cases, or null when the operator does not record them. */
+  recordCases: RunContext["recordCases"];
   limits: RunContext["limits"];
   /** How long a run may wait for the client's next call before it is abandoned, in milliseconds. */
   runIdleMs: number;
@@ -97,6 +101,12 @@ const AUTHORING_TOOLS: Tool[] = [
     },
   },
   {
+    name: "stepgate_outline",
+    title: "Outline a stepfile from a procedure",
+    description: "Turns a SKILL.md or markdown SOP into a skeleton stepfile: one step per numbered item or second-level heading, each rule it states marked as a gate to write, and TODO markers where only an author can decide. stepgate_validate lists the markers left.",
+    inputSchema: { type: "object", properties: { procedure: { type: "string", description: "The SKILL.md or SOP text, markdown with optional YAML frontmatter." } }, required: ["procedure"] },
+  },
+  {
     name: TRY,
     title: "Try a draft stepfile",
     description: `Starts a run of a draft stepfile from its text, without adding it to the server. Drive it with ${CALL} and ${SUBMIT}. Drafts may call only public https URLs, and use only the credentials and settings the operator granted to drafts.`,
@@ -124,6 +134,7 @@ function describeStep(run: string, view: StepView): string {
       .map((operation) => `- ${operation.name}: ${operation.description}\n  arguments: ${JSON.stringify(operation.inputSchema)}`)
       .join("\n")}`;
   return [
+    ...(view.completed.length === 0 ? [] : [`Stepgate did these steps itself: ${view.completed.join(", ")}.`]),
     `Run ${run}, step ${view.number} of ${view.total}: ${view.step}.`,
     `Instructions:\n${view.instructions.trim()}`,
     operations,
@@ -161,10 +172,10 @@ function isObject(value: unknown): value is JsonObject {
  * An MCP server exposing each stepfile as a tool that starts a run, plus tools for writing new stepfiles. The client's
  * own agent does each step through `stepgate_call` and `stepgate_submit`, while Stepgate makes every request and applies every gate.
  */
-export function createStepgateServer(stepfiles: Stepfile[], options: StepgateServerOptions): Server {
-  const byId = new Map(stepfiles.map((stepfile) => [stepfile.document.id, stepfile]));
-  const server = new Server({ name: "stepgate", version: VERSION }, { capabilities: { tools: {} }, instructions: INSTRUCTIONS });
+export function createStepgateServer(served: Served, options: StepgateServerOptions): Server {
+  const server = new Server({ name: "stepgate", version: VERSION }, { capabilities: { tools: { listChanged: true } }, instructions: INSTRUCTIONS });
   const runs = createRuns(options.runIdleMs);
+  const unsubscribe = served.onChange(() => void server.sendToolListChanged());
 
   // An approve gate is answered by a person through the client's form elicitation, given as long as a run may idle.
   const askPerson: Approvals["ask"] = async (request) => {
@@ -183,16 +194,21 @@ export function createStepgateServer(stepfiles: Stepfile[], options: StepgateSer
     const reason = typeof answer.content?.reason === "string" && answer.content.reason.trim() !== "" ? answer.content.reason.trim() : null;
     return answer.action === "accept" ? { approved: true, reason } : { approved: false, reason: reason ?? (answer.action === "cancel" ? "the request was dismissed" : null) };
   };
-  server.onclose = () => void runs.abandonAll();
+  server.onclose = () => {
+    unsubscribe();
+    void runs.abandonAll();
+  };
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: [
-      ...stepfiles.map(({ document }) => ({
-        name: document.id,
-        ...(document.title === undefined ? {} : { title: document.title }),
-        description: `${document.description ?? document.title ?? `Runs the ${document.id} stepfile.`} Starts a run and returns its first step; do each step with ${CALL} and ${SUBMIT}.`,
-        inputSchema: document.inputs as Tool["inputSchema"],
-      })),
+      ...served.entries().map((entry): Tool => (entry.stepfile === null
+        ? { name: entry.id, description: `This stepfile failed to load after its last edit, so calling it reports why: ${entry.problem.message}`, inputSchema: { type: "object" } }
+        : {
+          name: entry.id,
+          ...(entry.stepfile.document.title === undefined ? {} : { title: entry.stepfile.document.title }),
+          description: `${entry.stepfile.document.description ?? entry.stepfile.document.title ?? `Runs the ${entry.id} stepfile.`} Starts a run and returns its first step; do each step with ${CALL} and ${SUBMIT}.`,
+          inputSchema: entry.stepfile.document.inputs as Tool["inputSchema"],
+        })),
       CALL_TOOL,
       SUBMIT_TOOL,
       ...AUTHORING_TOOLS,
@@ -207,6 +223,15 @@ export function createStepgateServer(stepfiles: Stepfile[], options: StepgateSer
 
   const authoring: Record<string, (args: JsonObject) => Promise<{ report: string; isError: boolean }>> = {
     stepgate_guide: async () => ({ report: guide(), isError: false }),
+    stepgate_outline: async (args) => {
+      if (typeof args.procedure !== "string" || args.procedure.trim() === "") {
+        throw new ProcedureInvalid("procedure must be the SKILL.md or SOP text");
+      }
+      return {
+        report: `A skeleton stepfile for this procedure. Replace every TODO marker: declare the inputs, give each step a produces schema and gates that check its output against calls, and add the tools it needs. Then call stepgate_validate.\n\n\`\`\`yaml\n${outlineProcedure(args.procedure).trim()}\n\`\`\``,
+        isError: false,
+      };
+    },
     stepgate_examples: async (args) => ({ report: examples(typeof args.name === "string" ? args.name : undefined), isError: false }),
     stepgate_validate: async (args) => {
       const { valid, report } = validateDraft(typeof args.stepfile === "string" ? args.stepfile : "", options.drafts);
@@ -257,11 +282,14 @@ export function createStepgateServer(stepfiles: Stepfile[], options: StepgateSer
         }
         return await started(draft, isObject(args.inputs) ? args.inputs : {});
       }
-      const stepfile = byId.get(request.params.name);
-      if (stepfile === undefined) {
+      const entry = served.entries().find((candidate) => candidate.id === request.params.name);
+      if (entry === undefined) {
         return text(`no tool named ${request.params.name}`, { run: null, state: "failed", error: "UnknownTool" }, true);
       }
-      return await started(stepfile, args);
+      if (entry.stepfile === null) {
+        throw entry.problem;
+      }
+      return await started(entry.stepfile, args);
     } catch (error) {
       if (error instanceof StepgateError) {
         return failure(id, error);

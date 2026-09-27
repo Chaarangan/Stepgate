@@ -1,0 +1,66 @@
+name: derive computes output fields the client is not asked for, refuses them when submitted, and later steps see them
+api:
+  routes:
+    - method: GET
+      path: /items?shelf=A
+      answers: [{ status: 200, json: { items: [{ id: K-1 }, { id: K-2 }] } }]
+stepfile:
+  stepgate: "1"
+  id: shelves
+  inputs: { type: object, properties: {} }
+  tools:
+    catalogue:
+      openapi:
+        server: "${api.origin}"
+        document:
+          openapi: 3.1.0
+          info: { title: Catalogue, version: "1" }
+          paths:
+            /items:
+              get:
+                operationId: listItems
+                parameters: [{ name: shelf, in: query, required: true, schema: { type: string } }]
+      exposes: [listItems]
+  steps:
+    - id: list
+      tools: [listItems]
+      instructions: List the items on shelf A.
+      produces:
+        type: object
+        required: [ids, count]
+        properties:
+          ids: { type: array, items: { type: string } }
+          count: { type: integer, minimum: 1 }
+      derive:
+        count: { length: { results: [listItems, items] } }
+      gates:
+        - id: listed
+          message: every id must be one listItems returned
+          predicate: { subset: [{ var: output.ids }, { map: [{ results: [listItems, items] }, { var: id }] }] }
+        - id: all-listed
+          message: list every item
+          predicate: { "==": [{ length: { var: output.ids } }, { var: output.count }] }
+      retries: 1
+    - id: report
+      instructions: "Report that shelf A holds {{steps.list.count}} items."
+      produces: { type: object, required: [summary], properties: { summary: { type: string } } }
+      gates:
+        - id: counted
+          schema: { properties: { summary: { pattern: "2" } } }
+inputs: {}
+actions:
+  - call: listItems
+    arguments: { shelf: A }
+  - submit: { ids: [K-1, K-2], count: 5 }
+  - submit: { ids: [K-1, K-2] }
+  - submit: { summary: Shelf A holds 2 items. }
+expect:
+  replies:
+    - { state: running, step: list, contain: '{"type":"object","required":["ids"],"properties":{"ids":{"type":"array","items":{"type":"string"}}}}' }
+    - { state: running, is_error: false }
+    - { state: running, failures: [derive], contain: "count is computed by Stepgate; submit the output without it" }
+    - { state: running, step: report, contain: shelf A holds 2 items. }
+    - { state: finished, contain: '"count": 2' }
+  ledger: [run_started, step_started, tool_call, submit, gate, submit, derived, gate, gate, step_passed, step_started, submit, gate, step_passed, run_finished]
+  requests:
+    - { method: GET, path: /items?shelf=A }

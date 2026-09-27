@@ -8,10 +8,12 @@ import type { DraftPolicy } from "../src/authoring.ts";
 import { SettingUnavailable } from "../src/engine/errors.ts";
 import { isLoopbackHttpUrl, isPublicHttpsUrl } from "../src/engine/http.ts";
 import { load } from "../src/engine/load.ts";
-import type { CredentialSource, RunContext, JsonObject, LedgerRecord } from "../src/engine/types.ts";
+import type { CredentialSource, RunContext, JsonObject, LedgerRecord, Stepfile } from "../src/engine/types.ts";
+import { directoryCaseSink } from "../src/record-cases.ts";
+import { fixedStepfiles, type Served } from "../src/served.ts";
 import { createStepgateServer } from "../src/server.ts";
 import { userAgent } from "../src/version.ts";
-import { API_KEY, MCP_TOKEN, secretsFrom, startApi, startMcp, type Fixture } from "./fixtures.ts";
+import { API_KEY, MCP_TOKEN, secretsFrom, startApi, startAuthorizationServer, startMcp, type Fixture } from "./fixtures.ts";
 
 const BASE = readFileSync(new URL("fixtures/stock-check.stepfile.yaml", import.meta.url), "utf8");
 
@@ -36,7 +38,7 @@ export type RunState = { run: string | null; state: "running" | "finished" | "fa
 
 export type Setup = {
   /** Changes the base stepfile before it is loaded. */
-  edit?: (stepfile: JsonObject, addresses: { catalogue: string; checker: string; cataloguePort: string }) => void;
+  edit?: (stepfile: JsonObject, addresses: { catalogue: string; checker: string; cataloguePort: string; authorization: string | null }) => void;
   /** What the client does after starting the run, in order, until the run finishes or fails. */
   actions: Action[];
   credentials?: Record<string, string>;
@@ -48,12 +50,20 @@ export type Setup = {
   limits?: Partial<RunContext["limits"]>;
   flakyFailures?: number;
   runIdleMs?: number;
+  /** Starts an OAuth authorization server that the MCP fixture names in its protected resource metadata. */
+  authorization?: boolean;
+  /** Stepfiles to serve in place of the base one, such as files watched for edits. */
+  served?: Served;
+  /** A directory to record finished and failed runs in as cases files. */
+  recordCases?: string;
   /** Defaults to letting drafts reach the loopback fixture servers as well as public https, with no credentials or settings. */
   drafts?: (addresses: { catalogueHost: string }) => DraftPolicy;
 };
 
 export type Harness = {
   client: Client;
+  /** The stepfile the server runs, after the setup's edits and the fixture addresses. */
+  stepfile: Stepfile;
   /** Starts a run with these inputs, plays the actions, and returns the last response. */
   call: (args: JsonObject) => Promise<CallToolResult>;
   /** The message of every approval the client was asked for. */
@@ -63,22 +73,26 @@ export type Harness = {
   records: LedgerRecord[];
   api: Fixture;
   mcp: Fixture;
+  /** The authorization server, when the setup asked for one. */
+  authorization: Fixture | null;
   close: () => Promise<void>;
 };
 
 /** Starts the fixture servers and the Stepgate server, and connects a client that plays `actions` on each run. */
 export async function startHarness(setup: Setup): Promise<Harness> {
   const api = await startApi(setup.flakyFailures ?? 0);
-  const mcp = await startMcp();
+  const authorization = setup.authorization === true ? await startAuthorizationServer() : null;
+  const mcp = await startMcp(authorization?.origin ?? null);
   const text = BASE.replaceAll("${catalogue.origin}", api.origin).replaceAll("${catalogue.host}", api.host)
     .replaceAll("${suppliers.origin}", mcp.origin).replaceAll("${suppliers.host}", mcp.host);
   const stepfile = parseYaml(text) as JsonObject;
   const cataloguePort = api.host.split(":")[1] ?? "";
-  setup.edit?.(stepfile, { catalogue: api.origin, checker: `${api.origin}/verify`, cataloguePort });
+  setup.edit?.(stepfile, { catalogue: api.origin, checker: `${api.origin}/verify`, cataloguePort, authorization: authorization?.origin ?? null });
   const settings = setup.settings?.({ cataloguePort }) ?? {};
 
   const records: LedgerRecord[] = [];
-  const server = createStepgateServer([load(JSON.stringify(stepfile))], {
+  const loaded = load(JSON.stringify(stepfile));
+  const server = createStepgateServer(setup.served ?? fixedStepfiles([loaded]), {
     credentials: setup.credentialSource ?? secretsFrom(setup.credentials ?? { catalogue: API_KEY, suppliers: MCP_TOKEN }),
     settings: async (name) => {
       const value = settings[name];
@@ -88,6 +102,7 @@ export async function startHarness(setup: Setup): Promise<Harness> {
       return value;
     },
     ledger: (record) => void records.push(record),
+    recordCases: setup.recordCases === undefined ? null : directoryCaseSink(setup.recordCases),
     limits: { callsPerStep: 8, toolResultChars: 10_000, requestTimeoutMs: 5_000, responseBytes: 1_000_000, ...setup.limits },
     runIdleMs: setup.runIdleMs ?? 60_000,
     userAgent: userAgent(null),
@@ -118,6 +133,7 @@ export async function startHarness(setup: Setup): Promise<Harness> {
 
   return {
     client,
+    stepfile: loaded,
     call: async (args) => {
       let result = await respond("stock-check", args);
       const { run } = stateOf(result);
@@ -136,10 +152,12 @@ export async function startHarness(setup: Setup): Promise<Harness> {
     records,
     api,
     mcp,
+    authorization,
     close: async () => {
       await client.close();
       await api.close();
       await mcp.close();
+      await authorization?.close();
     },
   };
 }

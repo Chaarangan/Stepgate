@@ -4,10 +4,12 @@ Researches a brand's position in a market from web sources and writes a short re
 
 ## Steps
 
-1. **search**: runs at least six web searches and records every result as a numbered source. Gates check there are at least 12 sources, from at least six domains, with unique ids.
-2. **filter**: decides keep or discard for every source, with a reason. Gates check every source is decided exactly once and at least five are kept.
+Every step is an agent step; the searches and the relevance decisions are judgement.
+
+1. **search**: runs at least six web searches and records every result as a numbered source. Stepgate derives `query_count` from the distinct queries of the successful searches. Gates check there are at least 12 sources, from at least six domains, with unique ids, and that six distinct queries ran.
+2. **filter**: decides keep or discard for every source, with a reason. Stepgate derives `kept`, the number kept. Gates check every source is decided exactly once and at least five are kept.
 3. **analyse**: writes one-sentence claims, each citing kept sources. A gate checks every citation points at a kept source.
-4. **report**: writes a Markdown report with fixed sections. Gates check the sections are in order, the report is not padded, and every inline citation resolves to an analysed claim.
+4. **report**: writes a Markdown report with fixed sections. Gates check the sections are in order, the report is not padded, and it cites at least one source and only sources an analysed claim uses.
 
 ## Inputs
 

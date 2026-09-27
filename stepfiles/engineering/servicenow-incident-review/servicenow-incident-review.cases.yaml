@@ -1,0 +1,852 @@
+# Recorded calls and outputs for `stepgate --test servicenow-incident-review`, which runs the gates offline.
+# Approve gates need a person, so the offline test skips them.
+cases:
+  - name: a review citing only listed changes passes, and its work note is written
+    inputs:
+      incident_number: INC0010042
+      owner: cli
+      repo: cli
+      branch: trunk
+      lookback_hours: 24
+    steps:
+      - step: incident
+        calls:
+          - tool: findIncident
+            arguments:
+              sysparm_query: number=INC0010042
+            result:
+              result:
+                - sys_id: 9d385017c611228701d22104cc95c371
+                  number: INC0010042
+                  short_description: gh auth login fails with 502 for Enterprise hosts
+                  state: "6"
+                  priority: "2"
+                  opened_at: 2026-09-15 14:00:00
+                  resolved_at: 2026-09-15 15:40:00
+          - tool: getIncidentNotes
+            arguments:
+              sys_id: 9d385017c611228701d22104cc95c371
+            result:
+              result:
+                sys_id: 9d385017c611228701d22104cc95c371
+                number: INC0010042
+                assignment_group: CLI Platform
+                work_notes: |+
+                  2026-09-15 14:20:11 - Jane Ops (Work notes)
+                  Logins to GHES hosts fail since the 13:30 release; github.com is fine.
+
+        output:
+          sys_id: 9d385017c611228701d22104cc95c371
+          short_description: gh auth login fails with 502 for Enterprise hosts
+          state: "6"
+          priority: "2"
+          opened_at: 2026-09-15T14:00:00Z
+          resolved_at: 2026-09-15T15:40:00Z
+          assignment_group: CLI Platform
+          work_notes: |+
+            2026-09-15 14:20:11 - Jane Ops (Work notes)
+            Logins to GHES hosts fail since the 13:30 release; github.com is fine.
+
+          window_start: 2026-09-14T14:00:00Z
+          window_end: 2026-09-15T14:00:00Z
+        expect: pass
+      - step: changes
+        calls:
+          - tool: listCommits
+            arguments:
+              owner: cli
+              repo: cli
+              sha: trunk
+              since: 2026-09-14T14:00:00Z
+              until: 2026-09-15T14:00:00Z
+            result:
+              - sha: 8f2a1c3d4e5f60718293a4b5c6d7e8f901a2b3c4
+                commit:
+                  author:
+                    name: Mona
+                    email: mona@example.com
+                    date: 2026-09-15T13:10:02Z
+                  committer:
+                    name: GitHub
+                    email: noreply@github.com
+                    date: 2026-09-15T13:12:40Z
+                  message: |-
+                    Use host-scoped OAuth endpoint in auth login (#9912)
+
+                    Routes the device flow through the configured host.
+                html_url: https://github.com/cli/cli/commit/8f2a1c3d4e5f60718293a4b5c6d7e8f901a2b3c4
+              - sha: 1b9e7d5c3a1f0e2d4c6b8a0f9e7d5c3b1a2f4e6d
+                commit:
+                  author:
+                    name: Hubot
+                    email: hubot@example.com
+                    date: 2026-09-14T18:01:00Z
+                  committer:
+                    name: GitHub
+                    email: noreply@github.com
+                    date: 2026-09-14T18:05:21Z
+                  message: Bump golang.org/x/net to 0.47.0
+                html_url: https://github.com/cli/cli/commit/1b9e7d5c3a1f0e2d4c6b8a0f9e7d5c3b1a2f4e6d
+          - tool: searchPullRequests
+            arguments:
+              q: repo:cli/cli is:pr is:merged base:trunk merged:2026-09-14T14:00:00Z..2026-09-15T14:00:00Z
+            result:
+              total_count: 1
+              incomplete_results: false
+              items:
+                - url: https://api.github.com/repos/cli/cli/issues/9912
+                  repository_url: https://api.github.com/repos/cli/cli
+                  html_url: https://github.com/cli/cli/pull/9912
+                  number: 9912
+                  title: Use host-scoped OAuth endpoint in auth login
+                  state: closed
+                  pull_request:
+                    url: https://api.github.com/repos/cli/cli/pulls/9912
+                    html_url: https://github.com/cli/cli/pull/9912
+                    merged_at: 2026-09-15T13:12:40Z
+                  closed_at: 2026-09-15T13:12:40Z
+                  body: Fixes device flow on GHES.
+        output:
+          events:
+            - kind: incident-opened
+              ref: incident-opened
+              at: 2026-09-15T14:00:00Z
+              title: gh auth login fails with 502 for Enterprise hosts
+            - kind: incident-resolved
+              ref: incident-resolved
+              at: 2026-09-15T15:40:00Z
+              title: gh auth login fails with 502 for Enterprise hosts
+            - kind: commit
+              ref: 8f2a1c3d4e5f60718293a4b5c6d7e8f901a2b3c4
+              at: 2026-09-15T13:12:40Z
+              title: Use host-scoped OAuth endpoint in auth login (#9912)
+            - kind: commit
+              ref: 1b9e7d5c3a1f0e2d4c6b8a0f9e7d5c3b1a2f4e6d
+              at: 2026-09-14T18:05:21Z
+              title: Bump golang.org/x/net to 0.47.0
+            - kind: pull
+              ref: "#9912"
+              at: 2026-09-15T13:12:40Z
+              title: Use host-scoped OAuth endpoint in auth login
+          commits_listed: 2
+          pulls_listed: 1
+          pulls_matched: 1
+          pulls_incomplete: false
+        expect: pass
+      - step: analyse
+        output:
+          entries:
+            - ref: 1b9e7d5c3a1f0e2d4c6b8a0f9e7d5c3b1a2f4e6d
+              summary: Dependency bump of golang.org/x/net.
+            - ref: 8f2a1c3d4e5f60718293a4b5c6d7e8f901a2b3c4
+              summary: Auth login switches to the host-scoped OAuth endpoint.
+            - ref: "#9912"
+              summary: Pull request for the OAuth endpoint change merged.
+            - ref: incident-opened
+              summary: "Incident opened: GHES logins fail with 502."
+            - ref: incident-resolved
+              summary: Incident resolved.
+          suspects:
+            - ref: 8f2a1c3d4e5f60718293a4b5c6d7e8f901a2b3c4
+              reason: Changed the login endpoint 47 minutes before GHES logins began failing.
+            - ref: "#9912"
+              reason: The pull request that merged that change.
+          summary: INC0010042 began 47 minutes after 8f2a1c3d4e5f60718293a4b5c6d7e8f901a2b3c4 (#9912) moved auth login to a host-scoped OAuth endpoint, which GHES hosts do not serve. The x/net bump 1b9e7d5c3a1f0e2d4c6b8a0f9e7d5c3b1a2f4e6d is unrelated.
+        expect: pass
+      - step: note
+        calls:
+          - tool: addWorkNote
+            arguments:
+              sys_id: 9d385017c611228701d22104cc95c371
+              body:
+                work_notes: |-
+                  Incident review for INC0010042
+                  Window: 2026-09-14T14:00:00Z to 2026-09-15T14:00:00Z
+                  Repository: cli/cli (trunk)
+
+                  Suspect changes:
+                  - 8f2a1c3d4e5f60718293a4b5c6d7e8f901a2b3c4: Changed the login endpoint 47 minutes before GHES logins began failing.
+                  - #9912: The pull request that merged that change.
+
+                  INC0010042 began 47 minutes after 8f2a1c3d4e5f60718293a4b5c6d7e8f901a2b3c4 (#9912) moved auth login to a host-scoped OAuth endpoint, which GHES hosts do not serve. The x/net bump 1b9e7d5c3a1f0e2d4c6b8a0f9e7d5c3b1a2f4e6d is unrelated.
+            result:
+              result:
+                sys_id: 9d385017c611228701d22104cc95c371
+                number: INC0010042
+                sys_updated_on: 2026-09-15 16:02:44
+        output:
+          sys_id: 9d385017c611228701d22104cc95c371
+          number: INC0010042
+          sys_updated_on: 2026-09-15 16:02:44
+        expect: pass
+      - step: report
+        output:
+          summary: |
+            # Incident review for INC0010042
+
+            ## Timeline
+
+            - 2026-09-14T18:05:21Z 1b9e7d5c3a1f0e2d4c6b8a0f9e7d5c3b1a2f4e6d: Dependency bump of golang.org/x/net.
+            - 2026-09-15T13:12:40Z 8f2a1c3d4e5f60718293a4b5c6d7e8f901a2b3c4: Auth login switches to the host-scoped OAuth endpoint.
+            - 2026-09-15T13:12:40Z #9912: Pull request for the OAuth endpoint change merged.
+            - 2026-09-15T14:00:00Z incident-opened: Incident opened: GHES logins fail with 502.
+            - 2026-09-15T15:40:00Z incident-resolved: Incident resolved.
+
+            ## Review
+
+            INC0010042 began 47 minutes after 8f2a1c3d4e5f60718293a4b5c6d7e8f901a2b3c4 (#9912) moved auth login to a host-scoped OAuth endpoint, which GHES hosts do not serve. The x/net bump 1b9e7d5c3a1f0e2d4c6b8a0f9e7d5c3b1a2f4e6d is unrelated.
+
+            Work note added to INC0010042 at 2026-09-15 16:02:44 UTC.
+        expect: pass
+  - name: a timeline that drops an event or is out of order is rejected
+    inputs:
+      incident_number: INC0010042
+      owner: cli
+      repo: cli
+      branch: trunk
+      lookback_hours: 24
+    steps:
+      - step: incident
+        calls:
+          - tool: findIncident
+            arguments:
+              sysparm_query: number=INC0010042
+            result:
+              result:
+                - sys_id: 9d385017c611228701d22104cc95c371
+                  number: INC0010042
+                  short_description: gh auth login fails with 502 for Enterprise hosts
+                  state: "6"
+                  priority: "2"
+                  opened_at: 2026-09-15 14:00:00
+                  resolved_at: 2026-09-15 15:40:00
+          - tool: getIncidentNotes
+            arguments:
+              sys_id: 9d385017c611228701d22104cc95c371
+            result:
+              result:
+                sys_id: 9d385017c611228701d22104cc95c371
+                number: INC0010042
+                assignment_group: CLI Platform
+                work_notes: |+
+                  2026-09-15 14:20:11 - Jane Ops (Work notes)
+                  Logins to GHES hosts fail since the 13:30 release; github.com is fine.
+
+        output:
+          sys_id: 9d385017c611228701d22104cc95c371
+          short_description: gh auth login fails with 502 for Enterprise hosts
+          state: "6"
+          priority: "2"
+          opened_at: 2026-09-15T14:00:00Z
+          resolved_at: 2026-09-15T15:40:00Z
+          assignment_group: CLI Platform
+          work_notes: |+
+            2026-09-15 14:20:11 - Jane Ops (Work notes)
+            Logins to GHES hosts fail since the 13:30 release; github.com is fine.
+
+          window_start: 2026-09-14T14:00:00Z
+          window_end: 2026-09-15T14:00:00Z
+        expect: pass
+      - step: changes
+        calls:
+          - tool: listCommits
+            arguments:
+              owner: cli
+              repo: cli
+              sha: trunk
+              since: 2026-09-14T14:00:00Z
+              until: 2026-09-15T14:00:00Z
+            result:
+              - sha: 8f2a1c3d4e5f60718293a4b5c6d7e8f901a2b3c4
+                commit:
+                  author:
+                    name: Mona
+                    email: mona@example.com
+                    date: 2026-09-15T13:10:02Z
+                  committer:
+                    name: GitHub
+                    email: noreply@github.com
+                    date: 2026-09-15T13:12:40Z
+                  message: |-
+                    Use host-scoped OAuth endpoint in auth login (#9912)
+
+                    Routes the device flow through the configured host.
+                html_url: https://github.com/cli/cli/commit/8f2a1c3d4e5f60718293a4b5c6d7e8f901a2b3c4
+              - sha: 1b9e7d5c3a1f0e2d4c6b8a0f9e7d5c3b1a2f4e6d
+                commit:
+                  author:
+                    name: Hubot
+                    email: hubot@example.com
+                    date: 2026-09-14T18:01:00Z
+                  committer:
+                    name: GitHub
+                    email: noreply@github.com
+                    date: 2026-09-14T18:05:21Z
+                  message: Bump golang.org/x/net to 0.47.0
+                html_url: https://github.com/cli/cli/commit/1b9e7d5c3a1f0e2d4c6b8a0f9e7d5c3b1a2f4e6d
+          - tool: searchPullRequests
+            arguments:
+              q: repo:cli/cli is:pr is:merged base:trunk merged:2026-09-14T14:00:00Z..2026-09-15T14:00:00Z
+            result:
+              total_count: 1
+              incomplete_results: false
+              items:
+                - url: https://api.github.com/repos/cli/cli/issues/9912
+                  repository_url: https://api.github.com/repos/cli/cli
+                  html_url: https://github.com/cli/cli/pull/9912
+                  number: 9912
+                  title: Use host-scoped OAuth endpoint in auth login
+                  state: closed
+                  pull_request:
+                    url: https://api.github.com/repos/cli/cli/pulls/9912
+                    html_url: https://github.com/cli/cli/pull/9912
+                    merged_at: 2026-09-15T13:12:40Z
+                  closed_at: 2026-09-15T13:12:40Z
+                  body: Fixes device flow on GHES.
+        output:
+          events:
+            - kind: incident-opened
+              ref: incident-opened
+              at: 2026-09-15T14:00:00Z
+              title: gh auth login fails with 502 for Enterprise hosts
+            - kind: incident-resolved
+              ref: incident-resolved
+              at: 2026-09-15T15:40:00Z
+              title: gh auth login fails with 502 for Enterprise hosts
+            - kind: commit
+              ref: 8f2a1c3d4e5f60718293a4b5c6d7e8f901a2b3c4
+              at: 2026-09-15T13:12:40Z
+              title: Use host-scoped OAuth endpoint in auth login (#9912)
+            - kind: commit
+              ref: 1b9e7d5c3a1f0e2d4c6b8a0f9e7d5c3b1a2f4e6d
+              at: 2026-09-14T18:05:21Z
+              title: Bump golang.org/x/net to 0.47.0
+            - kind: pull
+              ref: "#9912"
+              at: 2026-09-15T13:12:40Z
+              title: Use host-scoped OAuth endpoint in auth login
+          commits_listed: 2
+          pulls_listed: 1
+          pulls_matched: 1
+          pulls_incomplete: false
+        expect: pass
+      - step: analyse
+        output:
+          entries:
+            - ref: 1b9e7d5c3a1f0e2d4c6b8a0f9e7d5c3b1a2f4e6d
+              summary: Dependency bump of golang.org/x/net.
+            - ref: 8f2a1c3d4e5f60718293a4b5c6d7e8f901a2b3c4
+              summary: Auth login switches to the host-scoped OAuth endpoint.
+            - ref: "#9912"
+              summary: Pull request for the OAuth endpoint change merged.
+            - ref: incident-opened
+              summary: "Incident opened: GHES logins fail with 502."
+          suspects:
+            - ref: 8f2a1c3d4e5f60718293a4b5c6d7e8f901a2b3c4
+              reason: Changed the login endpoint 47 minutes before GHES logins began failing.
+            - ref: "#9912"
+              reason: The pull request that merged that change.
+          summary: INC0010042 began 47 minutes after 8f2a1c3d4e5f60718293a4b5c6d7e8f901a2b3c4 (#9912) moved auth login to a host-scoped OAuth endpoint, which GHES hosts do not serve. The x/net bump 1b9e7d5c3a1f0e2d4c6b8a0f9e7d5c3b1a2f4e6d is unrelated.
+        expect:
+          fail:
+            - timeline-is-the-evidence
+      - step: analyse
+        output:
+          entries:
+            - ref: 8f2a1c3d4e5f60718293a4b5c6d7e8f901a2b3c4
+              summary: Auth login switches to the host-scoped OAuth endpoint.
+            - ref: 1b9e7d5c3a1f0e2d4c6b8a0f9e7d5c3b1a2f4e6d
+              summary: Dependency bump of golang.org/x/net.
+            - ref: "#9912"
+              summary: Pull request for the OAuth endpoint change merged.
+            - ref: incident-opened
+              summary: "Incident opened: GHES logins fail with 502."
+            - ref: incident-resolved
+              summary: Incident resolved.
+          suspects:
+            - ref: 8f2a1c3d4e5f60718293a4b5c6d7e8f901a2b3c4
+              reason: Changed the login endpoint 47 minutes before GHES logins began failing.
+            - ref: "#9912"
+              reason: The pull request that merged that change.
+          summary: INC0010042 began 47 minutes after 8f2a1c3d4e5f60718293a4b5c6d7e8f901a2b3c4 (#9912) moved auth login to a host-scoped OAuth endpoint, which GHES hosts do not serve. The x/net bump 1b9e7d5c3a1f0e2d4c6b8a0f9e7d5c3b1a2f4e6d is unrelated.
+        expect:
+          fail:
+            - timeline-sorted
+  - name: an invented suspect or a cited change nobody listed is rejected
+    inputs:
+      incident_number: INC0010042
+      owner: cli
+      repo: cli
+      branch: trunk
+      lookback_hours: 24
+    steps:
+      - step: incident
+        calls:
+          - tool: findIncident
+            arguments:
+              sysparm_query: number=INC0010042
+            result:
+              result:
+                - sys_id: 9d385017c611228701d22104cc95c371
+                  number: INC0010042
+                  short_description: gh auth login fails with 502 for Enterprise hosts
+                  state: "6"
+                  priority: "2"
+                  opened_at: 2026-09-15 14:00:00
+                  resolved_at: 2026-09-15 15:40:00
+          - tool: getIncidentNotes
+            arguments:
+              sys_id: 9d385017c611228701d22104cc95c371
+            result:
+              result:
+                sys_id: 9d385017c611228701d22104cc95c371
+                number: INC0010042
+                assignment_group: CLI Platform
+                work_notes: |+
+                  2026-09-15 14:20:11 - Jane Ops (Work notes)
+                  Logins to GHES hosts fail since the 13:30 release; github.com is fine.
+
+        output:
+          sys_id: 9d385017c611228701d22104cc95c371
+          short_description: gh auth login fails with 502 for Enterprise hosts
+          state: "6"
+          priority: "2"
+          opened_at: 2026-09-15T14:00:00Z
+          resolved_at: 2026-09-15T15:40:00Z
+          assignment_group: CLI Platform
+          work_notes: |+
+            2026-09-15 14:20:11 - Jane Ops (Work notes)
+            Logins to GHES hosts fail since the 13:30 release; github.com is fine.
+
+          window_start: 2026-09-14T14:00:00Z
+          window_end: 2026-09-15T14:00:00Z
+        expect: pass
+      - step: changes
+        calls:
+          - tool: listCommits
+            arguments:
+              owner: cli
+              repo: cli
+              sha: trunk
+              since: 2026-09-14T14:00:00Z
+              until: 2026-09-15T14:00:00Z
+            result:
+              - sha: 8f2a1c3d4e5f60718293a4b5c6d7e8f901a2b3c4
+                commit:
+                  author:
+                    name: Mona
+                    email: mona@example.com
+                    date: 2026-09-15T13:10:02Z
+                  committer:
+                    name: GitHub
+                    email: noreply@github.com
+                    date: 2026-09-15T13:12:40Z
+                  message: |-
+                    Use host-scoped OAuth endpoint in auth login (#9912)
+
+                    Routes the device flow through the configured host.
+                html_url: https://github.com/cli/cli/commit/8f2a1c3d4e5f60718293a4b5c6d7e8f901a2b3c4
+              - sha: 1b9e7d5c3a1f0e2d4c6b8a0f9e7d5c3b1a2f4e6d
+                commit:
+                  author:
+                    name: Hubot
+                    email: hubot@example.com
+                    date: 2026-09-14T18:01:00Z
+                  committer:
+                    name: GitHub
+                    email: noreply@github.com
+                    date: 2026-09-14T18:05:21Z
+                  message: Bump golang.org/x/net to 0.47.0
+                html_url: https://github.com/cli/cli/commit/1b9e7d5c3a1f0e2d4c6b8a0f9e7d5c3b1a2f4e6d
+          - tool: searchPullRequests
+            arguments:
+              q: repo:cli/cli is:pr is:merged base:trunk merged:2026-09-14T14:00:00Z..2026-09-15T14:00:00Z
+            result:
+              total_count: 1
+              incomplete_results: false
+              items:
+                - url: https://api.github.com/repos/cli/cli/issues/9912
+                  repository_url: https://api.github.com/repos/cli/cli
+                  html_url: https://github.com/cli/cli/pull/9912
+                  number: 9912
+                  title: Use host-scoped OAuth endpoint in auth login
+                  state: closed
+                  pull_request:
+                    url: https://api.github.com/repos/cli/cli/pulls/9912
+                    html_url: https://github.com/cli/cli/pull/9912
+                    merged_at: 2026-09-15T13:12:40Z
+                  closed_at: 2026-09-15T13:12:40Z
+                  body: Fixes device flow on GHES.
+        output:
+          events:
+            - kind: incident-opened
+              ref: incident-opened
+              at: 2026-09-15T14:00:00Z
+              title: gh auth login fails with 502 for Enterprise hosts
+            - kind: incident-resolved
+              ref: incident-resolved
+              at: 2026-09-15T15:40:00Z
+              title: gh auth login fails with 502 for Enterprise hosts
+            - kind: commit
+              ref: 8f2a1c3d4e5f60718293a4b5c6d7e8f901a2b3c4
+              at: 2026-09-15T13:12:40Z
+              title: Use host-scoped OAuth endpoint in auth login (#9912)
+            - kind: commit
+              ref: 1b9e7d5c3a1f0e2d4c6b8a0f9e7d5c3b1a2f4e6d
+              at: 2026-09-14T18:05:21Z
+              title: Bump golang.org/x/net to 0.47.0
+            - kind: pull
+              ref: "#9912"
+              at: 2026-09-15T13:12:40Z
+              title: Use host-scoped OAuth endpoint in auth login
+          commits_listed: 2
+          pulls_listed: 1
+          pulls_matched: 1
+          pulls_incomplete: false
+        expect: pass
+      - step: analyse
+        output:
+          entries:
+            - ref: 1b9e7d5c3a1f0e2d4c6b8a0f9e7d5c3b1a2f4e6d
+              summary: Dependency bump of golang.org/x/net.
+            - ref: 8f2a1c3d4e5f60718293a4b5c6d7e8f901a2b3c4
+              summary: Auth login switches to the host-scoped OAuth endpoint.
+            - ref: "#9912"
+              summary: Pull request for the OAuth endpoint change merged.
+            - ref: incident-opened
+              summary: "Incident opened: GHES logins fail with 502."
+            - ref: incident-resolved
+              summary: Incident resolved.
+          suspects:
+            - ref: deadbeefdeadbeefdeadbeefdeadbeefdeadbeef
+              reason: Looks risky.
+          summary: INC0010042 began 47 minutes after 8f2a1c3d4e5f60718293a4b5c6d7e8f901a2b3c4 (#9912) moved auth login to a host-scoped OAuth endpoint, which GHES hosts do not serve. The x/net bump 1b9e7d5c3a1f0e2d4c6b8a0f9e7d5c3b1a2f4e6d is unrelated.
+        expect:
+          fail:
+            - suspects-are-changes
+            - summary-names-suspects
+      - step: analyse
+        output:
+          entries:
+            - ref: 1b9e7d5c3a1f0e2d4c6b8a0f9e7d5c3b1a2f4e6d
+              summary: Dependency bump of golang.org/x/net.
+            - ref: 8f2a1c3d4e5f60718293a4b5c6d7e8f901a2b3c4
+              summary: Auth login switches to the host-scoped OAuth endpoint.
+            - ref: "#9912"
+              summary: Pull request for the OAuth endpoint change merged.
+            - ref: incident-opened
+              summary: "Incident opened: GHES logins fail with 502."
+            - ref: incident-resolved
+              summary: Incident resolved.
+          suspects:
+            - ref: 8f2a1c3d4e5f60718293a4b5c6d7e8f901a2b3c4
+              reason: Changed the login endpoint 47 minutes before GHES logins began failing.
+            - ref: "#9912"
+              reason: The pull request that merged that change.
+          summary: "INC0010042 began 47 minutes after 8f2a1c3d4e5f60718293a4b5c6d7e8f901a2b3c4 (#9912) moved auth login to a host-scoped OAuth endpoint, which GHES hosts do not serve. The x/net bump 1b9e7d5c3a1f0e2d4c6b8a0f9e7d5c3b1a2f4e6d is unrelated. See also deadbeefdeadbeefdeadbeefdeadbeefdeadbeef and #9000."
+        expect:
+          fail:
+            - summary-cites-changes
+      - step: analyse
+        output:
+          entries:
+            - ref: 1b9e7d5c3a1f0e2d4c6b8a0f9e7d5c3b1a2f4e6d
+              summary: Dependency bump of golang.org/x/net.
+            - ref: 8f2a1c3d4e5f60718293a4b5c6d7e8f901a2b3c4
+              summary: Auth login switches to the host-scoped OAuth endpoint.
+            - ref: "#9912"
+              summary: Pull request for the OAuth endpoint change merged.
+            - ref: incident-opened
+              summary: "Incident opened: GHES logins fail with 502."
+            - ref: incident-resolved
+              summary: Incident resolved.
+          suspects:
+            - ref: 8f2a1c3d4e5f60718293a4b5c6d7e8f901a2b3c4
+              reason: Changed the login endpoint 47 minutes before GHES logins began failing.
+            - ref: "#9912"
+              reason: The pull request that merged that change.
+          summary: "The OAuth change 8f2a1c3d4e5f60718293a4b5c6d7e8f901a2b3c4 in #9912 broke GHES logins."
+        expect:
+          fail:
+            - summary-names-incident
+  - name: a window with more pull requests than one page stops the run
+    inputs:
+      incident_number: INC0010042
+      owner: cli
+      repo: cli
+      branch: trunk
+      lookback_hours: 24
+    steps:
+      - step: incident
+        calls:
+          - tool: findIncident
+            arguments:
+              sysparm_query: number=INC0010042
+            result:
+              result:
+                - sys_id: 9d385017c611228701d22104cc95c371
+                  number: INC0010042
+                  short_description: gh auth login fails with 502 for Enterprise hosts
+                  state: "6"
+                  priority: "2"
+                  opened_at: 2026-09-15 14:00:00
+                  resolved_at: 2026-09-15 15:40:00
+          - tool: getIncidentNotes
+            arguments:
+              sys_id: 9d385017c611228701d22104cc95c371
+            result:
+              result:
+                sys_id: 9d385017c611228701d22104cc95c371
+                number: INC0010042
+                assignment_group: CLI Platform
+                work_notes: |+
+                  2026-09-15 14:20:11 - Jane Ops (Work notes)
+                  Logins to GHES hosts fail since the 13:30 release; github.com is fine.
+
+        output:
+          sys_id: 9d385017c611228701d22104cc95c371
+          short_description: gh auth login fails with 502 for Enterprise hosts
+          state: "6"
+          priority: "2"
+          opened_at: 2026-09-15T14:00:00Z
+          resolved_at: 2026-09-15T15:40:00Z
+          assignment_group: CLI Platform
+          work_notes: |+
+            2026-09-15 14:20:11 - Jane Ops (Work notes)
+            Logins to GHES hosts fail since the 13:30 release; github.com is fine.
+
+          window_start: 2026-09-14T14:00:00Z
+          window_end: 2026-09-15T14:00:00Z
+        expect: pass
+      - step: changes
+        calls:
+          - tool: listCommits
+            arguments:
+              owner: cli
+              repo: cli
+              sha: trunk
+              since: 2026-09-14T14:00:00Z
+              until: 2026-09-15T14:00:00Z
+            result:
+              - sha: 8f2a1c3d4e5f60718293a4b5c6d7e8f901a2b3c4
+                commit:
+                  author:
+                    name: Mona
+                    email: mona@example.com
+                    date: 2026-09-15T13:10:02Z
+                  committer:
+                    name: GitHub
+                    email: noreply@github.com
+                    date: 2026-09-15T13:12:40Z
+                  message: |-
+                    Use host-scoped OAuth endpoint in auth login (#9912)
+
+                    Routes the device flow through the configured host.
+                html_url: https://github.com/cli/cli/commit/8f2a1c3d4e5f60718293a4b5c6d7e8f901a2b3c4
+              - sha: 1b9e7d5c3a1f0e2d4c6b8a0f9e7d5c3b1a2f4e6d
+                commit:
+                  author:
+                    name: Hubot
+                    email: hubot@example.com
+                    date: 2026-09-14T18:01:00Z
+                  committer:
+                    name: GitHub
+                    email: noreply@github.com
+                    date: 2026-09-14T18:05:21Z
+                  message: Bump golang.org/x/net to 0.47.0
+                html_url: https://github.com/cli/cli/commit/1b9e7d5c3a1f0e2d4c6b8a0f9e7d5c3b1a2f4e6d
+          - tool: searchPullRequests
+            arguments:
+              q: repo:cli/cli is:pr is:merged base:trunk merged:2026-09-14T14:00:00Z..2026-09-15T14:00:00Z
+            result:
+              total_count: 140
+              incomplete_results: false
+              items:
+                - url: https://api.github.com/repos/cli/cli/issues/9912
+                  repository_url: https://api.github.com/repos/cli/cli
+                  html_url: https://github.com/cli/cli/pull/9912
+                  number: 9912
+                  title: Use host-scoped OAuth endpoint in auth login
+                  state: closed
+                  pull_request:
+                    url: https://api.github.com/repos/cli/cli/pulls/9912
+                    html_url: https://github.com/cli/cli/pull/9912
+                    merged_at: 2026-09-15T13:12:40Z
+                  closed_at: 2026-09-15T13:12:40Z
+                  body: Fixes device flow on GHES.
+        output:
+          events:
+            - kind: incident-opened
+              ref: incident-opened
+              at: 2026-09-15T14:00:00Z
+              title: gh auth login fails with 502 for Enterprise hosts
+            - kind: incident-resolved
+              ref: incident-resolved
+              at: 2026-09-15T15:40:00Z
+              title: gh auth login fails with 502 for Enterprise hosts
+            - kind: commit
+              ref: 8f2a1c3d4e5f60718293a4b5c6d7e8f901a2b3c4
+              at: 2026-09-15T13:12:40Z
+              title: Use host-scoped OAuth endpoint in auth login (#9912)
+            - kind: commit
+              ref: 1b9e7d5c3a1f0e2d4c6b8a0f9e7d5c3b1a2f4e6d
+              at: 2026-09-14T18:05:21Z
+              title: Bump golang.org/x/net to 0.47.0
+            - kind: pull
+              ref: "#9912"
+              at: 2026-09-15T13:12:40Z
+              title: Use host-scoped OAuth endpoint in auth login
+          commits_listed: 2
+          pulls_listed: 1
+          pulls_matched: 140
+          pulls_incomplete: false
+        expect:
+          fail:
+            - every-change-listed
+  - name: a window that crosses into the previous month is computed
+    inputs:
+      incident_number: INC0010042
+      owner: cli
+      repo: cli
+      branch: trunk
+      lookback_hours: 72
+    steps:
+      - step: incident
+        calls:
+          - tool: findIncident
+            arguments:
+              sysparm_query: number=INC0010042
+            result:
+              result:
+                - sys_id: 9d385017c611228701d22104cc95c371
+                  number: INC0010042
+                  short_description: gh auth login fails with 502 for Enterprise hosts
+                  state: "6"
+                  priority: "2"
+                  opened_at: 2026-03-01 02:30:00
+                  resolved_at: ""
+          - tool: getIncidentNotes
+            arguments:
+              sys_id: 9d385017c611228701d22104cc95c371
+            result:
+              result:
+                sys_id: 9d385017c611228701d22104cc95c371
+                number: INC0010042
+                assignment_group: CLI Platform
+                work_notes: |+
+                  2026-09-15 14:20:11 - Jane Ops (Work notes)
+                  Logins to GHES hosts fail since the 13:30 release; github.com is fine.
+
+        output:
+          sys_id: 9d385017c611228701d22104cc95c371
+          short_description: gh auth login fails with 502 for Enterprise hosts
+          state: "6"
+          priority: "2"
+          opened_at: 2026-03-01T02:30:00Z
+          resolved_at: null
+          assignment_group: CLI Platform
+          work_notes: |+
+            2026-09-15 14:20:11 - Jane Ops (Work notes)
+            Logins to GHES hosts fail since the 13:30 release; github.com is fine.
+
+          window_start: 2026-02-26T02:30:00Z
+          window_end: 2026-03-01T02:30:00Z
+        expect: pass
+  - name: a window that crosses into the previous year is computed
+    inputs:
+      incident_number: INC0010042
+      owner: cli
+      repo: cli
+      branch: trunk
+      lookback_hours: 1
+    steps:
+      - step: incident
+        calls:
+          - tool: findIncident
+            arguments:
+              sysparm_query: number=INC0010042
+            result:
+              result:
+                - sys_id: 9d385017c611228701d22104cc95c371
+                  number: INC0010042
+                  short_description: gh auth login fails with 502 for Enterprise hosts
+                  state: "6"
+                  priority: "2"
+                  opened_at: 2027-01-01 00:10:00
+                  resolved_at: ""
+          - tool: getIncidentNotes
+            arguments:
+              sys_id: 9d385017c611228701d22104cc95c371
+            result:
+              result:
+                sys_id: 9d385017c611228701d22104cc95c371
+                number: INC0010042
+                assignment_group: CLI Platform
+                work_notes: |+
+                  2026-09-15 14:20:11 - Jane Ops (Work notes)
+                  Logins to GHES hosts fail since the 13:30 release; github.com is fine.
+
+        output:
+          sys_id: 9d385017c611228701d22104cc95c371
+          short_description: gh auth login fails with 502 for Enterprise hosts
+          state: "6"
+          priority: "2"
+          opened_at: 2027-01-01T00:10:00Z
+          resolved_at: null
+          assignment_group: CLI Platform
+          work_notes: |+
+            2026-09-15 14:20:11 - Jane Ops (Work notes)
+            Logins to GHES hosts fail since the 13:30 release; github.com is fine.
+
+          window_start: 2026-12-31T23:10:00Z
+          window_end: 2027-01-01T00:10:00Z
+        expect: pass
+  - name: a window that crosses a leap day is computed
+    inputs:
+      incident_number: INC0010042
+      owner: cli
+      repo: cli
+      branch: trunk
+      lookback_hours: 24
+    steps:
+      - step: incident
+        calls:
+          - tool: findIncident
+            arguments:
+              sysparm_query: number=INC0010042
+            result:
+              result:
+                - sys_id: 9d385017c611228701d22104cc95c371
+                  number: INC0010042
+                  short_description: gh auth login fails with 502 for Enterprise hosts
+                  state: "6"
+                  priority: "2"
+                  opened_at: 2028-03-01 05:00:00
+                  resolved_at: ""
+          - tool: getIncidentNotes
+            arguments:
+              sys_id: 9d385017c611228701d22104cc95c371
+            result:
+              result:
+                sys_id: 9d385017c611228701d22104cc95c371
+                number: INC0010042
+                assignment_group: CLI Platform
+                work_notes: |+
+                  2026-09-15 14:20:11 - Jane Ops (Work notes)
+                  Logins to GHES hosts fail since the 13:30 release; github.com is fine.
+
+        output:
+          sys_id: 9d385017c611228701d22104cc95c371
+          short_description: gh auth login fails with 502 for Enterprise hosts
+          state: "6"
+          priority: "2"
+          opened_at: 2028-03-01T05:00:00Z
+          resolved_at: null
+          assignment_group: CLI Platform
+          work_notes: |+
+            2026-09-15 14:20:11 - Jane Ops (Work notes)
+            Logins to GHES hosts fail since the 13:30 release; github.com is fine.
+
+          window_start: 2028-02-29T05:00:00Z
+          window_end: 2028-03-01T05:00:00Z
+        expect: pass

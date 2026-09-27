@@ -279,6 +279,12 @@
                   "select": {
                     "$ref": "#/$defs/predicate",
                     "description": "A JSONLogic expression over the operation's result; the client sees only what it returns, while gates still see the full result."
+                  },
+                  "effect": {
+                    "enum": [
+                      "read"
+                    ],
+                    "description": "Declares that the operation changes nothing, such as a search sent as POST, so Stepgate retries it as it does a GET and the catalog does not count it as a write."
                   }
                 },
                 "minProperties": 2
@@ -309,9 +315,7 @@
       "type": "object",
       "required": [
         "id",
-        "instructions",
-        "produces",
-        "gates"
+        "produces"
       ],
       "additionalProperties": false,
       "properties": {
@@ -321,6 +325,58 @@
         "instructions": {
           "type": "string",
           "minLength": 1
+        },
+        "do": {
+          "type": "object",
+          "description": "Makes this a mechanical step: Stepgate makes the calls in order and computes the output, and the client is never shown it.",
+          "required": [
+            "output"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "calls": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "required": [
+                  "id",
+                  "operation"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "id": {
+                    "$ref": "#/$defs/identifier"
+                  },
+                  "operation": {
+                    "$ref": "#/$defs/toolName"
+                  },
+                  "arguments": {
+                    "type": "object",
+                    "description": "A template per argument: expressions over inputs, steps and responses of earlier calls."
+                  },
+                  "each": {
+                    "$ref": "#/$defs/predicate",
+                    "description": "An expression giving an array; the call is made once per element, with item bound in arguments, and its response is the list of results."
+                  },
+                  "accept": {
+                    "type": "array",
+                    "minItems": 1,
+                    "uniqueItems": true,
+                    "items": {
+                      "type": "integer",
+                      "minimum": 400,
+                      "maximum": 599
+                    },
+                    "description": "HTTP error statuses of an OpenAPI operation to keep as the call's response instead of stopping the run, such as a 404 that answers whether something exists."
+                  }
+                }
+              }
+            },
+            "output": {
+              "description": "A template over inputs, steps and responses, whose value is the step's output."
+            }
+          }
         },
         "tools": {
           "type": "array",
@@ -351,6 +407,24 @@
           "minimum": 0,
           "maximum": 5,
           "default": 0
+        },
+        "derive": {
+          "type": "object",
+          "description": "Output fields Stepgate computes after the client submits, each a JSONLogic expression; the client is not asked for them.",
+          "minProperties": 1,
+          "additionalProperties": {
+            "$ref": "#/$defs/predicate"
+          }
+        },
+        "let": {
+          "type": "object",
+          "description": "Named JSONLogic expressions, evaluated in order once per submission; gates, explain and later entries read them as let.<name>.",
+          "propertyNames": {
+            "$ref": "#/$defs/identifier"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/predicate"
+          }
         },
         "when": {
           "$ref": "#/$defs/predicate"

@@ -86,7 +86,8 @@ async function prepareMcpTool(
       call: async (name, args) => {
         try {
           const result = await client.callTool({ name, arguments: args });
-          return { content: describeContent(result), isError: result.isError === true, status: null };
+          const content = describeContent(result);
+          return { content, body: content, isError: result.isError === true, status: null };
         } catch (error) {
           if (error instanceof StepgateError) {
             throw error;

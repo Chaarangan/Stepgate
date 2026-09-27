@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
+import { parse as parseYaml, stringify } from "yaml";
 import { catalogDirectory, catalogProblems, entryProblems, listCatalog } from "../src/catalog.ts";
 import { parseCases, testGates } from "../src/gate-test.ts";
 
@@ -70,7 +71,8 @@ describe("catalog", () => {
       const problems = entryProblems(CATALOG, domain, id);
       expect(problems).toContain("README.md still has TODO( markers from the template");
       expect(problems).toContain(`${id}.stepfile.yaml still has TODO( markers from the template`);
-      expect(problems.filter((problem) => !problem.includes("TODO("))).toEqual([]);
+      expect(problems).toContain(`${id}.cases.yaml is missing; record a run with --record-cases, or write one, so CI tests the gates offline`);
+      expect(problems.filter((problem) => !problem.includes("TODO(") && !problem.includes(".cases.yaml is missing"))).toEqual([]);
     } finally {
       rmSync(new URL(`${domain}/`, CATALOG), { recursive: true, force: true });
     }
@@ -91,6 +93,39 @@ describe("catalog", () => {
       "id is something-else, but the folder is market-research",
       "tool tavily must use a public https URL, not http://localhost:8080/mcp",
     ]);
+  });
+
+  it("refuses a write outside a mechanical step that follows an approved agent step", () => {
+    const catalog = scratchCatalog();
+    const file = new URL("marketing/market-research/market-research.stepfile.yaml", catalog);
+    const document = parseYaml(readFileSync(file, "utf8")) as { tools: { tavily: { exposes: unknown[] } }; steps: Array<Record<string, unknown>> };
+    document.tools.tavily.exposes = ["tavily_search"];
+    writeFileSync(file, stringify(document));
+    expect(entryProblems(catalog, "marketing", "market-research")).toContain(
+      "step search calls tavily_search, which may write, from an agent step; a write belongs in a mechanical step after an agent step with an approve gate, or declare effect: read if it changes nothing",
+    );
+
+    const send = (query: unknown) => ({ id: "send", do: { calls: [{ id: "post", operation: "tavily_search", arguments: { query } }], output: {} }, produces: { type: "object" } });
+    document.tools.tavily.exposes = [{ name: "tavily_search", effect: "read" }, "tavily_extract"];
+    document.steps.push({ ...send({ var: "steps.report.summary" }), do: { calls: [{ id: "post", operation: "tavily_extract", arguments: { urls: [{ var: "steps.report.summary" }] } }], output: {} } });
+    writeFileSync(file, stringify(document));
+    expect(entryProblems(catalog, "marketing", "market-research")).toContain("step send writes with tavily_extract, but the agent step before it, report, has no approve gate");
+
+    const report = document.steps.find((step) => step.id === "report") as { gates: unknown[] };
+    report.gates.push({ id: "approved", approve: { message: "Send it?" } });
+    (document.steps.at(-1) as { do: { calls: Array<{ arguments: unknown }> } }).do.calls = [
+      { id: "first", operation: "tavily_search", arguments: { query: "x" } } as never,
+      { id: "post", operation: "tavily_extract", arguments: { urls: [{ var: "responses.first.results" }] } } as never,
+    ];
+    writeFileSync(file, stringify(document));
+    expect(entryProblems(catalog, "marketing", "market-research")).toContain("step send writes with tavily_extract from responses.first, but a write may use only inputs, settings and earlier steps' outputs, which the person approved");
+  });
+
+  it("requires a cases file beside every catalog stepfile", () => {
+    const catalog = scratchCatalog();
+    rmSync(new URL("marketing/market-research/market-research.cases.yaml", catalog));
+
+    expect(entryProblems(catalog, "marketing", "market-research")).toContain("market-research.cases.yaml is missing; record a run with --record-cases, or write one, so CI tests the gates offline");
   });
 
   it("rejects an id used in two domains and a stepfile outside an entry folder", () => {

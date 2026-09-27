@@ -1,0 +1,218 @@
+# Recorded calls and outputs for `stepgate --test github-release-to-customers`, shaped like GitHub's,
+# HubSpot's and Gmail's documented responses and trimmed to the fields the steps read.
+cases:
+  - name: a release announced to two contacts passes every gate
+    inputs: &inputs
+      owner: octo-org
+      repo: hello-world
+      tag: v1.4.0
+      previous_tag: v1.3.0
+      contact_property: lifecyclestage
+      contact_value: customer
+      operator_email: ops@example.com
+    steps:
+      - &releases
+        step: releases
+        calls:
+          - tool: getReleaseByTag
+            arguments: { owner: octo-org, repo: hello-world, tag: v1.4.0 }
+            result: { id: 2, tag_name: v1.4.0, name: v1.4.0, draft: false, prerelease: false, html_url: "https://github.com/octo-org/hello-world/releases/tag/v1.4.0", created_at: "2026-09-14T09:05:41Z", published_at: "2026-09-14T09:20:00Z" }
+          - tool: getReleaseByTag
+            arguments: { owner: octo-org, repo: hello-world, tag: v1.3.0 }
+            result: { id: 1, tag_name: v1.3.0, name: v1.3.0, draft: false, prerelease: false, html_url: "https://github.com/octo-org/hello-world/releases/tag/v1.3.0", created_at: "2026-08-03T16:20:11Z", published_at: "2026-08-03T16:30:00Z" }
+        output:
+          name: v1.4.0
+          html_url: "https://github.com/octo-org/hello-world/releases/tag/v1.4.0"
+          created_at: "2026-09-14T09:05:41Z"
+          previous_created_at: "2026-08-03T16:20:11Z"
+          window_start: "2026-08-03T16:20:13Z"
+          window_end: "2026-09-14T09:05:42Z"
+        expect: pass
+      - &pulls
+        step: pulls
+        calls:
+          - tool: searchPullRequests
+            arguments: { q: "repo:octo-org/hello-world is:pr is:merged merged:2026-08-03T16:20:13Z..2026-09-14T09:05:42Z", per_page: 100, page: 1 }
+            result:
+              total_count: 3
+              incomplete_results: false
+              items:
+                - { number: 412, title: Add CSV export to reports, state: closed, repository_url: "https://api.github.com/repos/octo-org/hello-world", pull_request: { merged_at: "2026-09-14T09:05:42Z" } }
+                - { number: 405, title: Fix timezone in scheduled emails, state: closed, repository_url: "https://api.github.com/repos/octo-org/hello-world", pull_request: { merged_at: "2026-08-20T11:02:09Z" } }
+                - { number: 401, title: Bump eslint from 9.1.0 to 9.2.0, state: closed, repository_url: "https://api.github.com/repos/octo-org/hello-world", pull_request: { merged_at: "2026-08-05T08:44:30Z" } }
+        output:
+          pulls:
+            - { number: 412, title: Add CSV export to reports, merged_at: "2026-09-14T09:05:42Z" }
+            - { number: 405, title: Fix timezone in scheduled emails, merged_at: "2026-08-20T11:02:09Z" }
+            - { number: 401, title: Bump eslint from 9.1.0 to 9.2.0, merged_at: "2026-08-05T08:44:30Z" }
+        expect: pass
+      - &notes
+        step: notes
+        output:
+          items:
+            - { number: 412, customer_text: Export any report as a CSV file. }
+            - { number: 405, customer_text: Scheduled emails now go out at the right local time. }
+          excluded:
+            - { number: 401, reason: Development dependency bump }
+          notes_markdown: |
+            ## What's new in v1.4.0
+            - Export any report as a CSV file. (#412)
+            - Scheduled emails now go out at the right local time. (#405)
+        expect: pass
+      - &audience
+        step: audience
+        calls:
+          - tool: searchContacts
+            arguments:
+              body:
+                filterGroups: [{ filters: [{ propertyName: lifecyclestage, operator: EQ, value: customer }] }]
+                properties: [email, firstname, lastname]
+                limit: 200
+            result:
+              total: 3
+              results:
+                - { id: "101", properties: { email: Ana@Example.com, firstname: Ana, lastname: Silva, hs_object_id: "101" }, createdAt: "2026-01-10T12:00:00.000Z", updatedAt: "2026-05-01T09:00:00.000Z", archived: false }
+                - { id: "102", properties: { email: ben@example.org, firstname: Ben, lastname: null, hs_object_id: "102" }, createdAt: "2026-02-11T12:00:00.000Z", updatedAt: "2026-05-02T09:00:00.000Z", archived: false }
+                - { id: "103", properties: { email: null, firstname: Chen, lastname: Li, hs_object_id: "103" }, createdAt: "2026-03-12T12:00:00.000Z", updatedAt: "2026-05-03T09:00:00.000Z", archived: false }
+        output:
+          contacts:
+            - { id: "101", email: Ana@Example.com, firstname: Ana, lastname: Silva }
+            - { id: "102", email: ben@example.org, firstname: Ben, lastname: null }
+          without_email: ["103"]
+        expect: pass
+      - &email
+        step: email
+        output:
+          subject: "Release v1.4.0: CSV export and a scheduling fix"
+          body: &body |
+            Hi, here are the customer notes for v1.4.0 to review and send.
+
+            ## What's new in v1.4.0
+            - Export any report as a CSV file. (#412)
+            - Scheduled emails now go out at the right local time. (#405)
+
+            Recipients
+            Ana@Example.com
+            ben@example.org
+        expect: pass
+      - step: draft
+        calls:
+          - tool: createDraft
+            arguments: { body: "To: ops@example.com\r\nSubject: Release v1.4.0: CSV export and a scheduling fix\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8\r\nContent-Transfer-Encoding: 8bit\r\n\r\nHi, here are the customer notes for v1.4.0 to review and send.\r\n\r\n## What's new in v1.4.0\r\n- Export any report as a CSV file. (#412)\r\n- Scheduled emails now go out at the right local time. (#405)\r\n\r\nRecipients\r\nAna@Example.com\r\nben@example.org\r\n" }
+            result: { id: r-5820367713204739123, message: { id: 19a3f2c4d5e6f708, threadId: 19a3f2c4d5e6f708, labelIds: [DRAFT] } }
+        output: { draft_id: r-5820367713204739123, message_id: 19a3f2c4d5e6f708 }
+        expect: pass
+
+  - name: a search GitHub reports as incomplete is rejected
+    inputs: *inputs
+    steps:
+      - *releases
+      - step: pulls
+        calls:
+          - tool: searchPullRequests
+            arguments: { q: "repo:octo-org/hello-world is:pr is:merged merged:2026-08-03T16:20:13Z..2026-09-14T09:05:42Z", per_page: 100, page: 1 }
+            result:
+              total_count: 3
+              incomplete_results: true
+              items:
+                - { number: 412, title: Add CSV export to reports, pull_request: { merged_at: "2026-09-14T09:05:42Z" } }
+                - { number: 405, title: Fix timezone in scheduled emails, pull_request: { merged_at: "2026-08-20T11:02:09Z" } }
+        output:
+          pulls:
+            - { number: 412, title: Add CSV export to reports, merged_at: "2026-09-14T09:05:42Z" }
+            - { number: 405, title: Fix timezone in scheduled emails, merged_at: "2026-08-20T11:02:09Z" }
+        expect: { fail: [pulls-complete] }
+
+  - name: notes that leave a pull request unsorted are rejected
+    inputs: *inputs
+    steps:
+      - *releases
+      - *pulls
+      - step: notes
+        output:
+          items:
+            - { number: 412, customer_text: Export any report as a CSV file. }
+          excluded:
+            - { number: 401, reason: Development dependency bump }
+          notes_markdown: "## What's new in v1.4.0\n- Export any report as a CSV file. (#412)\n"
+        expect: { fail: [every-pull-sorted-once] }
+
+  - name: notes citing an excluded pull request are rejected
+    inputs: *inputs
+    steps:
+      - *releases
+      - *pulls
+      - step: notes
+        output:
+          items:
+            - { number: 412, customer_text: Export any report as a CSV file. }
+            - { number: 405, customer_text: Scheduled emails now go out at the right local time. }
+          excluded:
+            - { number: 401, reason: Development dependency bump }
+          notes_markdown: "## What's new\n- Export any report as a CSV file. (#412)\n- Scheduled emails fixed. (#405)\n- Faster linting. (#401)\n"
+        expect: { fail: [notes-name-the-tag, notes-cite-items] }
+
+  - name: a filter matching more contacts than one page holds is rejected
+    inputs: *inputs
+    steps:
+      - *releases
+      - *pulls
+      - *notes
+      - step: audience
+        calls:
+          - tool: searchContacts
+            arguments:
+              body:
+                filterGroups: [{ filters: [{ propertyName: lifecyclestage, operator: EQ, value: customer }] }]
+                properties: [email, firstname, lastname]
+                limit: 200
+            result:
+              total: 201
+              results:
+                - { id: "101", properties: { email: Ana@Example.com, firstname: Ana, lastname: Silva } }
+              paging: { next: { after: "200" } }
+        output:
+          contacts:
+            - { id: "101", email: Ana@Example.com, firstname: Ana, lastname: Silva }
+          without_email: []
+        expect: { fail: [every-contact-fetched] }
+
+  - name: an email that drops a recipient and cites an unknown pull request is rejected
+    inputs: *inputs
+    steps:
+      - *releases
+      - *pulls
+      - *notes
+      - *audience
+      - step: email
+        output:
+          subject: "Release v1.4.0"
+          body: "Notes for v1.4.0.\n- CSV export. (#412)\n- Timezone fix. (#405)\n- Also #999.\n\nRecipients\nana@example.com\n"
+        expect: { fail: [body-cites-the-notes, body-lists-recipients] }
+
+  - name: a subject carrying a second header line is refused by the schema
+    inputs: *inputs
+    steps:
+      - *releases
+      - *pulls
+      - *notes
+      - *audience
+      - step: email
+        output:
+          subject: "Release v1.4.0\r\nBcc: list@example.com"
+          body: *body
+        expect: { fail: [produces] }
+
+  - name: an email that submits its own raw message is refused
+    inputs: *inputs
+    steps:
+      - *releases
+      - *pulls
+      - *notes
+      - *audience
+      - step: email
+        output:
+          subject: "Release v1.4.0: CSV export and a scheduling fix"
+          body: *body
+          raw: "To: someone-else@example.com\r\n\r\nHi\r\n"
+        expect: { fail: [derive] }

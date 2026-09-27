@@ -9,6 +9,83 @@ A **stepfile** declares its inputs, the remote APIs and MCP servers it may call,
 
 **Stepgate** runs stepfiles. It is an MCP server that offers each stepfile as a tool. When a client's agent calls it, Stepgate shows the agent one step at a time, makes every API call the step needs, and moves on only when the step's gates pass.
 
+## Make the procedure you already wrote enforceable
+
+A skill or runbook written as markdown tells an agent what to do, and the agent decides how much of it to follow. Here is one:
+
+```markdown
+---
+name: package-notes
+description: Writes an upgrade note for each npm package, with versions taken from the registry.
+---
+1. Look up each package's latest version on the npm registry.
+2. Write a one-line upgrade note for each. Never state a version the registry did not return.
+```
+
+`stepgate_outline` turns it into a skeleton, and the finished stepfile makes both lines binding. Stepgate does the lookup itself, so the agent never fetches or copies a version. The agent only writes the notes, and a gate rejects any note whose version differs from what the registry returned, naming the rows that broke it:
+
+```yaml
+stepgate: "1"
+id: package-notes
+description: Writes an upgrade note for each npm package, with versions taken from the registry.
+inputs:
+  type: object
+  required: [packages]
+  properties:
+    packages: { type: array, minItems: 1, maxItems: 20, items: { type: string, pattern: "^[a-z0-9][a-z0-9._-]*$" } }
+tools:
+  npm:
+    openapi:
+      server: https://registry.npmjs.org
+      document:
+        openapi: 3.1.0
+        info: { title: npm registry, version: "1" }
+        paths:
+          /{name}/latest:
+            get:
+              operationId: getLatest
+              parameters: [{ name: name, in: path, required: true, schema: { type: string } }]
+    exposes: [getLatest]
+steps:
+  - id: look-up
+    do:
+      calls:
+        - id: latest
+          operation: getLatest
+          each: { var: inputs.packages }
+          arguments: { name: { var: item } }
+      output:
+        packages: { map: [{ var: responses.latest }, { object: [[name, { var: name }], [latest, { var: version }]] }] }
+    produces:
+      type: object
+      required: [packages]
+      properties: { packages: { type: array } }
+  - id: notes
+    instructions: |
+      Write a one-line upgrade note for each of these packages, saying what
+      its latest version is and whether that is a new major version:
+
+      {{steps.look-up.packages}}
+    produces:
+      type: object
+      required: [notes]
+      properties:
+        notes:
+          type: array
+          items:
+            type: object
+            required: [name, latest, note]
+            properties: { name: { type: string }, latest: { type: string }, note: { type: string } }
+    gates:
+      - id: versions-from-registry
+        message: Every note must give the version the registry returned for its package.
+        predicate:
+          none:
+            - join: [{ var: output.notes }, { var: steps.look-up.packages }, name, name]
+            - or: [{ "==": [{ var: right }, null] }, { "!=": [{ var: left.latest }, { var: right.latest }] }]
+    retries: 2
+```
+
 ## Why
 
 When an agent is handed a plan as text, it decides how much of the plan to follow, a step counts as done when the agent says so, and nothing records afterwards what actually ran. A stepfile moves those decisions out of the model:

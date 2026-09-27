@@ -84,13 +84,13 @@ tools:
             get:
               operationId: searchPullRequests
               summary: >
-                Search pull requests. total_count is the number of matches and items holds one page; in
-                each item number, title and pull_request.merged_at come before the long body text.
+                Search pull requests. total_count is the number of matches and items holds one page;
+                GitHub returns at most 1,000 results a search.
               parameters:
                 - $ref: "#/components/parameters/accept"
                 - $ref: "#/components/parameters/apiVersion"
                 - { name: q, in: query, required: true, schema: { type: string } }
-                - { name: per_page, in: query, required: true, schema: { type: integer, minimum: 1, maximum: 10 } }
+                - { name: per_page, in: query, required: true, schema: { type: integer, minimum: 1, maximum: 100 } }
                 - { name: page, in: query, required: true, schema: { type: integer, minimum: 1 } }
               responses:
                 "200": { description: "total_count, incomplete_results and items" }
@@ -113,8 +113,7 @@ tools:
               operationId: searchContacts
               summary: >
                 Search HubSpot contacts with one filter. Returns total (all matches), results (id and
-                the requested properties per contact) and, when more pages exist, paging.next.after to
-                pass as after on the next call.
+                the requested properties per contact) and, when more pages exist, paging.next.after.
               parameters:
                 - name: objectType
                   in: path
@@ -153,12 +152,13 @@ tools:
                         properties:
                           type: array
                           items: { enum: [email, firstname, lastname] }
-                        limit: { type: integer, minimum: 1, maximum: 50 }
+                        limit: { type: integer, minimum: 1, maximum: 200 }
                         after: { type: string, description: paging.next.after from the previous page }
               responses:
                 "200": { description: "total, results and paging" }
     credential: hubspot
-    exposes: [searchContacts]
+    # HubSpot documents search as retrieving records only; it is a POST so filters fit in a body.
+    exposes: [{ name: searchContacts, effect: read }]
 
   gmail:
     openapi:
@@ -195,21 +195,101 @@ tools:
     credential: gmail
     exposes: [createDraft]
 
+
 steps:
   - id: releases
-    tools: [getReleaseByTag]
-    instructions: |
-      Fetch two releases of GitHub repository {{inputs.owner}}/{{inputs.repo}} with getReleaseByTag:
-      tag "{{inputs.tag}}" and tag "{{inputs.previous_tag}}".
-
-      Submit, copied from the responses: name, html_url and created_at of the release being announced,
-      and previous_created_at, the created_at of the previous one.
-
-      Then compute the merge window, in the same YYYY-MM-DDTHH:MM:SSZ format:
-      - window_start: previous_created_at plus 2 seconds;
-      - window_end: created_at plus 1 second.
-      GitHub records a pull request's merge about a second after its merge commit, so this window holds
-      the pull request whose merge commit is the new release's tag, and not the previous release's one.
+    do:
+      calls:
+        - id: release
+          operation: getReleaseByTag
+          arguments: { owner: { var: inputs.owner }, repo: { var: inputs.repo }, tag: { var: inputs.tag } }
+        - id: previous
+          operation: getReleaseByTag
+          arguments: { owner: { var: inputs.owner }, repo: { var: inputs.repo }, tag: { var: inputs.previous_tag } }
+      # GitHub records a merge about a second after its merge commit, so the window runs from the previous
+      # release's created_at plus 2 seconds to this one's plus 1: this release's own pull request is in, the last one's out.
+      output:
+        name: { var: responses.release.name }
+        html_url: { var: responses.release.html_url }
+        created_at: { var: responses.release.created_at }
+        previous_created_at: { var: responses.previous.created_at }
+        window_start:
+          get:
+            # Each timestamp becomes seconds by days-from-civil (days since 0000-03-01, plus 1), is
+            # shifted, and is turned back by the inverse, civil-from-days; each map binds the next values.
+            - &window
+              map:
+                - map:
+                    - map:
+                        - map:
+                            - map:
+                                - map:
+                                    - map:
+                                        - [[{ var: responses.previous.created_at }, 2], [{ var: responses.release.created_at }, 1]]
+                                        - "+":
+                                            - "*":
+                                                - "+":
+                                                    - "*": [365, &year { "-": [{ "+": [{ substr: [&iso { var: "0" }, 0, 4] }] }, { if: [{ "<=": [&month { "+": [{ substr: [*iso, 5, 2] }] }, 2] }, 1, 0] }] }]
+                                                    - "/": [{ "-": [*year, { "%": [*year, 4] }] }, 4]
+                                                    - "*": [-1, { "/": [{ "-": [*year, { "%": [*year, 100] }] }, 100] }]
+                                                    - "/": [{ "-": [*year, { "%": [*year, 400] }] }, 400]
+                                                    - "/": [{ "-": [&month-days { "+": [{ "*": [153, { "%": [{ "+": [*month, 9] }, 12] }] }, 2] }, { "%": [*month-days, 5] }] }, 5]
+                                                    - "+": [{ substr: [*iso, 8, 2] }]
+                                                - 86400
+                                            - "*": [{ "+": [{ substr: [*iso, 11, 2] }] }, 3600]
+                                            - "*": [{ "+": [{ substr: [*iso, 14, 2] }] }, 60]
+                                            - "+": [{ substr: [*iso, 17, 2] }]
+                                            - var: "1"
+                                    # [z, seconds of day], z counting days from 0000-03-01
+                                    - - "-": [{ "/": [{ "-": [{ var: "" }, { "%": [{ var: "" }, 86400] }] }, 86400] }, 1]
+                                      - "%": [{ var: "" }, 86400]
+                                # [era, day of era, seconds]
+                                - - "/": [{ "-": [{ var: "0" }, { "%": [{ var: "0" }, 146097] }] }, 146097]
+                                  - "%": [{ var: "0" }, 146097]
+                                  - var: "1"
+                            # [era, day of era, year of era, seconds]
+                            - - var: "0"
+                              - var: "1"
+                              - "/":
+                                  - "-":
+                                      - &yoe-days
+                                        "-":
+                                          - "+":
+                                              - "-": [{ var: "1" }, { "/": [{ "-": [{ var: "1" }, { "%": [{ var: "1" }, 1460] }] }, 1460] }]
+                                              - "/": [{ "-": [{ var: "1" }, { "%": [{ var: "1" }, 36524] }] }, 36524]
+                                          - "/": [{ "-": [{ var: "1" }, { "%": [{ var: "1" }, 146096] }] }, 146096]
+                                      - "%": [*yoe-days, 365]
+                                  - 365
+                              - var: "2"
+                        # [year from March, day of year from March, seconds]
+                        - - "+": [{ var: "2" }, { "*": [{ var: "0" }, 400] }]
+                          - "-":
+                              - var: "1"
+                              - "+":
+                                  - "*": [365, { var: "2" }]
+                                  - "/": [{ "-": [{ var: "2" }, { "%": [{ var: "2" }, 4] }] }, 4]
+                                  - "*": [-1, { "/": [{ "-": [{ var: "2" }, { "%": [{ var: "2" }, 100] }] }, 100] }]
+                          - var: "3"
+                    # [year from March, day of year, month from March (0 is March), seconds]
+                    - - var: "0"
+                      - var: "1"
+                      - "/": [{ "-": [&mp-days { "+": [{ "*": [5, { var: "1" }] }, 2] }, { "%": [*mp-days, 153] }] }, 153]
+                      - var: "2"
+                - cat:
+                    - "+": [{ var: "0" }, { if: [{ ">=": [{ var: "2" }, 10] }, 1, 0] }]
+                    - "-"
+                    - substr: [{ cat: ["0", { if: [{ "<": [{ var: "2" }, 10] }, { "+": [{ var: "2" }, 3] }, { "-": [{ var: "2" }, 9] }] }] }, -2]
+                    - "-"
+                    - substr: [{ cat: ["0", { "+": [{ "-": [{ var: "1" }, { "/": [{ "-": [&d-days { "+": [{ "*": [153, { var: "2" }] }, 2] }, { "%": [*d-days, 5] }] }, 5] }] }, 1] }] }, -2]
+                    - "T"
+                    - substr: [{ cat: ["0", { "/": [{ "-": [{ var: "3" }, { "%": [{ var: "3" }, 3600] }] }, 3600] }] }, -2]
+                    - ":"
+                    - substr: [{ cat: ["0", { "/": [{ "-": [{ "%": [{ var: "3" }, 3600] }, { "%": [{ var: "3" }, 60] }] }, 60] }] }, -2]
+                    - ":"
+                    - substr: [{ cat: ["0", { "%": [{ var: "3" }, 60] }] }, -2]
+                    - "Z"
+            - 0
+        window_end: { get: [*window, 1] }
     produces:
       type: object
       required: [name, html_url, created_at, previous_created_at, window_start, window_end]
@@ -222,74 +302,39 @@ steps:
         window_start: { $ref: "#/$defs/utc" }
         window_end: { $ref: "#/$defs/utc" }
     gates:
-      # cat renders null as "", so a release without a name matches a null name in the output.
-      - id: releases-from-github
-        message: >
-          name, html_url and created_at must be copied from getReleaseByTag for the given tag, and
-          previous_created_at from getReleaseByTag for previous_tag, both in the given repository.
-        predicate:
-          and:
-            - in:
-                - cat: [{ lower: { var: inputs.owner } }, "/", { lower: { var: inputs.repo } }, "|", { var: inputs.tag }, "|", { var: output.name }, "|", { var: output.html_url }, "|", { var: output.created_at }]
-                - map:
-                    - filter: [{ var: calls }, { and: [{ "==": [{ var: tool }, getReleaseByTag] }, { "!": { var: is_error } }] }]
-                    - cat: [{ lower: { var: arguments.owner } }, "/", { lower: { var: arguments.repo } }, "|", { var: result.tag_name }, "|", { var: result.name }, "|", { var: result.html_url }, "|", { var: result.created_at }]
-            - in:
-                - cat: [{ lower: { var: inputs.owner } }, "/", { lower: { var: inputs.repo } }, "|", { var: inputs.previous_tag }, "|", { var: output.previous_created_at }]
-                - map:
-                    - filter: [{ var: calls }, { and: [{ "==": [{ var: tool }, getReleaseByTag] }, { "!": { var: is_error } }] }]
-                    - cat: [{ lower: { var: arguments.owner } }, "/", { lower: { var: arguments.repo } }, "|", { var: result.tag_name }, "|", { var: result.created_at }]
       - id: previous-is-older
         message: The previous release must have been made from an older commit than the announced one.
         predicate:
           "<": [{ var: output.previous_created_at }, { var: output.created_at }]
-      # Seconds via a days-from-civil formula (years 1970 to 2099); map converts each pair, reduce subtracts.
-      - id: window-shifted
-        message: window_start must be previous_created_at plus 2 seconds, and window_end created_at plus 1 second.
-        predicate:
-          and:
-            - "==":
-                - reduce:
-                    - map:
-                        - [{ var: output.previous_created_at }, { var: output.window_start }]
-                        - &epoch-seconds
-                          "+":
-                            - "*":
-                                - "+":
-                                    - "*": [365, &march-year { "-": [{ "+": [{ substr: [&iso { var: "" }, 0, 4] }] }, { if: [{ "<=": [&month { "+": [{ substr: [*iso, 5, 2] }] }, 2] }, 1, 0] }] }]
-                                    - "/": [{ "-": [*march-year, { "%": [*march-year, 4] }] }, 4]
-                                    - "*": [-1, { "/": [{ "-": [*march-year, { "%": [*march-year, 100] }] }, 100] }]
-                                    - "/": [{ "-": [*march-year, { "%": [*march-year, 400] }] }, 400]
-                                    - "/": [{ "-": [&month-days { "+": [{ "*": [153, { "%": [{ "+": [*month, 9] }, 12] }] }, 2] }, { "%": [*month-days, 5] }] }, 5]
-                                    - "+": [{ substr: [*iso, 8, 2] }]
-                                - 86400
-                            - "*": [{ "+": [{ substr: [*iso, 11, 2] }] }, 3600]
-                            - "*": [{ "+": [{ substr: [*iso, 14, 2] }] }, 60]
-                            - "+": [{ substr: [*iso, 17, 2] }]
-                    - "-": [{ var: current }, { var: accumulator }]
-                    - 0
-                - 2
-            - "==":
-                - reduce:
-                    - map: [[{ var: output.created_at }, { var: output.window_end }], *epoch-seconds]
-                    - "-": [{ var: current }, { var: accumulator }]
-                    - 0
-                - 1
-    retries: 2
 
   - id: pulls
-    tools: [searchPullRequests]
-    instructions: |
-      List the pull requests merged into {{inputs.owner}}/{{inputs.repo}} for release {{inputs.tag}}.
-
-      Call searchPullRequests with q exactly
-      "repo:{{inputs.owner}}/{{inputs.repo}} is:pr is:merged merged:{{steps.releases.window_start}}..{{steps.releases.window_end}}"
-      and per_page 3, paging until you have read every item up to total_count. If a result is cut short
-      before you can read an item's number, title and pull_request.merged_at, fetch that item alone with
-      per_page 1 and page equal to its position in the full list.
-
-      Submit every pull request once with number, title and merged_at (pull_request.merged_at), copied
-      exactly.
+    do:
+      calls:
+        - id: first
+          operation: searchPullRequests
+          arguments:
+            q: &query { cat: ["repo:", { var: inputs.owner }, "/", { var: inputs.repo }, " is:pr is:merged merged:", { var: steps.releases.window_start }, "..", { var: steps.releases.window_end }] }
+            per_page: 100
+            page: 1
+        # Pages 2 to 10 as total_count needs them; the reduce carries total_count beside the pages kept.
+        - id: rest
+          operation: searchPullRequests
+          each:
+            get:
+              - reduce:
+                  - [2, 3, 4, 5, 6, 7, 8, 9, 10]
+                  - if:
+                      - "<": [{ "*": [{ "-": [{ var: current }, 1] }, 100] }, { var: accumulator.0 }]
+                      - [{ var: accumulator.0 }, { merge: [{ var: accumulator.1 }, [{ var: current }]] }]
+                      - { var: accumulator }
+                  - [{ var: responses.first.total_count }, []]
+              - 1
+          arguments: { q: *query, per_page: 100, page: { var: item } }
+      output:
+        pulls:
+          map:
+            - merge: [{ var: responses.first.items }, { flatten: { map: [{ var: responses.rest }, { var: items }] } }]
+            - object: [[number, { var: number }], [title, { var: title }], [merged_at, { var: pull_request.merged_at }]]
     produces:
       type: object
       required: [pulls]
@@ -306,61 +351,14 @@ steps:
               title: { type: string }
               merged_at: { $ref: "#/$defs/utc" }
     gates:
-      - id: search-matches-window
-        message: >
-          Every searchPullRequests call must use q exactly as instructed, and every item it returned must
-          belong to this repository.
-        predicate:
-          and:
-            - subset:
-                - map: [{ filter: [{ var: calls }, { "==": [{ var: tool }, searchPullRequests] }] }, { var: arguments.q }]
-                - - cat: ["repo:", { var: inputs.owner }, "/", { var: inputs.repo }, " is:pr is:merged merged:", { var: steps.releases.window_start }, "..", { var: steps.releases.window_end }]
-            - subset:
-                - flatten:
-                    map:
-                      - filter: [{ var: calls }, { and: [{ "==": [{ var: tool }, searchPullRequests] }, { "!": { var: is_error } }] }]
-                      - map: [{ var: result.items }, { lower: { var: repository_url } }]
-                - - lower: { cat: ["https://api.github.com/repos/", { var: inputs.owner }, "/", { var: inputs.repo }] }
-      - id: pulls-from-github
-        message: >
-          Every pull request must be one searchPullRequests returned, with number, title and merged_at
-          (pull_request.merged_at) copied exactly.
-        predicate:
-          subset:
-            - map: [{ var: output.pulls }, { cat: [{ var: number }, "|", { var: title }, "|", { var: merged_at }] }]
-            - flatten:
-                map:
-                  - filter: [{ var: calls }, { and: [{ "==": [{ var: tool }, searchPullRequests] }, { "!": { var: is_error } }] }]
-                  - map: [{ var: result.items }, { cat: [{ var: number }, "|", { var: title }, "|", { var: pull_request.merged_at }] }]
       - id: pulls-complete
         message: >
-          List every pull request the search matched, each once: the count must equal total_count, and
-          the search must not report incomplete_results.
+          The search must return every pull request it matched: GitHub returns at most 1,000, and must not
+          report incomplete_results.
         predicate:
           and:
-            - "==": [{ length: { unique: { map: [{ var: output.pulls }, { var: number }] } } }, { length: { var: output.pulls } }]
-            - in:
-                - length: { var: output.pulls }
-                - map:
-                    - filter: [{ var: calls }, { and: [{ "==": [{ var: tool }, searchPullRequests] }, { "!": { var: is_error } }] }]
-                    - var: result.total_count
-            - subset:
-                - map:
-                    - filter: [{ var: calls }, { and: [{ "==": [{ var: tool }, searchPullRequests] }, { "!": { var: is_error } }] }]
-                    - cat: [{ var: result.total_count }, "|", { var: result.incomplete_results }]
-                - - cat: [{ length: { var: output.pulls } }, "|false"]
-      # The reduces start from the window's own ends, so they return the earliest and latest merge listed.
-      - id: pulls-inside-window
-        message: Every pull request must have been merged inside the release window.
-        predicate:
-          and:
-            - ">=":
-                - reduce: [{ var: output.pulls }, { if: [{ "<": [{ var: current.merged_at }, { var: accumulator }] }, { var: current.merged_at }, { var: accumulator }] }, { var: steps.releases.window_end }]
-                - var: steps.releases.window_start
-            - "<=":
-                - reduce: [{ var: output.pulls }, { if: [{ ">": [{ var: current.merged_at }, { var: accumulator }] }, { var: current.merged_at }, { var: accumulator }] }, { var: steps.releases.window_start }]
-                - var: steps.releases.window_end
-    retries: 2
+            - "==": [{ length: { var: output.pulls } }, { var: calls.0.result.total_count }]
+            - none: [{ var: calls }, { var: result.incomplete_results }]
 
   - id: notes
     instructions: |
@@ -370,8 +368,8 @@ steps:
       {{steps.pulls.pulls}}
 
       Sort every pull request into exactly one list:
-      - items: changes a customer would notice (features, fixes, behaviour changes). Give number and
-        title copied exactly, and customer_text: one plain sentence for customers, without internal jargon;
+      - items: changes a customer would notice (features, fixes, behaviour changes), each with number
+        and customer_text: one plain sentence for customers, without internal jargon;
       - excluded: internal work such as dependency bumps, CI, tests and refactoring, with number and a
         short reason.
 
@@ -387,11 +385,10 @@ steps:
           type: array
           items:
             type: object
-            required: [number, title, customer_text]
+            required: [number, customer_text]
             additionalProperties: false
             properties:
               number: { type: integer }
-              title: { type: string }
               customer_text: { type: string, minLength: 1, maxLength: 400 }
         excluded:
           type: array
@@ -403,57 +400,44 @@ steps:
               number: { type: integer }
               reason: { type: string, maxLength: 200 }
         notes_markdown: { type: string, minLength: 1, maxLength: 12000 }
+    let:
+      sorted: { merge: [{ map: [{ var: output.items }, { var: number }] }, { map: [{ var: output.excluded }, { var: number }] }] }
+      items: { map: [{ var: output.items }, { cat: [{ var: number }] }] }
+      cited: { match_all: [{ var: output.notes_markdown }, "#([0-9]+)"] }
     gates:
       - id: every-pull-sorted-once
         message: Every pull request must appear exactly once, in items or in excluded, and no other number may.
         predicate:
           and:
-            - "==":
-                - length: { unique: { merge: [{ map: [{ var: output.items }, { var: number }] }, { map: [{ var: output.excluded }, { var: number }] }] } }
-                - length: { var: steps.pulls.pulls }
-            - "==":
-                - length: { merge: [{ map: [{ var: output.items }, { var: number }] }, { map: [{ var: output.excluded }, { var: number }] }] }
-                - length: { var: steps.pulls.pulls }
-            - subset:
-                - merge: [{ map: [{ var: output.items }, { var: number }] }, { map: [{ var: output.excluded }, { var: number }] }]
-                - map: [{ var: steps.pulls.pulls }, { var: number }]
-      - id: items-from-github
-        message: Each item's title must be the pull request's title from GitHub, copied exactly.
-        predicate:
-          subset:
-            - map: [{ var: output.items }, { cat: [{ var: number }, "|", { var: title }] }]
-            - map: [{ var: steps.pulls.pulls }, { cat: [{ var: number }, "|", { var: title }] }]
+            - "==": [{ length: { var: let.sorted } }, { length: { var: steps.pulls.pulls } }]
+            - subset: [{ map: [{ var: steps.pulls.pulls }, { var: number }] }, { var: let.sorted }]
+      - id: notes-name-the-tag
+        message: notes_markdown must mention the tag.
+        predicate: { in: [{ var: inputs.tag }, { var: output.notes_markdown }] }
       - id: notes-cite-items
-        message: >
-          notes_markdown must mention the tag, cite every item as #number, and cite no other pull request
-          number.
+        message: notes_markdown must cite every item as #number and no other pull request number.
         predicate:
           and:
-            - in: [{ var: inputs.tag }, { var: output.notes_markdown }]
-            - "!=":
-                - reduce:
-                    - var: output.items
-                    - if: [{ in: [{ cat: ["#", { var: current.number }] }, { var: accumulator }] }, { var: accumulator }, ""]
-                    - var: output.notes_markdown
-                - ""
-            - subset:
-                - match_all: [{ var: output.notes_markdown }, "#([0-9]+)"]
-                - map: [{ var: output.items }, { cat: [{ var: number }] }]
+            - subset: [{ var: let.items }, { var: let.cited }]
+            - subset: [{ var: let.cited }, { var: let.items }]
     retries: 2
 
   - id: audience
-    tools: [searchContacts]
-    instructions: |
-      Find the HubSpot contacts whose property "{{inputs.contact_property}}" equals
-      "{{inputs.contact_value}}".
-
-      Call searchContacts with one filter group holding one filter: propertyName
-      "{{inputs.contact_property}}", operator "EQ", value "{{inputs.contact_value}}"; properties
-      ["email", "firstname", "lastname"]; limit 50. While the response has paging.next.after, call again
-      with the same body plus after set to that value.
-
-      Submit contacts: every result that has an email, with id, email, firstname and lastname copied
-      exactly (null where HubSpot returned none), and without_email: the ids of results with no email.
+    do:
+      calls:
+        - id: search
+          operation: searchContacts
+          arguments:
+            body:
+              filterGroups: [{ filters: [{ propertyName: { var: inputs.contact_property }, operator: EQ, value: { var: inputs.contact_value } }] }]
+              properties: [email, firstname, lastname]
+              limit: 200
+      output:
+        contacts:
+          map:
+            - filter: [{ var: responses.search.results }, { var: properties.email }]
+            - object: [[id, { var: id }], [email, { var: properties.email }], [firstname, { var: [properties.firstname, null] }], [lastname, { var: [properties.lastname, null] }]]
+        without_email: { map: [{ filter: [{ var: responses.search.results }, { "!": { var: properties.email } }] }, { var: id }] }
     produces:
       type: object
       required: [contacts, without_email]
@@ -461,7 +445,6 @@ steps:
       properties:
         contacts:
           type: array
-          maxItems: 200
           items:
             type: object
             required: [id, email, firstname, lastname]
@@ -473,64 +456,17 @@ steps:
               lastname: { type: [string, "null"] }
         without_email: { type: array, items: { type: string } }
     gates:
-      - id: filter-as-given
+      - id: every-contact-fetched
         message: >
-          Every searchContacts call must use exactly one filter: the given property, operator EQ and the
-          given value.
+          The search must return every contact it matched; HubSpot returns at most 200 a page, so narrow the
+          filter if more match.
         predicate:
-          subset:
-            - map:
-                - filter: [{ var: calls }, { "==": [{ var: tool }, searchContacts] }]
-                - cat:
-                    - { length: { var: arguments.body.filterGroups } }
-                    - "|"
-                    - { length: { var: arguments.body.filterGroups.0.filters } }
-                    - "|"
-                    - { var: arguments.body.filterGroups.0.filters.0.propertyName }
-                    - "|"
-                    - { var: arguments.body.filterGroups.0.filters.0.operator }
-                    - "|"
-                    - { var: arguments.body.filterGroups.0.filters.0.value }
-            - - cat: ["1|1|", { var: inputs.contact_property }, "|EQ|", { var: inputs.contact_value }]
-      # Emails are compared lowercased; cat renders a null name as "", on both sides alike.
-      - id: contacts-from-hubspot
-        message: >
-          Every contact must be a searchContacts result with its id, email, firstname and lastname copied
-          exactly, and every id in without_email must be a result that has no email.
-        predicate:
-          and:
-            - subset:
-                - map: [{ var: output.contacts }, { cat: [{ var: id }, "|", { lower: { var: email } }, "|", { var: firstname }, "|", { var: lastname }] }]
-                - flatten:
-                    map:
-                      - filter: [{ var: calls }, { and: [{ "==": [{ var: tool }, searchContacts] }, { "!": { var: is_error } }] }]
-                      - map: [{ var: result.results }, { cat: [{ var: id }, "|", { lower: { var: properties.email } }, "|", { var: properties.firstname }, "|", { var: properties.lastname }] }]
-            - subset:
-                - var: output.without_email
-                - flatten:
-                    map:
-                      - filter: [{ var: calls }, { and: [{ "==": [{ var: tool }, searchContacts] }, { "!": { var: is_error } }] }]
-                      - map: [{ filter: [{ var: result.results }, { "!": { var: properties.email } }] }, { var: id }]
-      - id: every-contact-accounted
-        message: >
-          Every contact HubSpot matched must appear once, in contacts or in without_email: together they
-          must number exactly the search's total.
-        predicate:
-          and:
-            - "==":
-                - length: { unique: { merge: [{ map: [{ var: output.contacts }, { var: id }] }, { var: output.without_email }] } }
-                - "+": [{ length: { var: output.contacts } }, { length: { var: output.without_email } }]
-            - in:
-                - "+": [{ length: { var: output.contacts } }, { length: { var: output.without_email } }]
-                - map:
-                    - filter: [{ var: calls }, { and: [{ "==": [{ var: tool }, searchContacts] }, { "!": { var: is_error } }] }]
-                    - var: result.total
-    retries: 2
+          "==": [{ length: { var: calls.0.result.results } }, { var: calls.0.result.total }]
 
   - id: email
     instructions: |
-      Prepare the announcement email for release {{inputs.tag}}. It goes to the operator,
-      {{inputs.operator_email}}, who will review it and send it to customers; you send nothing.
+      Write the announcement email for release {{inputs.tag}}. It will be saved as a Gmail draft addressed
+      to the operator, {{inputs.operator_email}}, who reviews it and sends it to customers; nothing is sent.
 
       Customer-facing release notes:
       {{steps.notes.notes_markdown}}
@@ -539,143 +475,68 @@ steps:
       {{steps.audience.contacts}}
 
       Submit:
-      - to: "{{inputs.operator_email}}";
-      - subject: a short subject that names {{inputs.tag}};
-      - recipients: the email address of every contact above, each once;
+      - subject: a short subject on one line that names {{inputs.tag}};
       - body: plain text with a one-line note to the operator, the release notes (keep every (#number)
-        citation), and then a "Recipients" section listing every recipient email address, one per line.
+        citation), and then a "Recipients" section listing every contact's email address, one per line.
         Cite no pull request number that is not in the release notes.
     produces:
       type: object
-      required: [to, subject, recipients, body]
+      required: [to, subject, recipients, body, raw]
       additionalProperties: false
       properties:
         to: { type: string }
-        subject: { type: string, minLength: 1, maxLength: 200 }
+        subject: { type: string, minLength: 1, maxLength: 200, pattern: "^[^\\r\\n]+$" }
         recipients: { type: array, maxItems: 200, items: { type: string } }
         body: { type: string, minLength: 1, maxLength: 30000 }
+        raw: { type: string }
+    derive:
+      to: { var: inputs.operator_email }
+      recipients: { unique: { map: [{ var: steps.audience.contacts }, { lower: { var: email } }] } }
+      # Five fixed headers, an empty line, then every body line ending in CRLF.
+      raw:
+        reduce:
+          - match_all: [{ var: output.body }, "([^\\r\\n]*)\\r?\\n|[^\\r\\n]+$"]
+          - cat: [{ var: accumulator }, { var: current }, "\r\n"]
+          - cat:
+              - "To: "
+              - { var: inputs.operator_email }
+              - "\r\nSubject: "
+              - { var: output.subject }
+              - "\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8\r\nContent-Transfer-Encoding: 8bit\r\n\r\n"
+    let:
+      items: { map: [{ var: steps.notes.items }, { cat: [{ var: number }] }] }
+      cited: { match_all: [{ var: output.body }, "#([0-9]+)"] }
+      listed: { map: [{ match_all: [{ var: output.body }, "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]*[A-Za-z0-9]"] }, { lower: { var: "" } }] }
     gates:
-      - id: addressed-to-operator
-        message: to must be the operator's address as given.
-        predicate:
-          "==": [{ lower: { var: output.to } }, { lower: { var: inputs.operator_email } }]
-      - id: recipients-are-the-audience
-        message: recipients must be exactly the email addresses of the HubSpot contacts, each once.
-        predicate:
-          and:
-            - "==": [{ length: { unique: { map: [{ var: output.recipients }, { lower: { var: "" } }] } } }, { length: { var: output.recipients } }]
-            - "==": [{ length: { var: output.recipients } }, { length: { var: steps.audience.contacts } }]
-            - subset:
-                - map: [{ var: output.recipients }, { lower: { var: "" } }]
-                - map: [{ var: steps.audience.contacts }, { lower: { var: email } }]
-      - id: body-carries-notes-and-list
-        message: >
-          subject and body must name the tag; body must cite every release-note item as #number, no other
-          pull request number, and list every recipient address.
+      - id: email-names-the-tag
+        message: subject and body must both name the tag.
         predicate:
           and:
             - in: [{ var: inputs.tag }, { var: output.subject }]
             - in: [{ var: inputs.tag }, { var: output.body }]
-            - "!=":
-                - reduce:
-                    - var: steps.notes.items
-                    - if: [{ in: [{ cat: ["#", { var: current.number }] }, { var: accumulator }] }, { var: accumulator }, ""]
-                    - var: output.body
-                - ""
-            - subset:
-                - match_all: [{ var: output.body }, "#([0-9]+)"]
-                - map: [{ var: steps.notes.items }, { cat: [{ var: number }] }]
-            - "!=":
-                - reduce:
-                    - var: output.recipients
-                    - if: [{ in: [{ var: current }, { var: accumulator }] }, { var: accumulator }, ""]
-                    - var: output.body
-                - ""
-    retries: 2
-
-  - id: plan
-    instructions: |
-      Write the raw RFC 2822 message for a Gmail draft of this email. Nothing is sent.
-
-      To: {{steps.email.to}}
-      Subject: {{steps.email.subject}}
-      Body:
-      {{steps.email.body}}
-
-      Submit raw: these header lines, in this order, then an empty line, then every line of the body
-      unchanged, in order:
-        To: {{steps.email.to}}
-        Subject: {{steps.email.subject}}
-        MIME-Version: 1.0
-        Content-Type: text/plain; charset=UTF-8
-        Content-Transfer-Encoding: 8bit
-      End every line with CRLF (\r\n in JSON), including the header lines, the empty line and the last
-      body line. Add no other header, no Cc and no Bcc.
-    produces:
-      type: object
-      required: [raw]
-      additionalProperties: false
-      properties:
-        raw: { type: string, minLength: 1, maxLength: 40000 }
-    gates:
-      # The body is split into lines (LF or CRLF) and each is re-joined with CRLF after the fixed headers.
-      - id: raw-built-from-email
-        message: >
-          raw must be exactly the five headers as instructed, an empty line, and the email body, every line
-          ending in CRLF.
-        predicate:
-          "==":
-            - var: output.raw
-            - reduce:
-                - match_all: [{ var: steps.email.body }, "([^\\r\\n]*)\\r?\\n|[^\\r\\n]+$"]
-                - cat: [{ var: accumulator }, { var: current }, "\r\n"]
-                - cat:
-                    - "To: "
-                    - { var: steps.email.to }
-                    - "\r\nSubject: "
-                    - { var: steps.email.subject }
-                    - "\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8\r\nContent-Transfer-Encoding: 8bit\r\n\r\n"
-      - id: headers-only-expected
-        message: >
-          The header block must be exactly five lines, To, Subject, MIME-Version, Content-Type and
-          Content-Transfer-Encoding, with no Cc or Bcc, followed by an empty line.
+      - id: body-cites-the-notes
+        message: body must cite every release-note item as #number and no other pull request number.
         predicate:
           and:
-            - "==":
-                - reduce:
-                    - match_all:
-                        - &header-block
-                          cat: ["\r\n", { get: [{ match_all: [{ var: output.raw }, "^([\\s\\S]*?)\\r\\n\\r\\n"] }, 0] }]
-                        - "\\r\\n([^:\\r\\n]*):"
-                    - cat: [{ var: accumulator }, "|", { lower: { var: current } }]
-                    - ""
-                - "|to|subject|mime-version|content-type|content-transfer-encoding"
-            - "==": [{ length: { match_all: [*header-block, "\\r\\n"] } }, 5]
-      - id: to-and-subject-gated
-        message: >
-          The To header must be the email's gated to address and the Subject header its gated subject, each
-          on one line.
+            - subset: [{ var: let.items }, { var: let.cited }]
+            - subset: [{ var: let.cited }, { var: let.items }]
+      - id: body-lists-recipients
+        message: "body must list every recipient's email address; these are missing:"
         predicate:
-          and:
-            - "==": [{ length: { match_all: [{ cat: [{ var: steps.email.to }, { var: steps.email.subject }] }, "[\\r\\n]"] } }, 0]
-            - "==":
-                - get: [{ match_all: [{ var: output.raw }, "^To: ([^\\r\\n]*)\\r\\n"] }, 0]
-                - var: steps.email.to
-            - "==":
-                - get: [{ match_all: [{ get: [{ match_all: [{ var: output.raw }, "^([\\s\\S]*?)\\r\\n\\r\\n"] }, 0] }, "\\r\\nSubject: ([^\\r\\n]*)"] }, 0]
-                - var: steps.email.subject
-    retries: 2
+          subset: [{ var: output.recipients }, { var: let.listed }]
+      - id: approved
+        approve:
+          message: >
+            Create this Gmail draft in your mailbox? raw is the exact message: addressed to you only, with
+            the subject and body shown, and the customer addresses listed in the body. Nothing is sent.
 
   - id: draft
-    tools: [createDraft]
-    instructions: |
-      Create the Gmail draft. Call createDraft exactly once with body set to this raw message, character
-      for character, keeping every CRLF (\r\n) line ending. It creates a draft and sends nothing.
-
-      {{steps.plan.raw}}
-
-      Submit draft_id, the id of the Draft the call returned, and message_id, its message.id, copied
-      exactly.
+    do:
+      calls:
+        - { id: draft, operation: createDraft, arguments: { body: { var: steps.email.raw } } }
+      output:
+        draft_id: { var: responses.draft.id }
+        message_id: { var: responses.draft.message.id }
     produces:
       type: object
       required: [draft_id, message_id]
@@ -683,54 +544,6 @@ steps:
       properties:
         draft_id: { type: string, minLength: 1 }
         message_id: { type: string, minLength: 1 }
-    gates:
-      - id: exactly-the-planned-draft
-        message: >
-          Make exactly one createDraft call, whose body is the planned raw message byte for byte, and it
-          must succeed.
-        predicate:
-          and:
-            - "==": [{ length: { filter: [{ var: calls }, { "==": [{ var: tool }, createDraft] }] } }, 1]
-            - subset:
-                - map:
-                    - filter: [{ var: calls }, { and: [{ "==": [{ var: tool }, createDraft] }, { "!": { var: is_error } }] }]
-                    - var: arguments.body
-                - [{ var: steps.plan.raw }]
-            - "==": [{ length: { filter: [{ var: calls }, { and: [{ "==": [{ var: tool }, createDraft] }, { "!": { var: is_error } }] }] } }, 1]
-      - id: ids-from-gmail
-        message: draft_id and message_id must be the id and message.id of the Draft that createDraft returned.
-        predicate:
-          in:
-            - cat: [{ var: output.draft_id }, "|", { var: output.message_id }]
-            - map:
-                - filter: [{ var: calls }, { and: [{ "==": [{ var: tool }, createDraft] }, { "!": { var: is_error } }] }]
-                - cat: [{ var: result.id }, "|", { var: result.message.id }]
-    retries: 2
-
-  - id: report
-    instructions: |
-      Report the Gmail draft just created for release {{inputs.tag}}: draft id {{steps.draft.draft_id}},
-      addressed to {{steps.email.to}}, subject "{{steps.email.subject}}". It has not been sent.
-
-      Submit draft_id and message_id ({{steps.draft.message_id}}) as given, and summary: one or two
-      sentences for the operator that cite the draft id and say it is a draft to review and send.
-    produces:
-      type: object
-      required: [draft_id, message_id, summary]
-      additionalProperties: false
-      properties:
-        draft_id: { type: string }
-        message_id: { type: string }
-        summary: { type: string, minLength: 1, maxLength: 600 }
-    gates:
-      - id: cites-the-draft
-        message: draft_id and message_id must be the created draft's, and summary must cite the draft id.
-        predicate:
-          and:
-            - "==": [{ var: output.draft_id }, { var: steps.draft.draft_id }]
-            - "==": [{ var: output.message_id }, { var: steps.draft.message_id }]
-            - in: [{ var: steps.draft.draft_id }, { var: output.summary }]
-    retries: 2
 
 $defs:
   utc: { type: string, pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$" }

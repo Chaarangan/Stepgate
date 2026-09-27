@@ -4,9 +4,12 @@ Checks a reading list against Open Library and says, for each book, whether it e
 
 ## Steps
 
-1. **search**: searches Open Library once per book with `searchByTitleAndAuthor`, using the title and author exactly as given, and picks the result that is this book, if any. Gates check every book is searched once with its exact title and author, the recorded results are exactly what that search returned, and the chosen match is one of that book's own results.
-2. **crosscheck**: for every book with no match, searches by title alone with `searchByTitle` to learn whether it exists under someone else's name. Gates check exactly the unmatched books are checked, their results are exactly what the title search returned, and any book found is one of those results and does not list the stated author.
-3. **publish**: gives each book a verdict of `verified`, `wrong_author` or `not_found`, lists the confirmed books, and writes a Markdown summary. Gates check each verdict follows from the two earlier steps (a match means verified, a title-only find means wrong author, neither means not found), the confirmed list holds only verified books, the counts agree, every book id is mentioned, and every work key in the summary is one from the verdicts.
+1. **search** (agent): searches Open Library once per book with `searchByTitleAndAuthor`, using the title and author exactly as given, and picks the result that is this book, if any. Gates check every book is submitted once with its title and author unchanged, each has a successful search with its exact title and author, and the chosen match is one of that search's own results, copied exactly.
+2. **crosscheck** (agent): for every book with no match, searches by title alone with `searchByTitle` to learn whether it exists under someone else's name. Gates check exactly the unmatched books are checked, each has a successful title search, and any book found is one of that search's results and does not list the stated author.
+3. **classify** (mechanical): Stepgate gives each book a verdict of `verified` (a match), `wrong_author` (no match, but a title-only find) or `not_found` (neither), copies the work key and Open Library authors from that doc, lists the confirmed books and counts each verdict.
+4. **publish** (agent): writes a Markdown summary from the verdicts. Gates check the two sections are in order, every book id is mentioned, and every work key in the summary is one from the verdicts.
+
+The searches stay agent steps although the inputs fix them: a mechanical step's output cannot tell which book each Open Library response belongs to, since the responses do not echo the query.
 
 Whether a search result is the same book as the list entry (allowing for case, punctuation and subtitles) is the model's judgment, since the gates have no fuzzy string comparison. The Open Library title and authors are always shown beside the verdict so a reader can see what was matched. Publication years are not checked, because Open Library's `first_publish_year` is unreliable for older books.
 
@@ -47,6 +50,6 @@ Then call the `book-list-verification` tool with:
 }
 ```
 
-The first two are real and should come back `verified`. "The Last Algorithm" and "Tidewater Dreams" are invented titles from the 2025 list; neither search finds them, so both are `not_found`. "The Road" is real but misattributed: the author search returns only other Stephen King books, and the title search finds it under Cormac McCarthy, so it is `wrong_author`. The summary is in `outputs.publish.summary` and the confirmed books in `outputs.publish.confirmed`.
+The first two are real and should come back `verified`. "The Last Algorithm" and "Tidewater Dreams" are invented titles from the 2025 list; neither search finds them, so both are `not_found`. "The Road" is real but misattributed: the author search returns only other Stephen King books, and the title search finds it under Cormac McCarthy, so it is `wrong_author`. The summary is in `outputs.publish.summary`; the verdicts, confirmed books and counts are in `outputs.classify`.
 
 Each search asks for at most five results with four fields, so a thirty-book list stays small in a model's context.

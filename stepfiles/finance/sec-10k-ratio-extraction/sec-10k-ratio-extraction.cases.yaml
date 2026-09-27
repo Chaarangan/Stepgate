@@ -1,0 +1,344 @@
+# Synthetic responses shaped like SEC EDGAR's, for `stepgate --test sec-10k-ratio-extraction`. Not recorded from EDGAR,
+# which needs a contact email in the User-Agent; replace with a recorded run (--record-cases) when one is made.
+cases:
+  - name: the latest 10-K's facts and ratios are computed and a report citing them passes
+    inputs: &a2
+      ticker: AAPL
+    steps:
+      - &a3
+        step: resolve
+        calls:
+          - tool: searchEdgar
+            arguments:
+              keysTyped: AAPL
+            result:
+              hits:
+                hits:
+                  - _id: "320193"
+                    _source:
+                      tickers: AAPL
+                      entity: Apple Inc.
+            is_error: false
+          - tool: getSubmissions
+            arguments:
+              cik: "0000320193"
+            result:
+              cik: "0000320193"
+              name: Apple Inc.
+              tickers: &a1
+                - AAPL
+              fiscalYearEnd: "0927"
+            is_error: false
+          - tool: searchEdgar
+            arguments:
+              ciks: "0000320193"
+            result:
+              hits:
+                hits:
+                  - _source:
+                      adsh: 0000320193-25-000080
+                      form: 10-K/A
+                      period_ending: 2025-09-27
+                      file_date: 2025-12-01
+                    sort:
+                      - 1764547200000
+                  - _source:
+                      adsh: 0000320193-25-000079
+                      form: 10-K
+                      period_ending: 2025-09-27
+                      file_date: 2025-10-31
+                    sort:
+                      - 1761868800000
+                  - _source:
+                      adsh: 0000320193-24-000123
+                      form: 10-K
+                      period_ending: 2024-09-28
+                      file_date: 2024-11-01
+                    sort:
+                      - 1730419200000
+            is_error: false
+        output:
+          cik: "0000320193"
+          entity_name: Apple Inc.
+          sec_tickers: *a1
+          fiscal_year_end: "0927"
+          latest_10k:
+            accn: 0000320193-25-000079
+            period_ending: 2025-09-27
+            filed: 2025-10-31
+        expect: pass
+      - &a4
+        step: balance-sheet
+        calls:
+          - tool: getConcept
+            arguments:
+              cik: "0000320193"
+              concept: Assets
+            result:
+              tag: Assets
+              cik: 320193
+              units:
+                USD:
+                  - val: 364980000000
+                    accn: 0000320193-24-000123
+                    end: 2024-09-28
+                    fy: 2025
+                    fp: FY
+                    form: 10-K
+                    filed: 2025-10-31
+                  - val: 359241000000
+                    accn: 0000320193-25-000079
+                    end: 2025-09-27
+                    fy: 2025
+                    fp: FY
+                    form: 10-K
+                    filed: 2025-10-31
+            is_error: false
+          - tool: getConcept
+            arguments:
+              cik: "0000320193"
+              concept: Liabilities
+            result:
+              tag: Liabilities
+              cik: 320193
+              units:
+                USD:
+                  - val: 285508000000
+                    accn: 0000320193-25-000079
+                    end: 2025-09-27
+                    fy: 2025
+                    fp: FY
+                    form: 10-K
+                    filed: 2025-10-31
+            is_error: false
+          - tool: getConcept
+            arguments:
+              cik: "0000320193"
+              concept: StockholdersEquity
+            result:
+              tag: StockholdersEquity
+              cik: 320193
+              units:
+                USD:
+                  - val: 73733000000
+                    accn: 0000320193-25-000079
+                    end: 2025-09-27
+                    fy: 2025
+                    fp: FY
+                    form: 10-K
+                    filed: 2025-10-31
+            is_error: false
+          - tool: getConcept
+            arguments:
+              cik: "0000320193"
+              concept: StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest
+            result: "HTTP 404: <Error><Code>NoSuchKey</Code></Error>"
+            is_error: true
+        output:
+          total_assets:
+            concept: Assets
+            value: 359241000000
+            accn: 0000320193-25-000079
+            end: 2025-09-27
+            fy: 2025
+            fp: FY
+            form: 10-K
+          total_equity:
+            concept: StockholdersEquity
+            value: 73733000000
+            accn: 0000320193-25-000079
+            end: 2025-09-27
+            fy: 2025
+            fp: FY
+            form: 10-K
+          liabilities_filed: true
+          reported_liabilities:
+            concept: Liabilities
+            value: 285508000000
+            accn: 0000320193-25-000079
+            end: 2025-09-27
+            fy: 2025
+            fp: FY
+            form: 10-K
+        expect: pass
+      - &a5
+        step: performance
+        calls:
+          - tool: getConcept
+            arguments:
+              cik: "0000320193"
+              concept: RevenueFromContractWithCustomerExcludingAssessedTax
+            result:
+              tag: RevenueFromContractWithCustomerExcludingAssessedTax
+              cik: 320193
+              units:
+                USD:
+                  - val: 94930000000
+                    accn: 0000320193-25-000079
+                    end: 2025-09-27
+                    fy: 2025
+                    fp: FY
+                    form: 10-K
+                    filed: 2025-10-31
+                    start: 2025-06-29
+                  - val: 416161000000
+                    accn: 0000320193-25-000079
+                    end: 2025-09-27
+                    fy: 2025
+                    fp: FY
+                    form: 10-K
+                    filed: 2025-10-31
+                    start: 2024-09-29
+            is_error: false
+          - tool: getConcept
+            arguments:
+              cik: "0000320193"
+              concept: Revenues
+            result: "HTTP 404: <Error><Code>NoSuchKey</Code></Error>"
+            is_error: true
+          - tool: getConcept
+            arguments:
+              cik: "0000320193"
+              concept: RevenueFromContractWithCustomerIncludingAssessedTax
+            result: "HTTP 404: <Error><Code>NoSuchKey</Code></Error>"
+            is_error: true
+          - tool: getConcept
+            arguments:
+              cik: "0000320193"
+              concept: NetIncomeLoss
+            result:
+              tag: NetIncomeLoss
+              cik: 320193
+              units:
+                USD:
+                  - val: 27466000000
+                    accn: 0000320193-25-000079
+                    end: 2025-09-27
+                    fy: 2025
+                    fp: FY
+                    form: 10-K
+                    filed: 2025-10-31
+                    start: 2025-06-29
+                  - val: 112010000000
+                    accn: 0000320193-25-000079
+                    end: 2025-09-27
+                    fy: 2025
+                    fp: FY
+                    form: 10-K
+                    filed: 2025-10-31
+                    start: 2024-09-29
+            is_error: false
+          - tool: getConcept
+            arguments:
+              cik: "0000320193"
+              concept: NetCashProvidedByUsedInOperatingActivities
+            result:
+              tag: NetCashProvidedByUsedInOperatingActivities
+              cik: 320193
+              units:
+                USD:
+                  - val: 111482000000
+                    accn: 0000320193-25-000079
+                    end: 2025-09-27
+                    fy: 2025
+                    fp: FY
+                    form: 10-K
+                    filed: 2025-10-31
+                    start: 2024-09-29
+            is_error: false
+        output:
+          revenue:
+            concept: RevenueFromContractWithCustomerExcludingAssessedTax
+            value: 416161000000
+            accn: 0000320193-25-000079
+            start: 2024-09-29
+            end: 2025-09-27
+            fy: 2025
+            fp: FY
+            form: 10-K
+          net_income:
+            concept: NetIncomeLoss
+            value: 112010000000
+            accn: 0000320193-25-000079
+            start: 2024-09-29
+            end: 2025-09-27
+            fy: 2025
+            fp: FY
+            form: 10-K
+          operating_cash_flow:
+            concept: NetCashProvidedByUsedInOperatingActivities
+            value: 111482000000
+            accn: 0000320193-25-000079
+            start: 2024-09-29
+            end: 2025-09-27
+            fy: 2025
+            fp: FY
+            form: 10-K
+        expect: pass
+      - &a6
+        step: ratios
+        calls: []
+        output:
+          total_liabilities:
+            method: reported
+            value: 285508000000
+          fiscal_year: 2025
+          ratios:
+            net_margin: 0.2691506412181824
+            return_on_assets: 0.3117962593356549
+            liabilities_to_assets: 0.7947533828265705
+            liabilities_to_equity: 3.872187487285205
+            operating_cash_flow_to_net_income: 0.995286135166503
+        expect: pass
+      - step: report
+        calls: []
+        output:
+          summary: |
+            ## Company
+            Apple Inc. (AAPL), CIK 0000320193.
+
+            ## Figures
+            - Total assets: 359241000000
+            - Total liabilities: 285508000000
+            - Total equity: 73733000000
+            - Revenue: 416161000000
+            - Net income: 112010000000
+            - Operating cash flow: 111482000000
+
+            ## Ratios
+            {"net_margin":0.2691506412181824,"return_on_assets":0.3117962593356549,"liabilities_to_assets":0.7947533828265705,"liabilities_to_equity":3.872187487285205,"operating_cash_flow_to_net_income":0.995286135166503}
+
+            ## Source
+            Form 10-K, accession 0000320193-25-000079, period ending 2025-09-27, filed 2025-10-31.
+        expect: pass
+  - name: a report with an invented figure is rejected
+    inputs: *a2
+    steps:
+      - *a3
+      - *a4
+      - *a5
+      - *a6
+      - step: report
+        calls: []
+        output:
+          summary: |
+            ## Company
+            Apple Inc. (AAPL), CIK 0000320193.
+
+            ## Figures
+            - Total assets: 359241000000
+            - Total liabilities: 285508000000
+            - Total equity: 73733000000
+            - Revenue: 416161000000
+            - Net income: 112010000000
+            - Operating cash flow: 111482000000
+            - Free cash flow: 98765432100
+
+            ## Ratios
+            {"net_margin":0.2691506412181824,"return_on_assets":0.3117962593356549,"liabilities_to_assets":0.7947533828265705,"liabilities_to_equity":3.872187487285205,"operating_cash_flow_to_net_income":0.995286135166503}
+
+            ## Source
+            Form 10-K, accession 0000320193-25-000079, period ending 2025-09-27, filed 2025-10-31.
+        expect:
+          fail:
+            - figures-from-sec

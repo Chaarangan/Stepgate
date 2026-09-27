@@ -1,6 +1,6 @@
 import { parse as parseYaml } from "yaml";
 import { ApiDocumentInvalid, PreflightFailed, ToolCallFailed, type StepgateError } from "../errors.ts";
-import { guardedFetch, readText, type CredentialBinding, type HttpContext } from "../http.ts";
+import { guardedFetch, guardedReadFetch, readText, type CredentialBinding, type HttpContext } from "../http.ts";
 import { textHash } from "../identity.ts";
 import { inlineLocalRefs, RefNotInlinable } from "../json-schema.ts";
 import type { Json, JsonObject, JsonSchema, ToolDeclaration, ToolDefinition } from "../types.ts";
@@ -204,6 +204,7 @@ async function prepareOpenApiTool(
   const document = await fetchDocument(context, toolName, openapi);
   const operations = findOperations(document, (message) => new PreflightFailed(`tool ${toolName}`, message));
   const exposed = (declaration.exposes ?? []).map((entry) => (typeof entry === "string" ? entry : entry.name));
+  const readOnly = new Set((declaration.exposes ?? []).flatMap((entry) => (typeof entry !== "string" && entry.effect === "read" ? [entry.name] : [])));
   const chosen = exposed.map((operationId) => {
     const operation = operations.get(operationId);
     if (operation === undefined) {
@@ -252,12 +253,13 @@ async function prepareOpenApiTool(
         headers.set("content-type", operation.body.contentType);
         init.body = operation.body.contentType === "application/json" ? JSON.stringify(args.body) : String(args.body);
       }
-      const response = await guardedFetch(context, `${toolName}.${operationId}`, url, init, bindings.get(operationId) ?? null);
+      const send = readOnly.has(operationId) ? guardedReadFetch : guardedFetch;
+      const response = await send(context, `${toolName}.${operationId}`, url, init, bindings.get(operationId) ?? null);
       const text = await readText(response, `${toolName}.${operationId}`);
       if (response.status === 401 || response.status === 403) {
         throw new ToolCallFailed(`${toolName}.${operationId}`, response.status, text);
       }
-      return { content: response.ok ? text : `HTTP ${response.status}: ${text}`, isError: !response.ok, status: response.status };
+      return { content: response.ok ? text : `HTTP ${response.status}: ${text}`, body: text, isError: !response.ok, status: response.status };
     },
     close: async () => {},
   };

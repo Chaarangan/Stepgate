@@ -1,0 +1,117 @@
+# Recorded calls and outputs for `stepgate --test zendesk-jira-escalation`, which runs the gates offline.
+cases:
+  - name: one ticket linked and one escalated to a new draft issue
+    inputs: &inputs { escalation_tag: escalate_eng, priority: urgent, max_tickets: 2, jira_project: SUP, jira_issue_type: Bug }
+    steps:
+      - step: tickets
+        calls: &tickets-calls
+          - tool: searchZendeskTickets
+            arguments: { query: "type:ticket status<pending priority:urgent tags:escalate_eng" }
+            result:
+              results:
+                - { url: "https://acme.zendesk.com/api/v2/tickets/101.json", id: 101, created_at: "2026-09-20T08:00:00Z", subject: Checkout fails with 500 on card payment, status: open, priority: urgent, tags: [checkout, escalate_eng], result_type: ticket }
+                - { url: "https://acme.zendesk.com/api/v2/tickets/102.json", id: 102, created_at: "2026-09-21T08:00:00Z", subject: Invoice PDF is blank, status: open, priority: high, tags: [escalate_eng], result_type: ticket }
+                - { url: "https://acme.zendesk.com/api/v2/tickets/103.json", id: 103, created_at: "2026-09-22T08:00:00Z", subject: Password reset email never arrives, status: new, priority: urgent, tags: [escalate_eng, login], result_type: ticket }
+                - { url: "https://acme.zendesk.com/api/v2/tickets/104.json", id: 104, created_at: "2026-09-23T08:00:00Z", subject: Export times out, status: open, priority: urgent, tags: [escalate_eng], result_type: ticket }
+              facets: null
+              next_page: null
+              previous_page: null
+              count: 4
+        output: &tickets
+          total_count: 4
+          tickets:
+            - { id: 101, subject: Checkout fails with 500 on card payment, status: open, priority: urgent, tags: [checkout, escalate_eng] }
+            - { id: 103, subject: Password reset email never arrives, status: new, priority: urgent, tags: [escalate_eng, login] }
+        expect: pass
+      - step: plan
+        calls: &jira-searches
+          - tool: searchJiraIssues
+            arguments: { body: { jql: 'project = "SUP" AND statusCategory != Done AND text ~ "checkout 500 card"', fields: [summary, status], maxResults: 10 } }
+            result:
+              issues:
+                - { expand: "", id: "10042", self: "https://acme.atlassian.net/rest/api/3/issue/10042", key: SUP-42, fields: { summary: Checkout returns 500 when paying by card, status: { name: In Progress, id: "3" } } }
+              isLast: true
+          - tool: searchJiraIssues
+            arguments: { body: { jql: 'project = "SUP" AND statusCategory != Done AND text ~ "password reset email"', fields: [summary, status], maxResults: 10 } }
+            result: { issues: [], isLast: true }
+        output: &decisions
+          decisions:
+            - { ticket_id: 101, action: link, jira_key: SUP-42, jql: 'project = "SUP" AND statusCategory != Done AND text ~ "checkout 500 card"', reason: SUP-42 tracks the same card checkout 500 error. }
+            - { ticket_id: 103, action: create, jira_key: null, jql: 'project = "SUP" AND statusCategory != Done AND text ~ "password reset email"', reason: No unresolved issue mentions password reset emails. }
+        expect: pass
+      - step: create
+        calls: &create-calls
+          - tool: createJiraIssue
+            arguments:
+              body:
+                fields:
+                  project: { key: SUP }
+                  issuetype: { name: Bug }
+                  summary: "[Zendesk #103] Password reset email never arrives"
+                  labels: [stepgate-draft]
+                  description: { type: doc, version: 1, content: [{ type: paragraph, content: [{ type: text, text: "Escalated from Zendesk ticket #103: Password reset email never arrives (priority urgent). Created by Stepgate as a draft for review." }] }] }
+            result: { id: "10087", key: SUP-57, self: "https://acme.atlassian.net/rest/api/3/issue/10087" }
+        output: { created: [{ ticket_id: 103, jira_key: SUP-57 }] }
+        expect: pass
+      - step: note
+        calls: &note-calls
+          - tool: addZendeskInternalNote
+            arguments: { ticket_id: 101, body: { ticket: { comment: { body: "Stepgate escalation: linked to existing Jira issue SUP-42.", public: false } } } }
+            result: { ticket: { id: 101, status: open, priority: urgent }, audit: { id: 9001, ticket_id: 101, events: [{ id: 9002, type: Comment, public: false }] } }
+          - tool: addZendeskInternalNote
+            arguments: { ticket_id: 103, body: { ticket: { comment: { body: "Stepgate escalation: created draft Jira issue SUP-57.", public: false } } } }
+            result: { ticket: { id: 103, status: new, priority: urgent }, audit: { id: 9003, ticket_id: 103, events: [{ id: 9004, type: Comment, public: false }] } }
+        output: &outcomes
+          outcomes:
+            - { ticket_id: 101, action: link, jira_key: SUP-42 }
+            - { ticket_id: 103, action: create, jira_key: SUP-57 }
+        expect: pass
+      - step: report
+        output:
+          summary: |
+            | Ticket | Subject | Action | Jira |
+            |---|---|---|---|
+            | #101 | Checkout fails with 500 on card payment | link | SUP-42 |
+            | #103 | Password reset email never arrives | create | SUP-57 |
+
+            Created issues carry the label stepgate-draft and are unassigned drafts for review.
+            2 matching tickets were left for a later run.
+        expect: pass
+
+  - name: a missing ticket and a key no search returned are rejected
+    inputs: *inputs
+    steps:
+      - { step: tickets, calls: *tickets-calls, output: *tickets, expect: pass }
+      - step: plan
+        calls: *jira-searches
+        output:
+          decisions:
+            - { ticket_id: 103, action: link, jira_key: SUP-42, jql: 'project = "SUP" AND statusCategory != Done AND text ~ "password reset email"', reason: SUP-42 looks close enough to this one. }
+        expect: { fail: [covers-tickets, link-from-results] }
+
+  - name: a search outside the project and a create with a key are rejected
+    inputs: *inputs
+    steps:
+      - { step: tickets, calls: *tickets-calls, output: *tickets, expect: pass }
+      - step: plan
+        calls:
+          - tool: searchJiraIssues
+            arguments: { body: { jql: 'project = "OPS" AND text ~ "checkout"', fields: [summary, status], maxResults: 10 } }
+            result: { issues: [], isLast: true }
+        output:
+          decisions:
+            - { ticket_id: 101, action: create, jira_key: SUP-42, jql: 'project = "OPS" AND text ~ "checkout"', reason: Nothing found for the checkout error. }
+            - { ticket_id: 103, action: create, jira_key: null, jql: 'project = "OPS" AND text ~ "checkout"', reason: Nothing found for password resets. }
+        expect: { fail: [jql-bounded, key-iff-link] }
+
+  - name: a summary citing a key the run did not produce is rejected
+    inputs: *inputs
+    steps:
+      - { step: tickets, calls: *tickets-calls, output: *tickets, expect: pass }
+      - { step: plan, calls: *jira-searches, output: *decisions, expect: pass }
+      - { step: create, calls: *create-calls, output: { created: [{ ticket_id: 103, jira_key: SUP-57 }] }, expect: pass }
+      - { step: note, calls: *note-calls, output: *outcomes, expect: pass }
+      - step: report
+        output:
+          summary: "#101 was linked to SUP-42 and #103 to SUP-99."
+        expect: { fail: [summary-mentions-all] }

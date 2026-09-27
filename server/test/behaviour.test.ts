@@ -1,5 +1,9 @@
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { parseCases, testGates } from "../src/gate-test.ts";
 import type { JsonObject } from "../src/engine/types.ts";
 import { environmentCredentials } from "../src/operator.ts";
 import { userAgent, VERSION } from "../src/version.ts";
@@ -126,6 +130,22 @@ describe("approve gates", () => {
     expect(asked).toHaveLength(1);
     expect(asked[0]).toMatch(/^Send this summary to the customer\?\n\nStep summary of stock-check submitted:\n[\s\S]*Blue kettle has 4 in stock/);
     expect(records).toContainEqual(expect.objectContaining({ type: "gate", gate: "reviewed", verdict: "pass" }));
+  });
+
+  it("does not ask a person to approve a submission another gate already failed", async () => {
+    const approvingAfterChecks = (stepfile: JsonObject) => {
+      const summary = steps(stepfile)[1] as JsonObject;
+      summary.gates = [{ id: "reviewed", approve: { message: "Send this summary to the customer?" } }, ...(summary.gates as JsonObject[])];
+      summary.retries = 1;
+    };
+    const { call, asked, seen } = await start({ edit: approvingAfterChecks, approvals: [{ action: "accept" }], actions: [GOOD_STOCK, submit({ summary: "It is in stock." }), GOOD_SUMMARY] });
+
+    const result = await call({ item: "K-1" });
+
+    expect(stateOf(result)).toMatchObject({ state: "finished" });
+    expect(stateOf(seen[2]).failures).toEqual([expect.objectContaining({ gate: "mentions-name" })]);
+    expect(asked).toHaveLength(1);
+    expect(asked[0]).toContain("Blue kettle has 4 in stock");
   });
 
   it("returns a person's reason for declining to the client as the gate's diagnosis", async () => {
@@ -535,6 +555,21 @@ describe("egress limits", () => {
     expect(records.some((record) => record.type === "retry")).toBe(false);
   });
 
+  it("retries a POST after a 5xx when its exposes entry declares effect read", async () => {
+    const { call, api, records } = await start({
+      edit: (stepfile) => {
+        ((stepfile.tools as JsonObject).catalogue as JsonObject).exposes = ["getItem", "getFlaky", "getRevoked", { name: "postBusy", effect: "read" }];
+        (steps(stepfile)[0] as JsonObject).tools = ["postBusy"];
+      },
+      actions: [use("postBusy", {})],
+    });
+
+    await call({ item: "K-1" });
+
+    expect(api.received.filter((request) => request.path === "/busy")).toHaveLength(4);
+    expect(records.filter((record) => record.type === "retry")).toHaveLength(3);
+  });
+
   it("ends a request that outlasts the deadline with ToolCallFailed", async () => {
     const { call } = await start({ limits: { requestTimeoutMs: 100 }, edit: exposing("postSlow"), actions: [use("postSlow", {})] });
 
@@ -660,5 +695,130 @@ describe("preflight", () => {
     expect(resultText(result)).toContain(`PreflightFailed: preflight failed for ${item}`);
     expect(stepViews(seen)).toEqual([]);
     expect(records.map((record) => record.type)).toEqual(["run_started", "run_failed"]);
+  });
+});
+
+describe("mechanical steps", () => {
+  /** Turns the stock step into one Stepgate performs, reading the item from the catalogue. */
+  function mechanicalStock(output: JsonObject): (stepfile: JsonObject) => void {
+    return (stepfile) => {
+      const stock = steps(stepfile)[0] as JsonObject;
+      for (const field of ["instructions", "tools", "retries"]) {
+        delete stock[field];
+      }
+      stock.do = { calls: [{ id: "item", operation: "getItem", arguments: { id: { var: "inputs.item" } } }], output };
+    };
+  }
+
+  it("records that Stepgate made a mechanical step's call, and the client its own calls", async () => {
+    const { call, records } = await start({
+      edit: mechanicalStock({ name: { var: "responses.item.name" }, count: { var: "responses.item.stock" }, supplier: "Acme" }),
+      actions: [GOOD_SUMMARY],
+    });
+
+    const result = await call({ item: "K-1" });
+
+    expect(stateOf(result).state).toBe("finished");
+    expect(records.filter((record) => record.type === "tool_call")).toEqual([expect.objectContaining({ step: "stock", caller: "stepgate", call: "item", operation: "getItem" })]);
+  });
+
+  it("records the client as the caller of its own stepgate_call", async () => {
+    const { call, records } = await start({ actions: STOCK_WITH_TOOLS });
+
+    await call({ item: "K-1" });
+
+    const callers = records.filter((record) => record.type === "tool_call").map((record) => [record.caller, record.call]);
+    expect(callers).toEqual([["client", undefined], ["client", undefined]]);
+  });
+
+  it("stops the run with GateFailed naming produces when a mechanical step's output breaks it", async () => {
+    const { call } = await start({
+      edit: mechanicalStock({ name: { var: "responses.item.name" }, count: "four", supplier: "Acme" }),
+      actions: [],
+    });
+
+    const result = await call({ item: "K-1" });
+
+    expect(stateOf(result)).toMatchObject({ state: "failed", error: "GateFailed" });
+    expect(textOf(result)).toMatch(/produces: .*count/);
+  });
+});
+
+describe("automatic diagnoses", () => {
+  it("cuts what a predicate adds to its message at 2,000 characters", async () => {
+    const many = Array.from({ length: 400 }, (_, index) => `missing-item-${index}`);
+    const { call } = await start({
+      edit: (stepfile) => {
+        (steps(stepfile)[0] as JsonObject).gates = [{ id: "all-known", message: "every item must be known", predicate: { subset: [many, []] } }];
+      },
+      actions: [GOOD_STOCK],
+    });
+
+    const result = await call({ item: "K-1" });
+
+    expect(textOf(result)).toContain("every item must be known [\"missing-item-0\"");
+    expect(textOf(result)).toContain("[cut at 2000 characters]");
+  });
+});
+
+describe("recording cases", () => {
+  it("writes no cases file for a run that ended before any attempt, which would have nothing to test", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "stepgate-cases-"));
+    try {
+      const { call } = await start({ credentials: { suppliers: MCP_TOKEN }, actions: [], recordCases: directory });
+
+      const result = await call({ item: "K-1" });
+
+      expect(stateOf(result)).toMatchObject({ state: "failed", error: "PreflightFailed" });
+      expect(readdirSync(directory)).toEqual([]);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("records a mechanical step with its calls and computed output", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "stepgate-cases-"));
+    try {
+      const { call, stepfile } = await start({
+        edit: (document) => {
+          const stock = steps(document)[0] as JsonObject;
+          for (const field of ["instructions", "tools", "retries"]) {
+            delete stock[field];
+          }
+          stock.do = { calls: [{ id: "item", operation: "getItem", arguments: { id: { var: "inputs.item" } } }], output: { name: { var: "responses.item.name" }, count: { var: "responses.item.stock" }, supplier: "Acme" } };
+        },
+        actions: [GOOD_SUMMARY],
+        recordCases: directory,
+      });
+
+      await call({ item: "K-1" });
+
+      const [file] = readdirSync(directory);
+      const cases = parseCases(stepfile, readFileSync(join(directory, file as string), "utf8"));
+      expect(cases[0]?.steps[0]).toMatchObject({ step: "stock", calls: [{ tool: "getItem", arguments: { id: "K-1" } }], output: { name: "Blue kettle", count: 4, supplier: "Acme" }, expect: "pass" });
+      expect((await testGates(stepfile, cases)).every((report) => report.ok)).toBe(true);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("writes a finished run as a cases file that the offline gate test passes, with no credential in it", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "stepgate-cases-"));
+    try {
+      const { call, stepfile } = await start({ actions: [use("getItem", { id: "K-1" }), badCount, GOOD_STOCK, GOOD_SUMMARY], recordCases: directory });
+
+      await call({ item: "K-1" });
+
+      const [file, ...others] = readdirSync(directory);
+      expect(others).toEqual([]);
+      expect(file).toMatch(/^stock-check-[0-9a-f-]+\.cases\.yaml$/);
+      const text = readFileSync(join(directory, file as string), "utf8");
+      expect(text).not.toContain(API_KEY);
+      const cases = parseCases(stepfile, text);
+      expect(cases[0]?.steps.map((step) => [step.step, step.expect])).toEqual([["stock", { fail: ["count-positive"] }], ["stock", "pass"], ["summary", "pass"]]);
+      expect((await testGates(stepfile, cases)).every((report) => report.ok)).toBe(true);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 });

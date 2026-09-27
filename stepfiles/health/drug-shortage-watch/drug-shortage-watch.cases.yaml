@@ -1,0 +1,1347 @@
+# A run of drug-shortage-watch against the live APIs on 2026-09-27, recorded with --record-cases, for `stepgate --test drug-shortage-watch`.
+# Each step's first attempt was a deliberately wrong submission; the gates it breaks are expected to fail.
+cases:
+  - name: a recorded run rejects each wrong submission and accepts the corrected one
+    inputs:
+      formulary:
+        - lidocaine
+        - methotrexate
+        - sodium chloride
+        - albuterol
+        - amoxicillin
+    steps:
+      - step: status
+        calls:
+          - tool: countShortagesByStatus
+            arguments:
+              search: generic_name:"lidocaine"
+            result:
+              meta:
+                disclaimer: Do not rely on openFDA to make decisions regarding medical care.
+                  While we make every effort to ensure that data is accurate,
+                  you should assume all results are unvalidated. We may limit or
+                  otherwise restrict your access to the API in line with our
+                  Terms of Service.
+                terms: https://open.fda.gov/terms/
+                license: https://open.fda.gov/license/
+                last_updated: 2026-09-26
+              results:
+                - term: Current
+                  count: 87
+                - term: To Be Discontinued
+                  count: 2
+            is_error: false
+          - tool: countShortagesByStatus
+            arguments:
+              search: generic_name:"methotrexate"
+            result:
+              meta:
+                disclaimer: Do not rely on openFDA to make decisions regarding medical care.
+                  While we make every effort to ensure that data is accurate,
+                  you should assume all results are unvalidated. We may limit or
+                  otherwise restrict your access to the API in line with our
+                  Terms of Service.
+                terms: https://open.fda.gov/terms/
+                license: https://open.fda.gov/license/
+                last_updated: 2026-09-26
+              results:
+                - term: Current
+                  count: 14
+            is_error: false
+          - tool: countShortagesByStatus
+            arguments:
+              search: generic_name:"sodium chloride"
+            result:
+              meta:
+                disclaimer: Do not rely on openFDA to make decisions regarding medical care.
+                  While we make every effort to ensure that data is accurate,
+                  you should assume all results are unvalidated. We may limit or
+                  otherwise restrict your access to the API in line with our
+                  Terms of Service.
+                terms: https://open.fda.gov/terms/
+                license: https://open.fda.gov/license/
+                last_updated: 2026-09-26
+              results:
+                - term: To Be Discontinued
+                  count: 24
+            is_error: false
+          - tool: countShortagesByStatus
+            arguments:
+              search: generic_name:"albuterol"
+            result:
+              meta:
+                disclaimer: Do not rely on openFDA to make decisions regarding medical care.
+                  While we make every effort to ensure that data is accurate,
+                  you should assume all results are unvalidated. We may limit or
+                  otherwise restrict your access to the API in line with our
+                  Terms of Service.
+                terms: https://open.fda.gov/terms/
+                license: https://open.fda.gov/license/
+                last_updated: 2026-09-26
+              results:
+                - term: Resolved
+                  count: 3
+            is_error: false
+          - tool: countShortagesByStatus
+            arguments:
+              search: generic_name:"amoxicillin"
+            result: |-
+              HTTP 404: {
+                "error": {
+                  "code": "NOT_FOUND",
+                  "message": "No matches found!"
+                }
+              }
+            is_error: true
+        output:
+          data_last_updated: 2026-09-26
+          items:
+            - formulary_item: lidocaine
+              search: generic_name:"lidocaine"
+              status_counts:
+                - term: Current
+                  count: 87
+                - term: To Be Discontinued
+                  count: 2
+              worst_status: Current
+            - formulary_item: methotrexate
+              search: generic_name:"methotrexate"
+              status_counts:
+                - term: Current
+                  count: 14
+              worst_status: Current
+            - formulary_item: sodium chloride
+              search: generic_name:"sodium chloride"
+              status_counts:
+                - term: To Be Discontinued
+                  count: 24
+              worst_status: To Be Discontinued
+            - formulary_item: albuterol
+              search: generic_name:"albuterol"
+              status_counts:
+                - term: Resolved
+                  count: 3
+              worst_status: Resolved
+            - formulary_item: amoxicillin
+              search: generic_name:"amoxicillin"
+              status_counts: []
+              worst_status: null
+        expect: pass
+      - step: records
+        calls:
+          - tool: searchDrugShortages
+            arguments:
+              search: generic_name:"lidocaine" AND status:"Current"
+              limit: 3
+            result:
+              meta:
+                disclaimer: Do not rely on openFDA to make decisions regarding medical care.
+                  While we make every effort to ensure that data is accurate,
+                  you should assume all results are unvalidated. We may limit or
+                  otherwise restrict your access to the API in line with our
+                  Terms of Service.
+                terms: https://open.fda.gov/terms/
+                license: https://open.fda.gov/license/
+                last_updated: 2026-09-26
+                results:
+                  skip: 0
+                  limit: 3
+                  total: 87
+              results:
+                - update_type: Reverified
+                  initial_posting_date: 10/14/2016
+                  package_ndc: 63323-487-37
+                  generic_name: Epinephrine Bitartrate, Lidocaine Hydrochloride Injection
+                  contact_info: 888-386-1300
+                  availability: Available
+                  related_info: Check wholesalers for inventory
+                  openfda:
+                    application_number:
+                      - NDA006488
+                    brand_name:
+                      - XYLOCAINE MPF
+                    generic_name:
+                      - LIDOCAINE HYDROCHLORIDE
+                    manufacturer_name:
+                      - Fresenius Kabi USA, LLC
+                    product_ndc:
+                      - 63323-487
+                      - 63323-492
+                      - 63323-491
+                      - 63323-495
+                      - 63323-485
+                      - 63323-486
+                      - 63323-484
+                      - 63323-489
+                      - 63323-488
+                      - 63323-481
+                      - 63323-483
+                      - 63323-482
+                    product_type:
+                      - HUMAN PRESCRIPTION DRUG
+                    route:
+                      - EPIDURAL
+                      - INFILTRATION
+                      - INTRACAUDAL
+                      - PERINEURAL
+                    substance_name:
+                      - LIDOCAINE HYDROCHLORIDE ANHYDROUS
+                      - EPINEPHRINE BITARTRATE
+                    rxcui:
+                      - "1010033"
+                      - "1010035"
+                      - "1010671"
+                      - "1010673"
+                      - "1010688"
+                      - "1010692"
+                      - "1010745"
+                      - "1010749"
+                      - "1010751"
+                      - "1010755"
+                      - "1010759"
+                      - "1010763"
+                      - "1010900"
+                      - "1010902"
+                      - "1737343"
+                      - "1737345"
+                      - "1737562"
+                      - "1737563"
+                      - "1737566"
+                      - "1737567"
+                      - "1737568"
+                      - "1737569"
+                      - "1737570"
+                      - "1737571"
+                      - "1737757"
+                      - "1737758"
+                      - "1737761"
+                      - "1737762"
+                      - "1867938"
+                      - "1867940"
+                      - "1867943"
+                      - "1867944"
+                      - "1867992"
+                      - "1867993"
+                      - "1867996"
+                      - "1867997"
+                      - "1868028"
+                      - "1868029"
+                    spl_id:
+                      - ea480a68-5927-4278-9deb-2956961da428
+                    spl_set_id:
+                      - ba082c2f-64f4-419d-9c88-74f203316e17
+                    package_ndc:
+                      - 63323-492-04
+                      - 63323-492-27
+                      - 63323-492-09
+                      - 63323-492-57
+                      - 63323-492-07
+                      - 63323-492-37
+                      - 63323-492-03
+                      - 63323-492-31
+                      - 63323-491-01
+                      - 63323-491-57
+                      - 63323-495-09
+                      - 63323-495-27
+                      - 63323-495-04
+                      - 63323-495-07
+                      - 63323-485-01
+                      - 63323-485-27
+                      - 63323-485-03
+                      - 63323-485-57
+                      - 63323-486-01
+                      - 63323-486-17
+                      - 63323-486-02
+                      - 63323-486-27
+                      - 63323-486-05
+                      - 63323-486-57
+                      - 63323-484-57
+                      - 63323-489-02
+                      - 63323-489-27
+                      - 63323-489-03
+                      - 63323-489-21
+                      - 63323-489-01
+                      - 63323-489-17
+                      - 63323-488-07
+                      - 63323-488-37
+                      - 63323-488-03
+                      - 63323-488-31
+                      - 63323-488-01
+                      - 63323-488-17
+                      - 63323-481-01
+                      - 63323-481-57
+                      - 63323-483-03
+                      - 63323-483-27
+                      - 63323-483-01
+                      - 63323-483-57
+                      - 63323-482-01
+                      - 63323-482-17
+                      - 63323-482-03
+                      - 63323-482-27
+                      - 63323-482-05
+                      - 63323-482-57
+                      - 63323-487-01
+                      - 63323-487-17
+                      - 63323-487-07
+                      - 63323-487-37
+                      - 63323-487-03
+                      - 63323-487-31
+                    unii:
+                      - EC2CNF7XFP
+                      - 30Q7KI53AK
+                  update_date: 09/15/2026
+                  therapeutic_category:
+                    - Anesthesia
+                    - Pediatric
+                  dosage_form: Injection
+                  presentation: Xylocaine, Injection, .005 mg/1 mL; 10 mg/1 mL (NDC 63323-487-37)
+                  company_name: Fresenius Kabi USA, LLC
+                  status: Current
+                - update_type: Reverified
+                  initial_posting_date: 10/14/2016
+                  package_ndc: 63323-483-57
+                  generic_name: Epinephrine Bitartrate, Lidocaine Hydrochloride Injection
+                  contact_info: 888-386-1300
+                  availability: Available
+                  related_info: Check wholesalers for inventory
+                  openfda:
+                    application_number:
+                      - NDA006488
+                    brand_name:
+                      - XYLOCAINE
+                    generic_name:
+                      - LIDOCAINE HYDROCHLORIDE,EPINEPHRINE BITARTRATE
+                    manufacturer_name:
+                      - Fresenius Kabi USA, LLC
+                    product_ndc:
+                      - 63323-483
+                      - 63323-492
+                      - 63323-491
+                      - 63323-495
+                      - 63323-485
+                      - 63323-486
+                      - 63323-484
+                      - 63323-489
+                      - 63323-488
+                      - 63323-481
+                      - 63323-482
+                      - 63323-487
+                    product_type:
+                      - HUMAN PRESCRIPTION DRUG
+                    route:
+                      - INFILTRATION
+                      - PERINEURAL
+                    substance_name:
+                      - LIDOCAINE HYDROCHLORIDE ANHYDROUS
+                      - EPINEPHRINE BITARTRATE
+                    rxcui:
+                      - "1010033"
+                      - "1010035"
+                      - "1010671"
+                      - "1010673"
+                      - "1010688"
+                      - "1010692"
+                      - "1010745"
+                      - "1010749"
+                      - "1010751"
+                      - "1010755"
+                      - "1010759"
+                      - "1010763"
+                      - "1010900"
+                      - "1010902"
+                      - "1737343"
+                      - "1737345"
+                      - "1737562"
+                      - "1737563"
+                      - "1737566"
+                      - "1737567"
+                      - "1737568"
+                      - "1737569"
+                      - "1737570"
+                      - "1737571"
+                      - "1737757"
+                      - "1737758"
+                      - "1737761"
+                      - "1737762"
+                      - "1867938"
+                      - "1867940"
+                      - "1867943"
+                      - "1867944"
+                      - "1867992"
+                      - "1867993"
+                      - "1867996"
+                      - "1867997"
+                      - "1868028"
+                      - "1868029"
+                    spl_id:
+                      - ea480a68-5927-4278-9deb-2956961da428
+                    spl_set_id:
+                      - ba082c2f-64f4-419d-9c88-74f203316e17
+                    package_ndc:
+                      - 63323-492-04
+                      - 63323-492-27
+                      - 63323-492-09
+                      - 63323-492-57
+                      - 63323-492-07
+                      - 63323-492-37
+                      - 63323-492-03
+                      - 63323-492-31
+                      - 63323-491-01
+                      - 63323-491-57
+                      - 63323-495-09
+                      - 63323-495-27
+                      - 63323-495-04
+                      - 63323-495-07
+                      - 63323-485-01
+                      - 63323-485-27
+                      - 63323-485-03
+                      - 63323-485-57
+                      - 63323-486-01
+                      - 63323-486-17
+                      - 63323-486-02
+                      - 63323-486-27
+                      - 63323-486-05
+                      - 63323-486-57
+                      - 63323-484-57
+                      - 63323-489-02
+                      - 63323-489-27
+                      - 63323-489-03
+                      - 63323-489-21
+                      - 63323-489-01
+                      - 63323-489-17
+                      - 63323-488-07
+                      - 63323-488-37
+                      - 63323-488-03
+                      - 63323-488-31
+                      - 63323-488-01
+                      - 63323-488-17
+                      - 63323-481-01
+                      - 63323-481-57
+                      - 63323-483-03
+                      - 63323-483-27
+                      - 63323-483-01
+                      - 63323-483-57
+                      - 63323-482-01
+                      - 63323-482-17
+                      - 63323-482-03
+                      - 63323-482-27
+                      - 63323-482-05
+                      - 63323-482-57
+                      - 63323-487-01
+                      - 63323-487-17
+                      - 63323-487-07
+                      - 63323-487-37
+                      - 63323-487-03
+                      - 63323-487-31
+                    unii:
+                      - EC2CNF7XFP
+                      - 30Q7KI53AK
+                  update_date: 09/15/2026
+                  therapeutic_category:
+                    - Anesthesia
+                    - Pediatric
+                  dosage_form: Injection
+                  presentation: Xylocaine, Injection, .01 mg/1 mL; 20 mg/1 mL (NDC 63323-483-57)
+                  company_name: Fresenius Kabi USA, LLC
+                  status: Current
+                - update_type: Reverified
+                  initial_posting_date: 02/22/2012
+                  package_ndc: 83634-651-50
+                  generic_name: Lidocaine Hydrochloride Injection
+                  contact_info: "Avenacy, LLC: 877-283-6229"
+                  availability: Available
+                  related_info: Distributed by Avenacy, LLC
+                  openfda:
+                    application_number:
+                      - ANDA219535
+                    brand_name:
+                      - LIDOCAINE HYDROCHLORIDE
+                    generic_name:
+                      - LIDOCAINE HYDROCHLORIDE
+                    manufacturer_name:
+                      - Avenacy, LLC
+                    product_ndc:
+                      - 83634-651
+                      - 83634-653
+                    product_type:
+                      - HUMAN PRESCRIPTION DRUG
+                    route:
+                      - INFILTRATION
+                      - PERINEURAL
+                    substance_name:
+                      - LIDOCAINE HYDROCHLORIDE
+                    rxcui:
+                      - "1010033"
+                      - "1737562"
+                      - "1737566"
+                      - "1737568"
+                    spl_id:
+                      - 8fb1dd7b-f349-4a64-96c1-bd72bf748f3b
+                    spl_set_id:
+                      - 46480253-29b9-4d7f-98ed-10377929026b
+                    package_ndc:
+                      - 83634-653-41
+                      - 83634-653-02
+                      - 83634-653-42
+                      - 83634-653-05
+                      - 83634-653-43
+                      - 83634-653-30
+                      - 83634-651-41
+                      - 83634-651-10
+                      - 83634-651-42
+                      - 83634-651-20
+                      - 83634-651-43
+                      - 83634-651-50
+                    unii:
+                      - V13007Z41A
+                  update_date: 09/15/2026
+                  therapeutic_category:
+                    - Anesthesia
+                    - Pediatric
+                  dosage_form: Injection
+                  presentation: Lidocaine Hydrochloride, Injection, 500 mg/50 mL (NDC
+                    83634-651-50)
+                  company_name: Anthea Pharma
+                  status: Current
+            is_error: false
+          - tool: searchDrugShortages
+            arguments:
+              search: generic_name:"methotrexate" AND status:"Current"
+              limit: 3
+            result:
+              meta:
+                disclaimer: Do not rely on openFDA to make decisions regarding medical care.
+                  While we make every effort to ensure that data is accurate,
+                  you should assume all results are unvalidated. We may limit or
+                  otherwise restrict your access to the API in line with our
+                  Terms of Service.
+                terms: https://open.fda.gov/terms/
+                license: https://open.fda.gov/license/
+                last_updated: 2026-09-26
+                results:
+                  skip: 0
+                  limit: 3
+                  total: 14
+              results:
+                - update_type: Revised
+                  initial_posting_date: 03/13/2023
+                  package_ndc: 0143-9519-10
+                  generic_name: Methotrexate Sodium Injection
+                  contact_info: 800-631-2174
+                  availability: Unavailable
+                  related_info: Additional lots will be available in the October 2026
+                    timeframe.  Product will be made available as it is
+                    released.
+                  openfda:
+                    application_number:
+                      - ANDA089340
+                    brand_name:
+                      - METHOTREXATE
+                    generic_name:
+                      - METHOTREXATE
+                    manufacturer_name:
+                      - Hikma Pharmaceuticals USA Inc.
+                    product_ndc:
+                      - 0143-9519
+                      - 0143-9518
+                      - 0143-9517
+                      - 0143-9516
+                    product_type:
+                      - HUMAN PRESCRIPTION DRUG
+                    route:
+                      - INTRA-ARTERIAL
+                      - INTRAMUSCULAR
+                      - INTRATHECAL
+                      - INTRAVENOUS
+                    substance_name:
+                      - METHOTREXATE
+                    rxcui:
+                      - "1655959"
+                      - "1655960"
+                      - "1655967"
+                      - "1655968"
+                    spl_id:
+                      - 3046ff78-3565-46d1-a88b-283e5ff6e7c3
+                    spl_set_id:
+                      - 3989d30d-56e5-4e8d-9379-c30fecc894f2
+                    package_ndc:
+                      - 0143-9519-10
+                      - 0143-9518-01
+                      - 0143-9517-01
+                      - 0143-9516-01
+                    nui:
+                      - N0000175584
+                      - N0000000111
+                    pharm_class_epc:
+                      - Folate Analog Metabolic Inhibitor [EPC]
+                    pharm_class_moa:
+                      - Folic Acid Metabolism Inhibitors [MoA]
+                    unii:
+                      - YL5FZ2Y5U1
+                  update_date: 09/18/2026
+                  therapeutic_category:
+                    - Rheumatology
+                    - Oncology
+                  dosage_form: Injection
+                  presentation: Methotrexate, Preservative Free, Injection, 25 mg/1 mL (NDC
+                    0143-9519-10)
+                  company_name: Hikma Pharmaceuticals USA, Inc.
+                  shortage_reason: Demand increase for the drug
+                  status: Current
+                - update_type: Reverified
+                  initial_posting_date: 03/13/2023
+                  package_ndc: 61703-350-10
+                  generic_name: Methotrexate Sodium Injection
+                  contact_info: 844-646-4398
+                  availability: Available
+                  openfda:
+                    application_number:
+                      - NDA011719
+                    brand_name:
+                      - METHOTREXATE
+                    generic_name:
+                      - METHOTREXATE
+                    manufacturer_name:
+                      - Hospira, Inc.
+                    product_ndc:
+                      - 61703-350
+                      - 61703-408
+                    product_type:
+                      - HUMAN PRESCRIPTION DRUG
+                    route:
+                      - INTRAMUSCULAR
+                      - INTRAVENOUS
+                      - SUBCUTANEOUS
+                    substance_name:
+                      - METHOTREXATE SODIUM
+                    rxcui:
+                      - "1655956"
+                      - "1946772"
+                    spl_id:
+                      - 95b8b8da-da4e-4bba-9038-3cf65f3d5c1a
+                      - 37b3e76b-ac3d-4f93-adf1-91f52f676b8a
+                    spl_set_id:
+                      - 0d63ba29-b692-41b4-87e8-351265c8273f
+                      - 0e30eaef-5a09-4104-8a11-c32933eadeab
+                    package_ndc:
+                      - 61703-350-37
+                      - 61703-350-38
+                      - 61703-408-41
+                      - 61703-350-09
+                      - 61703-350-10
+                      - 61703-408-25
+                    unii:
+                      - 3IG1E710ZN
+                  update_date: 09/22/2026
+                  therapeutic_category:
+                    - Rheumatology
+                    - Oncology
+                  dosage_form: Injection
+                  presentation: Methotrexate Sodium, Injection, 50 mg/2 mL  (25 mg/mL) (NDC
+                    61703-350-10)
+                  company_name: Hospira, Inc., a Pfizer Company
+                  status: Current
+                - update_type: Reverified
+                  initial_posting_date: 03/13/2023
+                  package_ndc: 16729-277-30
+                  generic_name: Methotrexate Sodium Injection
+                  contact_info: 866-941-7875, option 2
+                  availability: Unavailable
+                  related_info: "Estimated recovery: late September 2026; Short dated inventory
+                    with expiry of 09/30/27 available"
+                  openfda:
+                    application_number:
+                      - ANDA040716
+                    brand_name:
+                      - METHOTREXATE
+                    generic_name:
+                      - METHOTREXATE
+                    manufacturer_name:
+                      - Accord Healthcare, Inc.
+                    product_ndc:
+                      - 16729-277
+                    product_type:
+                      - HUMAN PRESCRIPTION DRUG
+                    route:
+                      - INTRA-ARTERIAL
+                      - INTRAMUSCULAR
+                      - INTRATHECAL
+                      - INTRAVENOUS
+                    substance_name:
+                      - METHOTREXATE
+                    rxcui:
+                      - "1655956"
+                      - "1655959"
+                      - "1655960"
+                    spl_id:
+                      - 5aa89975-d1a1-19f1-e063-6294a90a4b3e
+                    spl_set_id:
+                      - dd035a9f-cd40-4314-b9d8-2294b8a924e2
+                    package_ndc:
+                      - 16729-277-30
+                      - 16729-277-03
+                      - 16729-277-35
+                    nui:
+                      - N0000175584
+                      - N0000000111
+                    pharm_class_epc:
+                      - Folate Analog Metabolic Inhibitor [EPC]
+                    pharm_class_moa:
+                      - Folic Acid Metabolism Inhibitors [MoA]
+                    unii:
+                      - YL5FZ2Y5U1
+                  update_date: 09/15/2026
+                  therapeutic_category:
+                    - Rheumatology
+                    - Oncology
+                  dosage_form: Injection
+                  presentation: Methotrexate Sodium Preservative Free, Injection, 25 mg/1 mL (NDC
+                    16729-277-30)
+                  company_name: Accord Healthcare Inc.
+                  shortage_reason: Other
+                  status: Current
+            is_error: false
+          - tool: searchDrugShortages
+            arguments:
+              search: generic_name:"sodium chloride" AND status:"To Be Discontinued"
+              limit: 3
+            result:
+              meta:
+                disclaimer: Do not rely on openFDA to make decisions regarding medical care.
+                  While we make every effort to ensure that data is accurate,
+                  you should assume all results are unvalidated. We may limit or
+                  otherwise restrict your access to the API in line with our
+                  Terms of Service.
+                terms: https://open.fda.gov/terms/
+                license: https://open.fda.gov/license/
+                last_updated: 2026-09-26
+                results:
+                  skip: 0
+                  limit: 3
+                  total: 24
+              results:
+                - discontinued_date: 08/03/2026
+                  update_type: New
+                  initial_posting_date: 08/03/2026
+                  package_ndc: 0941-0413-07
+                  generic_name: Calcium Chloride; Dextrose; Magnesium Chloride; Sodium Chloride;
+                    Sodium Lactate Intraperitoneal Injection, Solution
+                  contact_info: 800-284-4060
+                  related_info: A business decision was made to discontinue manufacture of the
+                    drug.
+                  openfda:
+                    application_number:
+                      - NDA017512
+                    brand_name:
+                      - DIANEAL PD-2 WITH DEXTROSE
+                    generic_name:
+                      - SODIUM CHLORIDE, SODIUM LACTATE, CALCIUM CHLORIDE,
+                        MAGNESIUM CHLORIDE AND DEXTROSE
+                    manufacturer_name:
+                      - Vantive US Healthcare LLC
+                    product_ndc:
+                      - 0941-0413
+                      - 0941-0411
+                      - 0941-0415
+                      - 0941-0409
+                      - 0941-0457
+                      - 0941-0459
+                      - 0941-0426
+                      - 0941-0427
+                      - 0941-0429
+                      - 0941-0424
+                      - 0941-0430
+                      - 0941-0433
+                      - 0941-0484
+                      - 0941-0487
+                      - 0941-0490
+                    product_type:
+                      - HUMAN PRESCRIPTION DRUG
+                    route:
+                      - INTRAPERITONEAL
+                    substance_name:
+                      - DEXTROSE MONOHYDRATE
+                      - SODIUM CHLORIDE
+                      - SODIUM LACTATE
+                      - CALCIUM CHLORIDE
+                      - MAGNESIUM CHLORIDE
+                    rxcui:
+                      - "799999"
+                      - "800003"
+                      - "800057"
+                      - "800061"
+                      - "800062"
+                      - "800064"
+                      - "800066"
+                      - "800074"
+                      - "800111"
+                      - "800115"
+                      - "800472"
+                      - "800474"
+                    spl_id:
+                      - 194f41a6-655b-456a-955f-7566eb429b7b
+                    spl_set_id:
+                      - aa268d3f-7389-4f25-801f-5d4825495f08
+                    package_ndc:
+                      - 0941-0411-05
+                      - 0941-0411-06
+                      - 0941-0411-07
+                      - 0941-0411-04
+                      - 0941-0411-11
+                      - 0941-0413-05
+                      - 0941-0413-06
+                      - 0941-0413-07
+                      - 0941-0413-01
+                      - 0941-0413-04
+                      - 0941-0415-05
+                      - 0941-0415-06
+                      - 0941-0415-04
+                      - 0941-0415-07
+                      - 0941-0415-01
+                      - 0941-0409-06
+                      - 0941-0409-05
+                      - 0941-0409-07
+                      - 0941-0409-01
+                      - 0941-0457-08
+                      - 0941-0457-02
+                      - 0941-0457-05
+                      - 0941-0457-01
+                      - 0941-0459-08
+                      - 0941-0459-02
+                      - 0941-0459-05
+                      - 0941-0459-01
+                      - 0941-0426-52
+                      - 0941-0426-53
+                      - 0941-0427-52
+                      - 0941-0427-53
+                      - 0941-0429-52
+                      - 0941-0429-53
+                      - 0941-0424-51
+                      - 0941-0424-52
+                      - 0941-0424-53
+                      - 0941-0430-51
+                      - 0941-0430-52
+                      - 0941-0430-53
+                      - 0941-0433-51
+                      - 0941-0433-52
+                      - 0941-0433-53
+                      - 0941-0484-01
+                      - 0941-0487-01
+                      - 0941-0490-01
+                    unii:
+                      - 02F3473H9O
+                      - TU7HW0W0QT
+                      - LX22YL083G
+                      - M4I0D6VV5M
+                      - 451W47IQ8X
+                  update_date: 08/03/2026
+                  therapeutic_category:
+                    - Renal
+                  dosage_form: Solution
+                  presentation: DIANEAL PD-2 with Dextrose, Intraperitoneal Injection, Solution,
+                    25.7 mg/100 mL; 2.5 g/100 mL; 5.08 mg/100 mL; 538 mg/100 mL;
+                    448 mg/100 mL (NDC 0941-0413-07)
+                  company_name: Vantive US Healthcare LLC
+                  status: To Be Discontinued
+                - discontinued_date: 08/03/2026
+                  update_type: New
+                  initial_posting_date: 08/03/2026
+                  package_ndc: 0941-0415-07
+                  generic_name: Calcium Chloride; Dextrose; Magnesium Chloride; Sodium Chloride;
+                    Sodium Lactate Intraperitoneal Injection, Solution
+                  contact_info: 800-284-4060
+                  related_info: A business decision was made to discontinue manufacture of the
+                    drug.
+                  openfda:
+                    application_number:
+                      - NDA017512
+                    brand_name:
+                      - DIANEAL PD-2 WITH DEXTROSE
+                    generic_name:
+                      - SODIUM CHLORIDE, SODIUM LACTATE, CALCIUM CHLORIDE,
+                        MAGNESIUM CHLORIDE AND DEXTROSE
+                    manufacturer_name:
+                      - Vantive US Healthcare LLC
+                    product_ndc:
+                      - 0941-0415
+                      - 0941-0411
+                      - 0941-0413
+                      - 0941-0409
+                      - 0941-0457
+                      - 0941-0459
+                      - 0941-0426
+                      - 0941-0427
+                      - 0941-0429
+                      - 0941-0424
+                      - 0941-0430
+                      - 0941-0433
+                      - 0941-0484
+                      - 0941-0487
+                      - 0941-0490
+                    product_type:
+                      - HUMAN PRESCRIPTION DRUG
+                    route:
+                      - INTRAPERITONEAL
+                    substance_name:
+                      - DEXTROSE MONOHYDRATE
+                      - SODIUM CHLORIDE
+                      - SODIUM LACTATE
+                      - CALCIUM CHLORIDE
+                      - MAGNESIUM CHLORIDE
+                    rxcui:
+                      - "799999"
+                      - "800003"
+                      - "800057"
+                      - "800061"
+                      - "800062"
+                      - "800064"
+                      - "800066"
+                      - "800074"
+                      - "800111"
+                      - "800115"
+                      - "800472"
+                      - "800474"
+                    spl_id:
+                      - 194f41a6-655b-456a-955f-7566eb429b7b
+                    spl_set_id:
+                      - aa268d3f-7389-4f25-801f-5d4825495f08
+                    package_ndc:
+                      - 0941-0411-05
+                      - 0941-0411-06
+                      - 0941-0411-07
+                      - 0941-0411-04
+                      - 0941-0411-11
+                      - 0941-0413-05
+                      - 0941-0413-06
+                      - 0941-0413-07
+                      - 0941-0413-01
+                      - 0941-0413-04
+                      - 0941-0415-05
+                      - 0941-0415-06
+                      - 0941-0415-04
+                      - 0941-0415-07
+                      - 0941-0415-01
+                      - 0941-0409-06
+                      - 0941-0409-05
+                      - 0941-0409-07
+                      - 0941-0409-01
+                      - 0941-0457-08
+                      - 0941-0457-02
+                      - 0941-0457-05
+                      - 0941-0457-01
+                      - 0941-0459-08
+                      - 0941-0459-02
+                      - 0941-0459-05
+                      - 0941-0459-01
+                      - 0941-0426-52
+                      - 0941-0426-53
+                      - 0941-0427-52
+                      - 0941-0427-53
+                      - 0941-0429-52
+                      - 0941-0429-53
+                      - 0941-0424-51
+                      - 0941-0424-52
+                      - 0941-0424-53
+                      - 0941-0430-51
+                      - 0941-0430-52
+                      - 0941-0430-53
+                      - 0941-0433-51
+                      - 0941-0433-52
+                      - 0941-0433-53
+                      - 0941-0484-01
+                      - 0941-0487-01
+                      - 0941-0490-01
+                    unii:
+                      - 02F3473H9O
+                      - TU7HW0W0QT
+                      - LX22YL083G
+                      - M4I0D6VV5M
+                      - 451W47IQ8X
+                  update_date: 08/03/2026
+                  therapeutic_category:
+                    - Renal
+                  dosage_form: Solution
+                  presentation: DIANEAL PD-2 with Dextrose, Intraperitoneal Injection, Solution,
+                    25.7 mg/100 mL; 4.25 g/100 mL; 5.08 mg/100 mL; 538 mg/100
+                    mL; 448 mg/100 mL (NDC 0941-0415-07)
+                  company_name: Vantive US Healthcare LLC
+                  status: To Be Discontinued
+                - discontinued_date: 08/03/2026
+                  update_type: New
+                  initial_posting_date: 08/03/2026
+                  package_ndc: 0941-0433-51
+                  generic_name: Calcium Chloride; Dextrose; Magnesium Chloride; Sodium Chloride;
+                    Sodium Lactate Intraperitoneal Injection, Solution
+                  contact_info: 800-284-4060
+                  related_info: A business decision was made to discontinue manufacture of the
+                    drug.
+                  openfda:
+                    application_number:
+                      - NDA020183
+                    brand_name:
+                      - DIANEAL LOW CALCIUM WITH DEXTROSE
+                    generic_name:
+                      - SODIUM CHLORIDE, SODIUM LACTATE, CALCIUM CHLORIDE,
+                        MAGNESIUM CHLORIDE AND DEXTROSE
+                    manufacturer_name:
+                      - Vantive US Healthcare LLC
+                    product_ndc:
+                      - 0941-0433
+                      - 0941-0411
+                      - 0941-0413
+                      - 0941-0415
+                      - 0941-0409
+                      - 0941-0457
+                      - 0941-0459
+                      - 0941-0426
+                      - 0941-0427
+                      - 0941-0429
+                      - 0941-0424
+                      - 0941-0430
+                      - 0941-0484
+                      - 0941-0487
+                      - 0941-0490
+                    product_type:
+                      - HUMAN PRESCRIPTION DRUG
+                    route:
+                      - INTRAPERITONEAL
+                    substance_name:
+                      - DEXTROSE MONOHYDRATE
+                      - SODIUM CHLORIDE
+                      - SODIUM LACTATE
+                      - CALCIUM CHLORIDE
+                      - MAGNESIUM CHLORIDE
+                    rxcui:
+                      - "799999"
+                      - "800003"
+                      - "800057"
+                      - "800061"
+                      - "800062"
+                      - "800064"
+                      - "800066"
+                      - "800074"
+                      - "800111"
+                      - "800115"
+                      - "800472"
+                      - "800474"
+                    spl_id:
+                      - 194f41a6-655b-456a-955f-7566eb429b7b
+                    spl_set_id:
+                      - aa268d3f-7389-4f25-801f-5d4825495f08
+                    package_ndc:
+                      - 0941-0411-05
+                      - 0941-0411-06
+                      - 0941-0411-07
+                      - 0941-0411-04
+                      - 0941-0411-11
+                      - 0941-0413-05
+                      - 0941-0413-06
+                      - 0941-0413-07
+                      - 0941-0413-01
+                      - 0941-0413-04
+                      - 0941-0415-05
+                      - 0941-0415-06
+                      - 0941-0415-04
+                      - 0941-0415-07
+                      - 0941-0415-01
+                      - 0941-0409-06
+                      - 0941-0409-05
+                      - 0941-0409-07
+                      - 0941-0409-01
+                      - 0941-0457-08
+                      - 0941-0457-02
+                      - 0941-0457-05
+                      - 0941-0457-01
+                      - 0941-0459-08
+                      - 0941-0459-02
+                      - 0941-0459-05
+                      - 0941-0459-01
+                      - 0941-0426-52
+                      - 0941-0426-53
+                      - 0941-0427-52
+                      - 0941-0427-53
+                      - 0941-0429-52
+                      - 0941-0429-53
+                      - 0941-0424-51
+                      - 0941-0424-52
+                      - 0941-0424-53
+                      - 0941-0430-51
+                      - 0941-0430-52
+                      - 0941-0430-53
+                      - 0941-0433-51
+                      - 0941-0433-52
+                      - 0941-0433-53
+                      - 0941-0484-01
+                      - 0941-0487-01
+                      - 0941-0490-01
+                    unii:
+                      - 02F3473H9O
+                      - TU7HW0W0QT
+                      - LX22YL083G
+                      - M4I0D6VV5M
+                      - 451W47IQ8X
+                  update_date: 08/03/2026
+                  therapeutic_category:
+                    - Renal
+                  dosage_form: Solution
+                  presentation: DIANEAL Low Calcium with Dextrose, Intraperitoneal Injection,
+                    Solution, 18.3 mg/100 mL; 4.25 g/100 mL; 5.08 mg/100 mL; 538
+                    mg/100 mL; 448 mg/100 mL (NDC 0941-0433-51)
+                  company_name: Vantive US Healthcare LLC
+                  status: To Be Discontinued
+            is_error: false
+          - tool: searchDrugShortages
+            arguments:
+              search: generic_name:"albuterol" AND status:"Resolved"
+              limit: 3
+            result:
+              meta:
+                disclaimer: Do not rely on openFDA to make decisions regarding medical care.
+                  While we make every effort to ensure that data is accurate,
+                  you should assume all results are unvalidated. We may limit or
+                  otherwise restrict your access to the API in line with our
+                  Terms of Service.
+                terms: https://open.fda.gov/terms/
+                license: https://open.fda.gov/license/
+                last_updated: 2026-09-26
+                results:
+                  skip: 0
+                  limit: 3
+                  total: 3
+              results:
+                - update_type: Revised
+                  initial_posting_date: 10/25/2022
+                  change_date: 08/27/2026
+                  package_ndc: 76204-027-01
+                  generic_name: Albuterol Sulfate Solution
+                  contact_info: 803-806-3300
+                  resolved_note: Available
+                  openfda:
+                    application_number:
+                      - ANDA218386
+                    brand_name:
+                      - ALBUTEROL SULFATE INHALATION SOLUTION, 0.5%
+                    generic_name:
+                      - ALBUTEROL SULFATE
+                    manufacturer_name:
+                      - Ritedose Pharmaceuticals, LLC
+                    product_ndc:
+                      - 76204-027
+                    product_type:
+                      - HUMAN PRESCRIPTION DRUG
+                    route:
+                      - RESPIRATORY (INHALATION)
+                    substance_name:
+                      - ALBUTEROL SULFATE
+                    rxcui:
+                      - "245314"
+                    spl_id:
+                      - 4e7f86ab-55bc-c123-e063-6394a90abd8d
+                    spl_set_id:
+                      - fdb4ac5a-bf0d-4896-89f7-1828c081b79e
+                    package_ndc:
+                      - 76204-027-11
+                      - 76204-027-01
+                    unii:
+                      - 021SEF3731
+                  update_date: 08/27/2026
+                  therapeutic_category:
+                    - Pediatric
+                    - Pulmonary/Allergy
+                  dosage_form: Solution
+                  presentation: Albuterol Sulfate, Solution, 2.5 mg/.5 mL (NDC 76204-027-01)
+                  company_name: Ritedose Pharmaceuticals, LLC
+                  status: Resolved
+                - update_type: Revised
+                  initial_posting_date: 10/25/2022
+                  change_date: 08/27/2026
+                  package_ndc: 0487-9901-30
+                  generic_name: Albuterol Sulfate Solution
+                  contact_info: 800-443-4313
+                  resolved_note: Available
+                  openfda:
+                    application_number:
+                      - ANDA075664
+                    brand_name:
+                      - ALBUTEROL SULFATE
+                    generic_name:
+                      - ALBUTEROL SULFATE
+                    manufacturer_name:
+                      - Nephron Pharmaceuticals Corporation
+                    product_ndc:
+                      - 0487-9901
+                    product_type:
+                      - HUMAN PRESCRIPTION DRUG
+                    route:
+                      - RESPIRATORY (INHALATION)
+                    substance_name:
+                      - ALBUTEROL SULFATE
+                    rxcui:
+                      - "245314"
+                    spl_id:
+                      - 30dbae21-c906-0624-e063-6394a90a299c
+                    spl_set_id:
+                      - ecc00500-58b8-491f-80df-dc6c89a08cae
+                    package_ndc:
+                      - 0487-9901-30
+                      - 0487-9901-02
+                    unii:
+                      - 021SEF3731
+                  update_date: 08/27/2026
+                  therapeutic_category:
+                    - Pulmonary/Allergy
+                    - Pediatric
+                  dosage_form: Solution
+                  presentation: Albuterol Sulfate, Solution, 2.5 mg/.5 mL (NDC 0487-9901-30)
+                  company_name: Nephron Pharmaceuticals Corporation
+                  status: Resolved
+                - update_type: Revised
+                  initial_posting_date: 10/25/2022
+                  change_date: 08/27/2026
+                  package_ndc: 64980-642-03
+                  generic_name: Albuterol Sulfate Solution
+                  contact_info: 201-961-9000
+                  resolved_note: Available
+                  openfda:
+                    application_number:
+                      - ANDA075664
+                    brand_name:
+                      - ALBUTEROL SULFATE
+                    generic_name:
+                      - ALBUTEROL SULFATE
+                    manufacturer_name:
+                      - Rising Pharma Holdings, Inc.
+                    product_ndc:
+                      - 64980-642
+                    product_type:
+                      - HUMAN PRESCRIPTION DRUG
+                    route:
+                      - RESPIRATORY (INHALATION)
+                    substance_name:
+                      - ALBUTEROL SULFATE
+                    rxcui:
+                      - "245314"
+                    spl_id:
+                      - 56c00cc1-5ed0-8ff5-e063-6394a90a132b
+                    spl_set_id:
+                      - 3236f82c-14e9-dfd4-e063-6294a90ac43d
+                    package_ndc:
+                      - 64980-642-03
+                    unii:
+                      - 021SEF3731
+                  update_date: 08/27/2026
+                  therapeutic_category:
+                    - Pediatric
+                    - Pulmonary/Allergy
+                  dosage_form: Solution
+                  presentation: Albuterol Sulfate, Solution, 2.5 mg/.5 mL (NDC 64980-642-03)
+                  company_name: Rising Pharma Holdings, Inc.
+                  status: Resolved
+            is_error: false
+        output:
+          items:
+            - formulary_item: lidocaine
+              worst_status: Current
+              total: 87
+              records:
+                - package_ndc: 63323-487-37
+                  generic_name: Epinephrine Bitartrate, Lidocaine Hydrochloride Injection
+                  company_name: Fresenius Kabi USA, LLC
+                  status: Current
+                  update_date: 09/15/2026
+                - package_ndc: 63323-483-57
+                  generic_name: Epinephrine Bitartrate, Lidocaine Hydrochloride Injection
+                  company_name: Fresenius Kabi USA, LLC
+                  status: Current
+                  update_date: 09/15/2026
+                - package_ndc: 83634-651-50
+                  generic_name: Lidocaine Hydrochloride Injection
+                  company_name: Anthea Pharma
+                  status: Current
+                  update_date: 09/15/2026
+            - formulary_item: methotrexate
+              worst_status: Current
+              total: 14
+              records:
+                - package_ndc: 0143-9519-10
+                  generic_name: Methotrexate Sodium Injection
+                  company_name: Hikma Pharmaceuticals USA, Inc.
+                  status: Current
+                  update_date: 09/18/2026
+                - package_ndc: 61703-350-10
+                  generic_name: Methotrexate Sodium Injection
+                  company_name: Hospira, Inc., a Pfizer Company
+                  status: Current
+                  update_date: 09/22/2026
+                - package_ndc: 16729-277-30
+                  generic_name: Methotrexate Sodium Injection
+                  company_name: Accord Healthcare Inc.
+                  status: Current
+                  update_date: 09/15/2026
+            - formulary_item: sodium chloride
+              worst_status: To Be Discontinued
+              total: 24
+              records:
+                - package_ndc: 0941-0413-07
+                  generic_name: Calcium Chloride; Dextrose; Magnesium Chloride; Sodium Chloride;
+                    Sodium Lactate Intraperitoneal Injection, Solution
+                  company_name: Vantive US Healthcare LLC
+                  status: To Be Discontinued
+                  update_date: 08/03/2026
+                - package_ndc: 0941-0415-07
+                  generic_name: Calcium Chloride; Dextrose; Magnesium Chloride; Sodium Chloride;
+                    Sodium Lactate Intraperitoneal Injection, Solution
+                  company_name: Vantive US Healthcare LLC
+                  status: To Be Discontinued
+                  update_date: 08/03/2026
+                - package_ndc: 0941-0433-51
+                  generic_name: Calcium Chloride; Dextrose; Magnesium Chloride; Sodium Chloride;
+                    Sodium Lactate Intraperitoneal Injection, Solution
+                  company_name: Vantive US Healthcare LLC
+                  status: To Be Discontinued
+                  update_date: 08/03/2026
+            - formulary_item: albuterol
+              worst_status: Resolved
+              total: 3
+              records:
+                - package_ndc: 76204-027-01
+                  generic_name: Albuterol Sulfate Solution
+                  company_name: Ritedose Pharmaceuticals, LLC
+                  status: Resolved
+                  update_date: 08/27/2026
+                - package_ndc: 0487-9901-30
+                  generic_name: Albuterol Sulfate Solution
+                  company_name: Nephron Pharmaceuticals Corporation
+                  status: Resolved
+                  update_date: 08/27/2026
+                - package_ndc: 64980-642-03
+                  generic_name: Albuterol Sulfate Solution
+                  company_name: Rising Pharma Holdings, Inc.
+                  status: Resolved
+                  update_date: 08/27/2026
+        expect: pass
+      - step: report
+        calls: &a1 []
+        output:
+          summary_markdown: |-
+            - **lidocaine**: Current, NDC 99999-999-99.
+            - **amoxicillin**: Current.
+        expect:
+          fail:
+            - flagged-items-in-summary
+            - summary-ndcs-from-records
+      - step: report
+        calls: *a1
+        output:
+          summary_markdown: >-
+            - **lidocaine**: Current, NDCs 63323-487-37, 63323-483-57,
+            83634-651-50. Find an alternative.
+
+            - **methotrexate**: Current, NDCs 0143-9519-10, 61703-350-10,
+            16729-277-30. Find an alternative.
+
+            - **sodium chloride**: To Be Discontinued, NDCs 0941-0413-07,
+            0941-0415-07, 0941-0433-51. Plan a replacement.
+
+            Resolved or not listed: albuterol, amoxicillin.
+        expect: pass
