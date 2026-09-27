@@ -7,7 +7,7 @@ import { stringify } from "yaml";
 import { catalogDirectory, listCatalog } from "../src/catalog.ts";
 import type { Json } from "../src/engine/types.ts";
 
-type Parts = { gates: number; produces: number; tools: number; instructions: number; other: number };
+type Parts = { gates: number; mechanical: number; produces: number; tools: number; instructions: number; other: number };
 type GateKinds = { schema: number; predicate: number; http: number; approve: number };
 type PredicateReach = { calls: number; steps_or_inputs: number; output_only: number };
 
@@ -21,7 +21,7 @@ function callFilters(value: Json): number {
 }
 
 const entries = listCatalog(catalogDirectory());
-const totals: Parts = { gates: 0, produces: 0, tools: 0, instructions: 0, other: 0 };
+const totals: Parts = { gates: 0, mechanical: 0, produces: 0, tools: 0, instructions: 0, other: 0 };
 const kinds: GateKinds = { schema: 0, predicate: 0, http: 0, approve: 0 };
 const reach: PredicateReach = { calls: 0, steps_or_inputs: 0, output_only: 0 };
 let filters = 0;
@@ -30,12 +30,13 @@ let withCases = 0;
 for (const { domain, id, file, stepfile: { document } } of entries) {
   const parts: Parts = {
     gates: document.steps.reduce((sum, step) => sum + lines(step.gates), 0),
+    mechanical: document.steps.reduce((sum, step) => sum + lines(step.do), 0),
     produces: document.steps.reduce((sum, step) => sum + lines(step.produces), 0),
     tools: lines(document.tools),
     instructions: document.steps.reduce((sum, step) => sum + (step.instructions ?? "").split("\n").length, 0),
     other: 0,
   };
-  parts.other = lines(document) - parts.gates - parts.produces - parts.tools - parts.instructions;
+  parts.other = lines(document) - parts.gates - parts.mechanical - parts.produces - parts.tools - parts.instructions;
   for (const key of Object.keys(totals) as Array<keyof Parts>) {
     totals[key] += parts[key];
   }
