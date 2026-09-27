@@ -5,8 +5,9 @@ title: Draft a monday.com kickoff group from a closed-won HubSpot deal
 description: >
   Reads a HubSpot deal, refuses it unless its stage is closed won, reads its
   line items, contacts and companies, plans one monday.com item per line item,
-  and creates them as drafts in a new "Stepgate draft" group on a given board,
-  each with an update carrying the deal, company and contact details.
+  and, once a person approves the plan, creates them as drafts in a new
+  "Stepgate draft" group on a given board, each with an update carrying the
+  deal, company and contact details.
 
 inputs:
   type: object
@@ -132,7 +133,14 @@ tools:
                         properties: { const: [name, domain] }
                         propertiesWithHistory: { type: array, maxItems: 0 }
     credential: hubspot
-    exposes: [getDeal, getDealStage, listDealAssociations, readLineItems, readContacts, readCompanies]
+    # HubSpot documents the batch reads, sent as POST, as retrieving records by id.
+    exposes:
+      - getDeal
+      - getDealStage
+      - listDealAssociations
+      - { name: readLineItems, effect: read }
+      - { name: readContacts, effect: read }
+      - { name: readCompanies, effect: read }
 
   monday-graphql:
     openapi:
@@ -182,93 +190,96 @@ tools:
     credential: monday
     exposes: [mondayGraphql]
 
+# An each call's responses come back in the order of its items, so steps pair them by position: the
+# reduce numbers a list as { i, value } and join matches the numbers.
+
 steps:
   - id: deal
-    tools: [getDeal, getDealStage]
-    instructions: |
-      Read HubSpot deal {{inputs.deal_id}} with getDeal (dealId
-      {{inputs.deal_id}}). Then read its stage with getDealStage, passing the
-      deal's pipeline property as pipelineId and its dealstage property as
-      stageId.
-
-      Submit, copied exactly from the responses (null where a property is
-      null or missing): deal_id (id), dealname, amount, closedate, currency
-      (deal_currency_code), pipeline, dealstage, stage_label (the stage's
-      label), stage_probability (metadata.probability) and stage_is_closed
-      (metadata.isClosed).
-
-      Only a stage with probability 1.0 is closed won. If the deal is not
-      closed won, still submit the real values: the run will refuse the deal.
-      Never change a value to make the deal look closed won.
+    do:
+      calls:
+        - { id: deal, operation: getDeal, arguments: { dealId: { var: inputs.deal_id } } }
+        - id: stage
+          operation: getDealStage
+          arguments: { pipelineId: { var: responses.deal.properties.pipeline }, stageId: { var: responses.deal.properties.dealstage } }
+      output:
+        deal_id: { var: responses.deal.id }
+        dealname: { var: responses.deal.properties.dealname }
+        amount: { var: responses.deal.properties.amount }
+        closedate: { var: responses.deal.properties.closedate }
+        currency: { var: responses.deal.properties.deal_currency_code }
+        stage_label: { var: responses.stage.label }
+        stage_probability: { var: responses.stage.metadata.probability }
+        stage_is_closed: { var: responses.stage.metadata.isClosed }
     produces:
       type: object
-      required: [deal_id, dealname, amount, closedate, currency, pipeline, dealstage, stage_label, stage_probability, stage_is_closed]
+      required: [deal_id, dealname, amount, closedate, currency, stage_label, stage_probability, stage_is_closed]
       properties:
         deal_id: { type: string }
         dealname: { type: [string, "null"] }
         amount: { type: [string, "null"] }
         closedate: { type: [string, "null"] }
         currency: { type: [string, "null"] }
-        pipeline: { type: string }
-        dealstage: { type: string }
         stage_label: { type: string }
         stage_probability: { type: [string, "null"] }
         stage_is_closed: { type: [string, "null"] }
     gates:
-      - id: deal-from-api
-        message: >
-          deal_id must be the input deal id, and every deal value must be copied
-          exactly from a successful getDeal call for that id.
-        predicate:
-          and:
-            - "==": [{ var: output.deal_id }, { var: inputs.deal_id }]
-            - subset:
-                - - [{ var: output.deal_id }, { var: output.dealname }, { var: output.amount }, { var: output.closedate }, { var: output.currency }, { var: output.pipeline }, { var: output.dealstage }]
-                - map:
-                    - filter: [{ var: calls }, { and: [{ "==": [{ var: tool }, getDeal] }, { "!": { var: is_error } }] }]
-                    - [{ var: result.id }, { var: result.properties.dealname }, { var: result.properties.amount }, { var: result.properties.closedate }, { var: result.properties.deal_currency_code }, { var: result.properties.pipeline }, { var: result.properties.dealstage }]
-      - id: stage-from-api
-        message: >
-          The stage label, probability and isClosed must come from a successful
-          getDealStage call made with the deal's own pipeline and dealstage.
-        predicate:
-          subset:
-            - - [{ var: output.pipeline }, { var: output.dealstage }, { var: output.stage_label }, { var: output.stage_probability }, { var: output.stage_is_closed }]
-            - map:
-                - filter: [{ var: calls }, { and: [{ "==": [{ var: tool }, getDealStage] }, { "!": { var: is_error } }] }]
-                - [{ var: arguments.pipelineId }, { var: arguments.stageId }, { var: result.label }, { var: result.metadata.probability }, { var: result.metadata.isClosed }]
       - id: deal-is-closed-won
         message: >
           Refused: this deal's stage is not closed won (its probability is not
-          1.0, or HubSpot marks it not closed). Nothing was created. Do not
-          change the values; resubmitting cannot make this gate pass.
+          1.0, or HubSpot marks it not closed). Nothing was read or written after it.
         predicate:
           and:
             - in: [{ var: output.stage_probability }, ["1.0", "1"]]
             - "!=": [{ var: output.stage_is_closed }, "false"]
-    retries: 2
 
+  # A record the batch read did not return has no id, which breaks produces and stops the run.
   - id: records
-    tools: [listDealAssociations, readLineItems, readContacts, readCompanies]
-    instructions: |
-      Deal {{inputs.deal_id}} is closed won. Collect its line items, contacts
-      and companies.
-
-      1. Call listDealAssociations for dealId {{inputs.deal_id}} three times,
-         with toObjectType line_items, contacts and companies. The ids are the
-         toObjectId values in results.
-      2. Read every associated line item with readLineItems, every contact
-         with readContacts and every company with readCompanies. Pass the ids
-         as strings in inputs, the one allowed properties list, and an empty
-         propertiesWithHistory. Skip a read whose id list is empty.
-
-      Submit line_items, contacts and companies: one entry per associated
-      record, each with id and the requested properties copied exactly from
-      properties (null where missing). Line item fields: id, name, quantity,
-      price, amount, sku (hs_sku). Contact fields: id, firstname, lastname,
-      email, phone, jobtitle. Company fields: id, name, domain. Keep the order
-      the associations were listed in. Include every associated record once
-      and nothing else.
+    do:
+      calls:
+        - { id: line-item-ids, operation: listDealAssociations, arguments: { dealId: { var: inputs.deal_id }, toObjectType: line_items } }
+        - { id: contact-ids, operation: listDealAssociations, arguments: { dealId: { var: inputs.deal_id }, toObjectType: contacts } }
+        - { id: company-ids, operation: listDealAssociations, arguments: { dealId: { var: inputs.deal_id }, toObjectType: companies } }
+        # Each read runs once, or not at all when nothing is associated, since a batch read needs one id.
+        - id: line-items
+          operation: readLineItems
+          each: { if: [{ var: responses.line-item-ids.results.0 }, [{ map: [{ var: responses.line-item-ids.results }, { object: [[id, { cat: ["", { var: toObjectId }] }]] }] }], []] }
+          arguments: { body: { inputs: { var: item }, properties: [name, quantity, price, amount, hs_sku], propertiesWithHistory: [] } }
+        - id: contacts
+          operation: readContacts
+          each: { if: [{ var: responses.contact-ids.results.0 }, [{ map: [{ var: responses.contact-ids.results }, { object: [[id, { cat: ["", { var: toObjectId }] }]] }] }], []] }
+          arguments: { body: { inputs: { var: item }, properties: [firstname, lastname, email, phone, jobtitle], propertiesWithHistory: [] } }
+        - id: companies
+          operation: readCompanies
+          each: { if: [{ var: responses.company-ids.results.0 }, [{ map: [{ var: responses.company-ids.results }, { object: [[id, { cat: ["", { var: toObjectId }] }]] }] }], []] }
+          arguments: { body: { inputs: { var: item }, properties: [name, domain], propertiesWithHistory: [] } }
+      output:
+        line_items:
+          map:
+            - join: [{ map: [{ var: responses.line-item-ids.results }, { object: [[id, { cat: ["", { var: toObjectId }] }]] }] }, { flatten: { map: [{ var: responses.line-items }, { var: results }] } }, id, id]
+            - object:
+                - [id, { var: right.id }]
+                - [name, { var: [right.properties.name, null] }]
+                - [quantity, { var: [right.properties.quantity, null] }]
+                - [price, { var: [right.properties.price, null] }]
+                - [amount, { var: [right.properties.amount, null] }]
+                - [sku, { var: [right.properties.hs_sku, null] }]
+        contacts:
+          map:
+            - join: [{ map: [{ var: responses.contact-ids.results }, { object: [[id, { cat: ["", { var: toObjectId }] }]] }] }, { flatten: { map: [{ var: responses.contacts }, { var: results }] } }, id, id]
+            - object:
+                - [id, { var: right.id }]
+                - [firstname, { var: [right.properties.firstname, null] }]
+                - [lastname, { var: [right.properties.lastname, null] }]
+                - [email, { var: [right.properties.email, null] }]
+                - [phone, { var: [right.properties.phone, null] }]
+                - [jobtitle, { var: [right.properties.jobtitle, null] }]
+        companies:
+          map:
+            - join: [{ map: [{ var: responses.company-ids.results }, { object: [[id, { cat: ["", { var: toObjectId }] }]] }] }, { flatten: { map: [{ var: responses.companies }, { var: results }] } }, id, id]
+            - object:
+                - [id, { var: right.id }]
+                - [name, { var: [right.properties.name, null] }]
+                - [domain, { var: [right.properties.domain, null] }]
     produces:
       type: object
       required: [line_items, contacts, companies]
@@ -279,7 +290,6 @@ steps:
           items:
             type: object
             required: [id, name, quantity, price, amount, sku]
-            additionalProperties: false
             properties:
               id: { type: string }
               name: { type: [string, "null"] }
@@ -289,122 +299,39 @@ steps:
               sku: { type: [string, "null"] }
         contacts:
           type: array
-          items:
-            type: object
-            required: [id, firstname, lastname, email, phone, jobtitle]
-            additionalProperties: false
-            properties:
-              id: { type: string }
-              firstname: { type: [string, "null"] }
-              lastname: { type: [string, "null"] }
-              email: { type: [string, "null"] }
-              phone: { type: [string, "null"] }
-              jobtitle: { type: [string, "null"] }
+          items: { type: object, required: [id], properties: { id: { type: string } } }
         companies:
           type: array
-          items:
-            type: object
-            required: [id, name, domain]
-            additionalProperties: false
-            properties:
-              id: { type: string }
-              name: { type: [string, "null"] }
-              domain: { type: [string, "null"] }
-    gates:
-      - id: associations-listed
-        message: >
-          Call listDealAssociations successfully for the input deal with each of
-          line_items, contacts and companies, and for no other deal.
-        predicate:
-          and:
-            - subset:
-                - - [{ var: inputs.deal_id }, line_items]
-                  - [{ var: inputs.deal_id }, contacts]
-                  - [{ var: inputs.deal_id }, companies]
-                - map:
-                    - filter: [{ var: calls }, { and: [{ "==": [{ var: tool }, listDealAssociations] }, { "!": { var: is_error } }] }]
-                    - [{ var: arguments.dealId }, { var: arguments.toObjectType }]
-            - subset:
-                - map: [{ filter: [{ var: calls }, { "==": [{ var: tool }, listDealAssociations] }] }, { var: arguments.dealId }]
-                - [{ var: inputs.deal_id }]
-      # Each list must be exactly the associated ids: both subsets plus equal distinct counts.
-      - id: records-are-exactly-the-associations
-        message: >
-          line_items, contacts and companies must each list every associated
-          record id exactly once (the toObjectId values from
-          listDealAssociations) and no other id.
-        predicate:
-          and:
-            - subset: [{ map: [{ var: output.line_items }, { var: id }] }, &line-item-ids { flatten: { map: [{ filter: [{ var: calls }, { and: [{ "==": [{ var: tool }, listDealAssociations] }, { "==": [{ var: arguments.toObjectType }, line_items] }, { "!": { var: is_error } }] }] }, { map: [{ var: result.results }, { cat: ["", { var: toObjectId }] }] }] } }]
-            - subset: [*line-item-ids, { map: [{ var: output.line_items }, { var: id }] }]
-            - "==": [{ length: { unique: { map: [{ var: output.line_items }, { var: id }] } } }, { length: { var: output.line_items } }]
-            - subset: [{ map: [{ var: output.contacts }, { var: id }] }, &contact-ids { flatten: { map: [{ filter: [{ var: calls }, { and: [{ "==": [{ var: tool }, listDealAssociations] }, { "==": [{ var: arguments.toObjectType }, contacts] }, { "!": { var: is_error } }] }] }, { map: [{ var: result.results }, { cat: ["", { var: toObjectId }] }] }] } }]
-            - subset: [*contact-ids, { map: [{ var: output.contacts }, { var: id }] }]
-            - "==": [{ length: { unique: { map: [{ var: output.contacts }, { var: id }] } } }, { length: { var: output.contacts } }]
-            - subset: [{ map: [{ var: output.companies }, { var: id }] }, &company-ids { flatten: { map: [{ filter: [{ var: calls }, { and: [{ "==": [{ var: tool }, listDealAssociations] }, { "==": [{ var: arguments.toObjectType }, companies] }, { "!": { var: is_error } }] }] }, { map: [{ var: result.results }, { cat: ["", { var: toObjectId }] }] }] } }]
-            - subset: [*company-ids, { map: [{ var: output.companies }, { var: id }] }]
-            - "==": [{ length: { unique: { map: [{ var: output.companies }, { var: id }] } } }, { length: { var: output.companies } }]
-      - id: line-items-from-api
-        message: Every line item (id, name, quantity, price, amount, sku) must be a readLineItems result copied exactly.
-        predicate:
-          subset:
-            - map: [{ var: output.line_items }, [{ var: id }, { var: name }, { var: quantity }, { var: price }, { var: amount }, { var: sku }]]
-            - flatten:
-                map:
-                  - filter: [{ var: calls }, { and: [{ "==": [{ var: tool }, readLineItems] }, { "!": { var: is_error } }] }]
-                  - map: [{ var: result.results }, [{ var: id }, { var: properties.name }, { var: properties.quantity }, { var: properties.price }, { var: properties.amount }, { var: properties.hs_sku }]]
-      - id: contacts-from-api
-        message: Every contact (id, firstname, lastname, email, phone, jobtitle) must be a readContacts result copied exactly.
-        predicate:
-          subset:
-            - map: [{ var: output.contacts }, [{ var: id }, { var: firstname }, { var: lastname }, { var: email }, { var: phone }, { var: jobtitle }]]
-            - flatten:
-                map:
-                  - filter: [{ var: calls }, { and: [{ "==": [{ var: tool }, readContacts] }, { "!": { var: is_error } }] }]
-                  - map: [{ var: result.results }, [{ var: id }, { var: properties.firstname }, { var: properties.lastname }, { var: properties.email }, { var: properties.phone }, { var: properties.jobtitle }]]
-      - id: companies-from-api
-        message: Every company (id, name, domain) must be a readCompanies result copied exactly.
-        predicate:
-          subset:
-            - map: [{ var: output.companies }, [{ var: id }, { var: name }, { var: domain }]]
-            - flatten:
-                map:
-                  - filter: [{ var: calls }, { and: [{ "==": [{ var: tool }, readCompanies] }, { "!": { var: is_error } }] }]
-                  - map: [{ var: result.results }, [{ var: id }, { var: properties.name }, { var: properties.domain }]]
-    retries: 2
+          items: { type: object, required: [id], properties: { id: { type: string } } }
 
   - id: plan
     instructions: |
-      Plan the monday.com drafts for closed-won deal "{{steps.deal.dealname}}"
-      (HubSpot deal {{steps.deal.deal_id}}) on board {{inputs.board_id}}.
+      Stepgate has planned monday.com drafts for closed-won deal
+      "{{steps.deal.dealname}}" (HubSpot deal {{steps.deal.deal_id}}, stage
+      {{steps.deal.stage_label}}, amount {{steps.deal.amount}}
+      {{steps.deal.currency}}, closing {{steps.deal.closedate}}) on board
+      {{inputs.board_id}}: one group, and in it one item per line item, each
+      with an update carrying the deal, line item, company and contact details.
+      A person will be asked to approve the plan before anything is written.
 
       Line items: {{steps.records.line_items}}
       Companies: {{steps.records.companies}}
       Contacts: {{steps.records.contacts}}
 
-      Submit exactly these writes and nothing else:
-      - board_id: {{inputs.board_id}}
-      - group_name: "Stepgate draft: <dealname> (HubSpot deal <deal_id>)",
-        cut to its first 255 characters.
-      - items: one per line item, in the order above, with line_item_id (the
-        line item id), item_name "[Draft] <name> (HubSpot line item <id>)",
-        and update_body built line by line, each line ending in a newline:
-          Deal: <dealname> (HubSpot deal <deal_id>)
-          Line item: <name>
-          Quantity: <quantity>
-          Unit price: <price>
-          Amount: <amount>
-          SKU: <sku>
-          then one "Company: <name>" line per company, in order,
-          then one "Contact: <firstname> <lastname> <<email>>, <jobtitle>, <phone>" line per contact, in order,
-        and finally, with no newline after it:
-          Draft created by Stepgate from HubSpot. Review before use.
-      Copy every value exactly as given. Where a value is null, write nothing
-      in its place and keep the surrounding text. Invent nothing.
+      Submit summary: short Markdown for that person with the sections
+      "## Deal", "## Drafts to create" and "## Next steps", in that order.
+      - Deal: the deal name, "HubSpot deal <deal_id>", the stage label, the
+        amount with its currency and the close date, as given.
+      - Drafts to create: one bullet per line item naming it and "HubSpot line
+        item <id>", and the companies and contacts its update will name. Cite
+        no other line item id.
+      - Next steps: the drafts land in a "Stepgate draft" group, to be
+        reviewed, assigned and moved out of the group by a person.
     produces:
       type: object
-      required: [board_id, group_name, items]
+      required: [summary, board_id, group_name, items]
       properties:
+        summary: { type: string, minLength: 1, maxLength: 12000 }
         board_id: { type: string }
         group_name: { type: string, minLength: 1, maxLength: 255 }
         items:
@@ -418,243 +345,154 @@ steps:
               line_item_id: { type: string }
               item_name: { type: string, minLength: 1, maxLength: 255 }
               update_body: { type: string, minLength: 1 }
-    gates:
-      - id: board-and-group
-        message: >
-          board_id must be the input board, and group_name must be
-          "Stepgate draft: <dealname> (HubSpot deal <deal_id>)", cut to 255 characters.
-        predicate:
-          and:
-            - "==": [{ var: output.board_id }, { var: inputs.board_id }]
-            - "==":
-                - { var: output.group_name }
-                - substr: [{ cat: ["Stepgate draft: ", { var: steps.deal.dealname }, " (HubSpot deal ", { var: steps.deal.deal_id }, ")"] }, 0, 255]
-      - id: one-item-per-line-item
-        message: >
-          items must hold exactly one entry per line item, each named
-          "[Draft] <name> (HubSpot line item <id>)", with no line item missing,
-          repeated or added.
-        predicate:
-          and:
-            - "==": [{ length: { var: output.items } }, { length: { var: steps.records.line_items } }]
-            - "==": [{ length: { unique: { map: [{ var: output.items }, { var: line_item_id }] } } }, { length: { var: output.items } }]
-            - subset:
-                - map: [{ var: output.items }, [{ var: line_item_id }, { var: item_name }]]
-                - map: [{ var: steps.records.line_items }, [{ var: id }, { cat: ["[Draft] ", { var: name }, " (HubSpot line item ", { var: id }, ")"] }]]
-      # The reduce starts from [deal line, company and contact lines], which each line item's body reuses.
-      - id: update-bodies-exact
-        message: >
-          Every update_body must follow the template exactly, with the deal,
-          line item, company and contact values copied from the earlier steps
-          and nothing added.
-        predicate:
-          subset:
-            - map: [{ var: output.items }, [{ var: line_item_id }, { var: update_body }]]
-            - reduce:
-                - { var: steps.records.line_items }
-                - merge:
-                    - { var: accumulator }
-                    - - - { var: current.id }
-                        - cat:
-                            - { var: accumulator.0 }
-                            - "Line item: "
-                            - { var: current.name }
-                            - "\nQuantity: "
-                            - { var: current.quantity }
-                            - "\nUnit price: "
-                            - { var: current.price }
-                            - "\nAmount: "
-                            - { var: current.amount }
-                            - "\nSKU: "
-                            - { var: current.sku }
-                            - "\n"
-                            - { var: accumulator.1 }
-                - - cat: ["Deal: ", { var: steps.deal.dealname }, " (HubSpot deal ", { var: steps.deal.deal_id }, ")\n"]
-                  - cat:
-                      - reduce:
-                          - { var: steps.records.companies }
-                          - cat: [{ var: accumulator }, "Company: ", { var: current.name }, "\n"]
-                          - ""
-                      - reduce:
-                          - { var: steps.records.contacts }
-                          - cat: [{ var: accumulator }, "Contact: ", { var: current.firstname }, " ", { var: current.lastname }, " <", { var: current.email }, ">, ", { var: current.jobtitle }, ", ", { var: current.phone }, "\n"]
-                          - ""
-                      - "Draft created by Stepgate from HubSpot. Review before use."
-    retries: 2
-
-  - id: create
-    tools: [mondayGraphql]
-    instructions: |
-      Create the planned drafts in monday.com with mondayGraphql. Make exactly
-      these calls, in this order, and no others:
-
-      1. One create_group call: query CreateDraftGroup, variables
-         { "board": "{{steps.plan.board_id}}", "name": <group_name> } where
-         group_name is:
-         {{steps.plan.group_name}}
-         Keep data.create_group.id from the response.
-      2. For each planned item, one create_item call: query CreateDraftItem,
-         variables { "board": "{{steps.plan.board_id}}", "group": <the group id
-         from step 1>, "name": <item_name> }. Keep data.create_item.id.
-      3. For each created item, one create_update call: query
-         CreateItemUpdate, variables { "item": <that item's id>, "body":
-         <the planned update_body for that item> }.
-
-      Planned items: {{steps.plan.items}}
-
-      A response with an errors array, or with null data, failed. If a call
-      fails, stop and report it; do not retry a write, because a retried
-      write can create a duplicate.
-
-      Submit group_id (data.create_group.id) and items: one entry per planned
-      item with line_item_id, item_name and update_body copied from the plan,
-      item_id (its data.create_item.id) and update_id (its
-      data.create_update.id).
-    produces:
-      type: object
-      required: [group_id, items]
-      properties:
-        group_id: { type: string, minLength: 1 }
-        items:
-          type: array
-          minItems: 1
-          items:
-            type: object
-            required: [line_item_id, item_name, update_body, item_id, update_id]
-            additionalProperties: false
-            properties:
-              line_item_id: { type: string }
-              item_name: { type: string }
-              update_body: { type: string }
-              item_id: { type: string }
-              update_id: { type: string }
-    gates:
-      - id: only-planned-mutations
-        message: >
-          Only the three draft mutations may be sent (create_group,
-          create_item, create_update); nothing that deletes, archives, moves or
-          changes existing data.
-        predicate:
-          subset:
-            - map: [{ var: calls }, { var: arguments.body.query }]
-            - [*create-group, *create-item, *create-update]
-      - id: every-write-succeeded
-        message: >
-          Every monday.com call must have succeeded: no HTTP error, no errors
-          array, and a non-null id in data for its mutation.
-        predicate:
-          none:
-            - { var: calls }
-            - or:
-                - { var: is_error }
-                - "!=": [{ var: result.errors }, null]
-                - and:
-                    - "==": [{ var: result.data.create_group.id }, null]
-                    - "==": [{ var: result.data.create_item.id }, null]
-                    - "==": [{ var: result.data.create_update.id }, null]
-      - id: exact-write-count
-        message: >
-          Exactly one create_group call, one create_item call per planned item
-          and one create_update call per planned item, and no other call.
-        predicate:
-          and:
-            - "==": [{ length: { filter: [{ var: calls }, { "==": [{ var: arguments.body.query }, *create-group] }] } }, 1]
-            - "==": [{ length: { filter: [{ var: calls }, { "==": [{ var: arguments.body.query }, *create-item] }] } }, { length: { var: steps.plan.items } }]
-            - "==": [{ length: { filter: [{ var: calls }, { "==": [{ var: arguments.body.query }, *create-update] }] } }, { length: { var: steps.plan.items } }]
-            - "==": [{ length: { var: calls } }, { "+": [1, { "*": [2, { length: { var: steps.plan.items } }] }] }]
-      - id: group-as-planned
-        message: >
-          The create_group call must use the planned board and group name, and
-          group_id must be the id it returned.
-        predicate:
-          and:
-            - subset:
-                - map: [{ filter: [{ var: calls }, { "==": [{ var: arguments.body.query }, *create-group] }] }, [{ var: arguments.body.variables.board }, { var: arguments.body.variables.name }]]
-                - [[{ var: steps.plan.board_id }, { var: steps.plan.group_name }]]
-            - subset:
-                - [{ var: output.group_id }]
-                - map: [{ filter: [{ var: calls }, { "==": [{ var: arguments.body.query }, *create-group] }] }, { var: result.data.create_group.id }]
-      - id: items-as-planned
-        message: >
-          Every create_item call must use the planned board and the created
-          group, the item names must be exactly the planned names, and each
-          reported item_id must be the id create_item returned for that name.
-        predicate:
-          and:
-            - subset:
-                - map: [{ filter: [{ var: calls }, { "==": [{ var: arguments.body.query }, *create-item] }] }, [{ var: arguments.body.variables.board }, { var: arguments.body.variables.group }]]
-                - [[{ var: steps.plan.board_id }, { var: output.group_id }]]
-            - subset:
-                - map: [{ filter: [{ var: calls }, { "==": [{ var: arguments.body.query }, *create-item] }] }, { var: arguments.body.variables.name }]
-                - map: [{ var: steps.plan.items }, { var: item_name }]
-            - "==": [{ length: { var: output.items } }, { length: { var: steps.plan.items } }]
-            - subset:
-                - map: [{ var: output.items }, [{ var: line_item_id }, { var: item_name }, { var: update_body }]]
-                - map: [{ var: steps.plan.items }, [{ var: line_item_id }, { var: item_name }, { var: update_body }]]
-            - "==": [{ length: { unique: { map: [{ var: output.items }, { var: line_item_id }] } } }, { length: { var: steps.plan.items } }]
-            - subset:
-                - map: [{ var: output.items }, [{ var: item_name }, { var: item_id }]]
-                - map: [{ filter: [{ var: calls }, { "==": [{ var: arguments.body.query }, *create-item] }] }, [{ var: arguments.body.variables.name }, { var: result.data.create_item.id }]]
-      # Distinct item ids, each matched to a create_update call, plus the exact call count, give one update per item.
-      - id: updates-as-planned
-        message: >
-          Every created item must get exactly one create_update call whose body
-          is that item's planned update_body, and each update_id must be the id
-          that call returned.
-        predicate:
-          and:
-            - "==": [{ length: { unique: { map: [{ var: output.items }, { var: item_id }] } } }, { length: { var: output.items } }]
-            - subset:
-                - map: [{ var: output.items }, [{ var: item_id }, { var: update_body }, { var: update_id }]]
-                - map: [{ filter: [{ var: calls }, { "==": [{ var: arguments.body.query }, *create-update] }] }, [{ var: arguments.body.variables.item }, { var: arguments.body.variables.body }, { var: result.data.create_update.id }]]
-    retries: 2
-
-  - id: report
-    instructions: |
-      Write a short Markdown report of the kickoff drafts.
-
-      Deal: {{steps.deal}}
-      Company: {{steps.records.companies}}
-      Contacts: {{steps.records.contacts}}
-      monday.com board {{inputs.board_id}}, draft group id {{steps.create.group_id}}
-      Created items: {{steps.create.items}}
-
-      Use the sections "## Deal", "## Drafts created" and "## Next steps", in
-      that order.
-      - Deal: the deal name, "HubSpot deal <deal_id>", the stage label, the
-        amount with its currency and the close date, as given.
-      - Drafts created: the board id, the group as "group `<group_id>`", then
-        one bullet per item: its item_name followed by "monday item <item_id>"
-        and "update <update_id>". Cite no other monday item id.
-      - Next steps: say these are drafts in the "Stepgate draft" group, to be
-        reviewed, assigned and moved out of the group by a person.
-    produces:
-      type: object
-      required: [markdown]
-      properties:
-        markdown: { type: string, maxLength: 12000 }
+    # The reduce carries the update's deal line and its company and contact lines, which a map body cannot read.
+    derive:
+      board_id: { var: inputs.board_id }
+      group_name: { substr: [{ cat: ["Stepgate draft: ", { var: steps.deal.dealname }, " (HubSpot deal ", { var: steps.deal.deal_id }, ")"] }, 0, 255] }
+      items:
+        get:
+          - reduce:
+              - { var: steps.records.line_items }
+              - object:
+                  - [head, { var: accumulator.head }]
+                  - [tail, { var: accumulator.tail }]
+                  - - items
+                    - merge:
+                        - { var: accumulator.items }
+                        - - object:
+                              - [line_item_id, { var: current.id }]
+                              - [item_name, { substr: [{ cat: ["[Draft] ", { var: current.name }, " (HubSpot line item ", { var: current.id }, ")"] }, 0, 255] }]
+                              - - update_body
+                                - cat:
+                                    - { var: accumulator.head }
+                                    - "Line item: "
+                                    - { var: current.name }
+                                    - "\nQuantity: "
+                                    - { var: current.quantity }
+                                    - "\nUnit price: "
+                                    - { var: current.price }
+                                    - "\nAmount: "
+                                    - { var: current.amount }
+                                    - "\nSKU: "
+                                    - { var: current.sku }
+                                    - "\n"
+                                    - { var: accumulator.tail }
+              - object:
+                  - [head, { cat: ["Deal: ", { var: steps.deal.dealname }, " (HubSpot deal ", { var: steps.deal.deal_id }, ")\n"] }]
+                  - - tail
+                    - cat:
+                        - reduce: [{ var: steps.records.companies }, { cat: [{ var: accumulator }, "Company: ", { var: current.name }, "\n"] }, ""]
+                        - reduce: [{ var: steps.records.contacts }, { cat: [{ var: accumulator }, "Contact: ", { var: current.firstname }, " ", { var: current.lastname }, " <", { var: current.email }, ">, ", { var: current.jobtitle }, ", ", { var: current.phone }, "\n"] }, ""]
+                        - "Draft created by Stepgate from HubSpot. Review before use."
+                  - [items, []]
+          - items
+    let:
+      cited: { match_all: [{ var: output.summary }, "HubSpot line item (\\d+)"] }
+      line-item-ids: { map: [{ var: steps.records.line_items }, { var: id }] }
     gates:
       - id: sections-in-order
         schema:
           properties:
-            markdown:
-              pattern: "## Deal[\\s\\S]*## Drafts created[\\s\\S]*## Next steps"
-      - id: ids-from-create
-        message: >
-          Cite every created item as "monday item <item_id>" and no other item
-          id, cite every update as "update <update_id>", and name the group as
-          group `<group_id>`.
-        predicate:
-          and:
-            - subset: [{ match_all: [{ var: output.markdown }, "monday item (\\d+)"] }, { map: [{ var: steps.create.items }, { var: item_id }] }]
-            - subset: [{ map: [{ var: steps.create.items }, { var: item_id }] }, { match_all: [{ var: output.markdown }, "monday item (\\d+)"] }]
-            - subset: [{ map: [{ var: steps.create.items }, { var: update_id }] }, { match_all: [{ var: output.markdown }, "update (\\d+)"] }]
-            - in: [{ cat: ["group `", { var: steps.create.group_id }, "`"] }, { var: output.markdown }]
+            summary:
+              pattern: "## Deal[\\s\\S]*## Drafts to create[\\s\\S]*## Next steps"
       - id: deal-facts-quoted
-        message: The report must name the deal as "HubSpot deal <deal_id>" and quote its name and stage label as recorded.
+        message: The summary must name the deal as "HubSpot deal <deal_id>" and quote its name and stage label as recorded.
         predicate:
           and:
-            - in: [{ cat: ["HubSpot deal ", { var: steps.deal.deal_id }] }, { var: output.markdown }]
-            - in: [{ cat: ["", { var: steps.deal.dealname }] }, { var: output.markdown }]
-            - in: [{ var: steps.deal.stage_label }, { var: output.markdown }]
+            - in: [{ cat: ["HubSpot deal ", { var: steps.deal.deal_id }] }, { var: output.summary }]
+            - in: [{ cat: ["", { var: steps.deal.dealname }] }, { var: output.summary }]
+            - in: [{ var: steps.deal.stage_label }, { var: output.summary }]
+      - id: line-items-cited
+        message: 'The summary must cite every line item as "HubSpot line item <id>", and no other line item id; these are missing or unknown:'
+        predicate:
+          and:
+            - subset: [{ var: let.line-item-ids }, { var: let.cited }]
+            - subset: [{ var: let.cited }, { var: let.line-item-ids }]
+      - id: approved
+        approve:
+          message: >
+            Create these drafts on monday.com? On board board_id: one new group
+            named group_name, and in it one item per entry of items, named
+            item_name, each with one update whose text is update_body. Nothing
+            that already exists is changed.
     retries: 2
+
+  - id: group
+    do:
+      calls:
+        - id: group
+          operation: mondayGraphql
+          arguments: { body: { query: *create-group, variables: { board: { var: steps.plan.board_id }, name: { var: steps.plan.group_name } } } }
+      output:
+        group_id: { var: responses.group.data.create_group.id }
+    produces: { type: object, required: [group_id] }
+    gates:
+      - &monday-answered
+        id: monday-answered
+        message: "monday.com answered a write with errors, so the run stopped there; check the board for what was made:"
+        predicate: { none: [{ var: calls }, { or: [{ var: result.errors }, { "!": { var: result.data } }] }] }
+        explain: { map: [{ var: calls }, { var: result.errors }] }
+
+  - id: items
+    do:
+      calls:
+        - id: items
+          operation: mondayGraphql
+          each: { var: steps.plan.items }
+          arguments: { body: { query: *create-item, variables: { board: { var: steps.plan.board_id }, group: { var: steps.group.group_id }, name: { var: item.item_name } } } }
+      output:
+        items:
+          map:
+            - join:
+                - reduce: [{ var: steps.plan.items }, { merge: [{ var: accumulator }, [{ object: [[i, { length: { var: accumulator } }], [value, { var: current }]] }]] }, []]
+                - reduce: [{ var: responses.items }, { merge: [{ var: accumulator }, [{ object: [[i, { length: { var: accumulator } }], [value, { var: current }]] }]] }, []]
+                - i
+                - i
+            - object:
+                - [line_item_id, { var: left.value.line_item_id }]
+                - [item_name, { var: left.value.item_name }]
+                - [update_body, { var: left.value.update_body }]
+                - [item_id, { var: right.value.data.create_item.id }]
+    produces:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            required: [line_item_id, item_name, update_body, item_id]
+    gates: [*monday-answered]
+
+  - id: updates
+    do:
+      calls:
+        - id: updates
+          operation: mondayGraphql
+          each: { var: steps.items.items }
+          arguments: { body: { query: *create-update, variables: { item: { var: item.item_id }, body: { var: item.update_body } } } }
+      output:
+        group_id: { var: steps.group.group_id }
+        items:
+          map:
+            - join:
+                - reduce: [{ var: steps.items.items }, { merge: [{ var: accumulator }, [{ object: [[i, { length: { var: accumulator } }], [value, { var: current }]] }]] }, []]
+                - reduce: [{ var: responses.updates }, { merge: [{ var: accumulator }, [{ object: [[i, { length: { var: accumulator } }], [value, { var: current }]] }]] }, []]
+                - i
+                - i
+            - object:
+                - [line_item_id, { var: left.value.line_item_id }]
+                - [item_name, { var: left.value.item_name }]
+                - [item_id, { var: left.value.item_id }]
+                - [update_id, { var: right.value.data.create_update.id }]
+    produces:
+      type: object
+      required: [group_id, items]
+      properties:
+        group_id: { type: string }
+        items:
+          type: array
+          items:
+            type: object
+            required: [line_item_id, item_name, item_id, update_id]
+    gates: [*monday-answered]

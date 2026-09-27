@@ -1,0 +1,186 @@
+# Recorded calls and outputs for `stepgate --test hubspot-deal-to-monday`, which runs the gates offline.
+cases:
+  - name: a closed-won deal with two line items is planned and written
+    inputs: { deal_id: "21678228008", board_id: "1234567890" }
+    steps:
+      - step: deal
+        calls:
+          - tool: getDeal
+            arguments: { dealId: "21678228008" }
+            result:
+              id: "21678228008"
+              properties: { amount: "15000.00", closedate: "2026-09-15T17:00:00Z", createdate: "2026-08-01T12:00:00Z", deal_currency_code: USD, dealname: Acme Corp renewal 2026, dealstage: closedwon, hs_lastmodifieddate: "2026-09-15T17:05:00Z", hs_object_id: "21678228008", pipeline: default }
+              createdAt: "2026-08-01T12:00:00Z"
+              updatedAt: "2026-09-15T17:05:00Z"
+              archived: false
+          - tool: getDealStage
+            arguments: { pipelineId: default, stageId: closedwon }
+            result: { label: Closed Won, displayOrder: 5, metadata: { isClosed: "true", probability: "1.0" }, id: closedwon, createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z", archived: false }
+        output: &closed-won-deal
+          deal_id: "21678228008"
+          dealname: Acme Corp renewal 2026
+          amount: "15000.00"
+          closedate: "2026-09-15T17:00:00Z"
+          currency: USD
+          stage_label: Closed Won
+          stage_probability: "1.0"
+          stage_is_closed: "true"
+        expect: pass
+      - step: records
+        calls:
+          - tool: listDealAssociations
+            arguments: { dealId: "21678228008", toObjectType: line_items }
+            result: { results: [{ toObjectId: 9001, associationTypes: [{ category: HUBSPOT_DEFINED, typeId: 19, label: null }] }, { toObjectId: 9002, associationTypes: [{ category: HUBSPOT_DEFINED, typeId: 19, label: null }] }] }
+          - tool: listDealAssociations
+            arguments: { dealId: "21678228008", toObjectType: contacts }
+            result: { results: [{ toObjectId: 501, associationTypes: [{ category: HUBSPOT_DEFINED, typeId: 3, label: null }] }] }
+          - tool: listDealAssociations
+            arguments: { dealId: "21678228008", toObjectType: companies }
+            result: { results: [{ toObjectId: 601, associationTypes: [{ category: HUBSPOT_DEFINED, typeId: 5, label: Primary }] }] }
+          - tool: readLineItems
+            arguments: { body: { inputs: [{ id: "9001" }, { id: "9002" }], properties: [name, quantity, price, amount, hs_sku], propertiesWithHistory: [] } }
+            result:
+              status: COMPLETE
+              results:
+                - { id: "9002", properties: { amount: "3000.00", hs_object_id: "9002", hs_sku: null, name: Onboarding, price: "3000.00", quantity: "1" }, createdAt: "2026-08-02T09:00:00Z", updatedAt: "2026-08-02T09:00:00Z", archived: false }
+                - { id: "9001", properties: { amount: "12000.00", hs_object_id: "9001", hs_sku: PLAT-01, name: Platform licence, price: "1200.00", quantity: "10" }, createdAt: "2026-08-02T09:00:00Z", updatedAt: "2026-08-02T09:00:00Z", archived: false }
+              startedAt: "2026-09-27T10:00:00Z"
+              completedAt: "2026-09-27T10:00:00Z"
+          - tool: readContacts
+            arguments: { body: { inputs: [{ id: "501" }], properties: [firstname, lastname, email, phone, jobtitle], propertiesWithHistory: [] } }
+            result: { status: COMPLETE, results: [{ id: "501", properties: { email: ada@acme.example, firstname: Ada, hs_object_id: "501", jobtitle: CTO, lastname: Lovelace, phone: null }, archived: false }] }
+          - tool: readCompanies
+            arguments: { body: { inputs: [{ id: "601" }], properties: [name, domain], propertiesWithHistory: [] } }
+            result: { status: COMPLETE, results: [{ id: "601", properties: { domain: acme.example, hs_object_id: "601", name: Acme Corp }, archived: false }] }
+        output: &records
+          line_items:
+            - { id: "9001", name: Platform licence, quantity: "10", price: "1200.00", amount: "12000.00", sku: PLAT-01 }
+            - { id: "9002", name: Onboarding, quantity: "1", price: "3000.00", amount: "3000.00", sku: null }
+          contacts: [{ id: "501", firstname: Ada, lastname: Lovelace, email: ada@acme.example, phone: null, jobtitle: CTO }]
+          companies: [{ id: "601", name: Acme Corp, domain: acme.example }]
+        expect: pass
+      - step: plan
+        output:
+          summary: &summary |
+            ## Deal
+            Acme Corp renewal 2026, HubSpot deal 21678228008, Closed Won, 15000.00 USD, closing 2026-09-15.
+            ## Drafts to create
+            - Platform licence (HubSpot line item 9001)
+            - Onboarding (HubSpot line item 9002)
+            Each update names Acme Corp and Ada Lovelace.
+            ## Next steps
+            The drafts land in a "Stepgate draft" group for a person to review, assign and move.
+        expect: pass
+      - step: group
+        calls:
+          - tool: mondayGraphql
+            arguments: { body: { query: "mutation CreateDraftGroup($board: ID!, $name: String!) { create_group(board_id: $board, group_name: $name) { id title } }", variables: { board: "1234567890", name: "Stepgate draft: Acme Corp renewal 2026 (HubSpot deal 21678228008)" } } }
+            result: { data: { create_group: { id: group_mkq8x2ab, title: "Stepgate draft: Acme Corp renewal 2026 (HubSpot deal 21678228008)" } }, account_id: 1234 }
+        output: { group_id: group_mkq8x2ab }
+        expect: pass
+      - step: items
+        calls:
+          - tool: mondayGraphql
+            arguments: { body: { query: "mutation CreateDraftItem($board: ID!, $group: String!, $name: String!) { create_item(board_id: $board, group_id: $group, item_name: $name) { id name } }", variables: { board: "1234567890", group: group_mkq8x2ab, name: "[Draft] Platform licence (HubSpot line item 9001)" } } }
+            result: { data: { create_item: { id: "1884001001", name: "[Draft] Platform licence (HubSpot line item 9001)" } }, account_id: 1234 }
+          - tool: mondayGraphql
+            arguments: { body: { query: "mutation CreateDraftItem($board: ID!, $group: String!, $name: String!) { create_item(board_id: $board, group_id: $group, item_name: $name) { id name } }", variables: { board: "1234567890", group: group_mkq8x2ab, name: "[Draft] Onboarding (HubSpot line item 9002)" } } }
+            result: { data: { create_item: { id: "1884001002", name: "[Draft] Onboarding (HubSpot line item 9002)" } }, account_id: 1234 }
+        output:
+          items:
+            - line_item_id: "9001"
+              item_name: "[Draft] Platform licence (HubSpot line item 9001)"
+              update_body: &body-9001 "Deal: Acme Corp renewal 2026 (HubSpot deal 21678228008)\nLine item: Platform licence\nQuantity: 10\nUnit price: 1200.00\nAmount: 12000.00\nSKU: PLAT-01\nCompany: Acme Corp\nContact: Ada Lovelace <ada@acme.example>, CTO, \nDraft created by Stepgate from HubSpot. Review before use."
+              item_id: "1884001001"
+            - line_item_id: "9002"
+              item_name: "[Draft] Onboarding (HubSpot line item 9002)"
+              update_body: &body-9002 "Deal: Acme Corp renewal 2026 (HubSpot deal 21678228008)\nLine item: Onboarding\nQuantity: 1\nUnit price: 3000.00\nAmount: 3000.00\nSKU: \nCompany: Acme Corp\nContact: Ada Lovelace <ada@acme.example>, CTO, \nDraft created by Stepgate from HubSpot. Review before use."
+              item_id: "1884001002"
+        expect: pass
+      - step: updates
+        calls:
+          - tool: mondayGraphql
+            arguments: { body: { query: "mutation CreateItemUpdate($item: ID!, $body: String!) { create_update(item_id: $item, body: $body) { id } }", variables: { item: "1884001001", body: *body-9001 } } }
+            result: { data: { create_update: { id: "402001" } }, account_id: 1234 }
+          - tool: mondayGraphql
+            arguments: { body: { query: "mutation CreateItemUpdate($item: ID!, $body: String!) { create_update(item_id: $item, body: $body) { id } }", variables: { item: "1884001002", body: *body-9002 } } }
+            result: { data: { create_update: { id: "402002" } }, account_id: 1234 }
+        output:
+          group_id: group_mkq8x2ab
+          items:
+            - { line_item_id: "9001", item_name: "[Draft] Platform licence (HubSpot line item 9001)", item_id: "1884001001", update_id: "402001" }
+            - { line_item_id: "9002", item_name: "[Draft] Onboarding (HubSpot line item 9002)", item_id: "1884001002", update_id: "402002" }
+        expect: pass
+
+  - name: an open deal is refused before anything else is read
+    inputs: { deal_id: "21678228009", board_id: "1234567890" }
+    steps:
+      - step: deal
+        calls:
+          - tool: getDeal
+            arguments: { dealId: "21678228009" }
+            result: { id: "21678228009", properties: { amount: "8000.00", closedate: null, deal_currency_code: USD, dealname: Globex pilot, dealstage: "11348547", hs_object_id: "21678228009", pipeline: "7654321" }, archived: false }
+          - tool: getDealStage
+            arguments: { pipelineId: "7654321", stageId: "11348547" }
+            result: { label: Contract sent, displayOrder: 3, metadata: { isClosed: "false", probability: "0.9" }, id: "11348547", archived: false }
+        output:
+          deal_id: "21678228009"
+          dealname: Globex pilot
+          amount: "8000.00"
+          closedate: null
+          currency: USD
+          stage_label: Contract sent
+          stage_probability: "0.9"
+          stage_is_closed: "false"
+        expect: { fail: [deal-is-closed-won] }
+
+  - name: a summary that drops a line item and misquotes the stage is rejected
+    inputs: { deal_id: "21678228008", board_id: "1234567890" }
+    steps:
+      - { step: deal, output: *closed-won-deal, expect: pass }
+      - { step: records, output: *records, expect: pass }
+      - step: plan
+        output:
+          summary: |
+            ## Deal
+            Acme Corp renewal 2026, HubSpot deal 21678228008, Won.
+            ## Drafts to create
+            - Platform licence (HubSpot line item 9001)
+            - Support (HubSpot line item 9003)
+            ## Next steps
+            Review the drafts.
+        expect: { fail: [deal-facts-quoted, line-items-cited] }
+
+  - name: a monday.com errors array stops the run at the write that failed
+    inputs: { deal_id: "21678228008", board_id: "1234567890" }
+    steps:
+      - { step: deal, output: *closed-won-deal, expect: pass }
+      - { step: records, output: *records, expect: pass }
+      - { step: plan, output: { summary: *summary }, expect: pass }
+      - step: group
+        calls:
+          - tool: mondayGraphql
+            arguments: { body: { query: "mutation CreateDraftGroup($board: ID!, $name: String!) { create_group(board_id: $board, group_name: $name) { id title } }", variables: { board: "1234567890", name: "Stepgate draft: Acme Corp renewal 2026 (HubSpot deal 21678228008)" } } }
+            result: { data: { create_group: null }, errors: [{ message: "User unauthorized to perform action", path: [create_group], extensions: { code: UserUnauthorizedException, status_code: 403 } }], account_id: 1234 }
+        output: { group_id: null }
+        expect: { fail: [monday-answered] }
+
+  - name: a deal with no contacts or companies skips those batch reads
+    inputs: { deal_id: "21678228008", board_id: "1234567890" }
+    steps:
+      - { step: deal, output: *closed-won-deal, expect: pass }
+      - step: records
+        calls:
+          - tool: listDealAssociations
+            arguments: { dealId: "21678228008", toObjectType: line_items }
+            result: { results: [{ toObjectId: 9001, associationTypes: [{ category: HUBSPOT_DEFINED, typeId: 19, label: null }] }] }
+          - { tool: listDealAssociations, arguments: { dealId: "21678228008", toObjectType: contacts }, result: { results: [] } }
+          - { tool: listDealAssociations, arguments: { dealId: "21678228008", toObjectType: companies }, result: { results: [] } }
+          - tool: readLineItems
+            arguments: { body: { inputs: [{ id: "9001" }], properties: [name, quantity, price, amount, hs_sku], propertiesWithHistory: [] } }
+            result: { status: COMPLETE, results: [{ id: "9001", properties: { amount: "12000.00", hs_object_id: "9001", hs_sku: PLAT-01, name: Platform licence, price: "1200.00", quantity: "10" }, archived: false }] }
+        output:
+          line_items: [{ id: "9001", name: Platform licence, quantity: "10", price: "1200.00", amount: "12000.00", sku: PLAT-01 }]
+          contacts: []
+          companies: []
+        expect: pass

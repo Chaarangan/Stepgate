@@ -1,16 +1,19 @@
 # hubspot-deal-to-monday
 
-Turns a closed-won HubSpot deal into kickoff drafts on a monday.com board. It reads the deal, refuses it unless its stage is closed won, reads the deal's line items, contacts and companies, plans one monday.com item per line item, and creates those items in a new group whose name starts with "Stepgate draft", each carrying an update with the deal, line item, company and contact details. Gates check every value against the HubSpot responses and check every monday.com write against the plan and the write results.
+Turns a closed-won HubSpot deal into kickoff drafts on a monday.com board. Stepgate reads the deal, refuses it unless its stage is closed won, reads the deal's line items, contacts and companies, and plans one monday.com item per line item in a new group whose name starts with "Stepgate draft", each carrying an update with the deal, line item, company and contact details. The agent writes a summary of that plan for a person, and nothing is written until the person approves it. Stepgate then makes every write from the approved plan, so no value on monday.com can differ from what HubSpot returned.
 
 Status: validated against the vendors' documented APIs and offline gate tests, but not yet run live against a HubSpot or monday.com account.
 
 ## Steps
 
-1. **deal**: reads the deal and then its pipeline stage. Gates check that the deal id is the input id, that the name, amount, close date, currency, pipeline and stage are copied from the deal response, and that the stage label, probability and closed flag come from a stage read made with the deal's own pipeline and stage. A last gate refuses the deal unless the stage's probability is 1.0 and HubSpot does not mark it open, so nothing is written for an open or closed-lost deal.
-2. **records**: lists the deal's associated line items, contacts and companies with the v4 associations API, then batch reads each set. Gates check that all three association lists were fetched for the input deal only, that each list in the output holds every associated id exactly once and no other, and that every line item (name, quantity, price, amount, SKU), contact (name, email, phone, job title) and company (name, domain) is copied from a batch read result.
-3. **plan**: lists exactly the writes. Gates check the board is the input board, the group is named `Stepgate draft: <deal name> (HubSpot deal <id>)`, there is one item per line item named `[Draft] <line item name> (HubSpot line item <id>)`, and each update body matches a template the gate rebuilds from the recorded deal, line item, company and contact values.
-4. **create**: makes the writes through the monday.com GraphQL API. The tool accepts only three fixed mutation documents (create_group, create_item and create_update), so the model supplies variables and never writes GraphQL. Gates check that no other mutation was sent, that every call succeeded (no HTTP error, no `errors` array, a non-null id), that there was exactly one group, one item per planned item and one update per item and nothing else, that each call's variables equal the plan, and that the reported group, item and update ids are the ids those calls returned.
-5. **report**: writes a Markdown summary with Deal, Drafts created and Next steps sections. Gates check the sections are in order, every created item is cited as `monday item <id>` with no other item id, every update id and the group id appear, and the deal is named with its id, name and stage label.
+1. **deal** (mechanical): Stepgate reads the deal and then its pipeline stage. A gate refuses the deal unless the stage's probability is 1.0 and HubSpot does not mark it open, so nothing more is read or written for an open or closed-lost deal.
+2. **records** (mechanical): Stepgate lists the deal's associated line items, contacts and companies with the v4 associations API and batch reads each set, keeping the order the associations were listed in. A record the batch read does not return stops the run.
+3. **plan**: Stepgate derives the writes: the input board, the group name `Stepgate draft: <deal name> (HubSpot deal <id>)`, one item per line item named `[Draft] <line item name> (HubSpot line item <id>)`, and each item's update text. The agent writes a Markdown summary with Deal, Drafts to create and Next steps sections; gates check the sections are in order, the deal is named with its id, name and stage label, and every line item is cited as `HubSpot line item <id>` with no other id. The last gate asks a person to approve the group, items and update texts; nothing is written if they decline.
+4. **group** (mechanical): Stepgate creates the approved group.
+5. **items** (mechanical): Stepgate creates one approved item per line item in that group.
+6. **updates** (mechanical): Stepgate adds each approved update to its item.
+
+The approval in step 3 needs an MCP client that supports form elicitation. Steps 4 to 6 send only three fixed mutation documents (create_group, create_item and create_update), with variables taken from the approved plan and from the ids the earlier writes returned. monday.com reports an application error with HTTP 200 and an `errors` array, so a gate on each write step stops the run at the first write that failed and shows the errors.
 
 HubSpot deal stages are pipeline-specific internal ids. In the default pipeline the closed-won stage is `closedwon`, but other pipelines use generated ids such as `11348547`. The stepfile therefore does not match a stage name: it reads the stage from the Pipelines API and treats a probability of 1.0 as closed won, which is how HubSpot defines it.
 
@@ -40,7 +43,7 @@ HubSpot is only read. In monday.com, on the input board only, the run creates:
 - one item per line item in that group, named `[Draft] <line item name> (HubSpot line item <id>)`;
 - one update on each of those items with the deal, line item, company and contact details.
 
-It creates no board, sets no column values, and changes, moves, archives or deletes nothing that already exists. Everything it creates is a draft for a person to review, assign and move out of the group. If a write fails, the create step stops without retrying it, because a retried write can create a duplicate; check the group for what was made before running again.
+It creates no board, sets no column values, and changes, moves, archives or deletes nothing that already exists. Everything it creates is a draft for a person to review, assign and move out of the group. If a write fails, the run stops at that step without retrying it, because a retried write can create a duplicate; check the group for what was made before running again.
 
 ## Run it
 
@@ -56,6 +59,6 @@ It creates no board, sets no column values, and changes, moves, archives or dele
 }
 ```
 
-Then call the `hubspot-deal-to-monday` tool with `{ "deal_id": "21678228008", "board_id": "1234567890" }`, using a closed-won deal and a board from your own accounts. The report is in `outputs.report.markdown`, and the created ids are in `outputs.create`.
+Then call the `hubspot-deal-to-monday` tool with `{ "deal_id": "21678228008", "board_id": "1234567890" }`, using a closed-won deal and a board from your own accounts. The summary the person approved is in `outputs.plan.summary`, and the group id and each item's name, item id and update id are in `outputs.updates`. There is no longer a report step after the writes, so `outputs.report` and `outputs.create` are gone.
 
-The associations step reads at most 500 associated records of each type and each batch read at most 100, which covers ordinary deals.
+The records step reads at most 500 associated records of each type, and a batch read takes at most 100 ids, so a deal with more than 100 of one type stops there. That covers ordinary deals.
