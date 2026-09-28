@@ -4,7 +4,9 @@
 [![npm](https://img.shields.io/npm/v/stepgate.svg)](https://www.npmjs.com/package/stepgate)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-**Agents can't skip steps.** Write an agent's procedure once, as a YAML stepfile, and run it from any MCP client, such as Claude Code, with the model that client already uses.
+**Agents can't skip steps.** Write an agent's procedure once, as a YAML stepfile, and every step is gated: the agent moves on only when a mechanical check passes, never on its own word.
+
+**One file runs anywhere.** A stepfile has no packages, no versions to pin and no code to deploy, so it moves as a single file to any MCP client, such as Claude Code, Cursor or an agent you wrote, and runs on the model that client already uses.
 
 A **stepfile** declares its inputs, the remote APIs and MCP servers it may call, and an ordered list of steps. Each step says what output it must produce and which **gates** check that output. The file names no model and no framework.
 
@@ -93,9 +95,11 @@ When an agent is handed a plan as text, it decides how much of the plan to follo
 
 - **Steps run in order, one at a time.** The agent is shown only the current step's instructions and operations, never a later step, so it cannot skip ahead. Earlier steps stay in its own conversation.
 - **Gates decide, not the model.** A step passes only when its output satisfies JSON Schema, JSONLogic or an HTTP verifier, and gates can check that output against what the APIs actually returned, so a fabricated value fails. A failed gate's diagnosis goes back to the model for a bounded number of retries.
+- **The model judges, the server computes.** A mechanical step makes its API calls and builds its output from a template, with no model involved, and a derived field fills in a count or a lookup after the model submits. The model is left the work that needs judgement.
+- **Writes wait for a person.** An approve gate asks a person to confirm a step's output through an MCP elicitation before a later mechanical step writes it, so what reaches Jira is what the person saw ([which clients show the form](docs/connect.md#approvals)).
 - **The model never holds a key.** The server makes every tool call and attaches credentials itself, and it refuses requests to hosts the stepfile does not declare.
 - **Every run leaves a record.** A hash-chained ledger lists each step, tool call, gate verdict and retry, and editing it afterwards breaks the chain, which `stepgate --verify` detects.
-- **Nothing to install on the client side.** Stepfiles call remote APIs only, and the client adds one MCP server to its configuration. Stepgate needs no model key: the client's own model does the reasoning.
+- **Nothing to install on the client side.** Stepfiles call remote APIs only, and the client adds one MCP server to its configuration. Stepgate needs no model key: the client's own model does the reasoning, and the same file gives the same path through its steps whichever model that is.
 
 ## Quick start
 
@@ -117,7 +121,12 @@ The client sees a `market-research` tool. Ask your agent to run it for `{ "brand
 
 Every server also offers tools for writing stepfiles: ask your agent to write one for your use case, and it can read the format, inspect the APIs, validate its draft and try it through Stepgate ([details](docs/connect.md#writing-stepfiles-with-an-agent)).
 
-To serve over HTTP instead of stdio, run `npx -y stepgate --http 3100 market-research` and connect to `http://127.0.0.1:3100/mcp`. `npx -y stepgate --list` shows the catalog, and `--help` lists the limits and the `--ledger-dir` option.
+To serve over HTTP instead of stdio, run `npx -y stepgate --http 3100 market-research` and connect to `http://127.0.0.1:3100/mcp`. `npx -y stepgate --list` shows the catalog, and `--help` lists every option, including these:
+
+- `--watch` reloads your stepfiles when you save them, while you write one.
+- `--test <stepfile>` checks its gates offline against recorded cases, and `--record-cases <dir>` records those cases from a real run.
+- `--auth <stepfile> <credential>` signs in to an MCP server that uses MCP authorization and prints the variables to set ([details](docs/connect.md#mcp-servers-that-use-mcp-authorization)).
+- `--verify <ledger>` checks a run's ledger for edits.
 
 ## A stepfile
 
@@ -141,7 +150,7 @@ tools:
   tavily:
     mcp: { url: "https://mcp.tavily.com/mcp/" }
     credential: tavily
-    exposes: [tavily_search]
+    exposes: [{ name: tavily_search, effect: read }]
 
 steps:
   - id: search
@@ -167,7 +176,7 @@ steps:
   # ... filter, analyse and report steps
 ```
 
-Credentials say what is needed, never where it lives: the server reads `tavily` from `TAVILY_API_KEY`. The complete file is [stepfiles/marketing/market-research](stepfiles/marketing/market-research/), and editors that support `yaml-language-server` validate against [server/schema/stepfile.schema.json](server/schema/stepfile.schema.json), which the npm package also ships.
+Credentials say what is needed, never where it lives: the server reads `tavily` from `TAVILY_API_KEY`. `effect: read` marks the search as safe to retry. The complete file is [stepfiles/marketing/market-research](stepfiles/marketing/market-research/), and editors that support `yaml-language-server` validate against [server/schema/stepfile.schema.json](server/schema/stepfile.schema.json), which the npm package also ships.
 
 ## Catalog
 
