@@ -12,7 +12,7 @@ Status: validated against the vendors' documented APIs (ServiceNow Table API, Gi
 4. **note** (mechanical): Stepgate adds the approved work note with `addWorkNote` and records the `sys_id`, number and `sys_updated_on` ServiceNow returns. A gate checks ServiceNow answered for the same incident.
 5. **report** (mechanical): Stepgate returns a Markdown report with the timeline, the review and when the work note was added.
 
-The analyse step needs an MCP client that supports form elicitation, since that is how Stepgate asks the person to approve the note.
+The analyse step needs an MCP client that shows form elicitation, such as Claude Code in a terminal ([connect.md](../../../docs/connect.md#approvals)), since that is how Stepgate asks the person to approve the note.
 
 ## Inputs
 

@@ -117,6 +117,10 @@ claude -p --mcp-config .mcp.json --allowedTools "mcp__stepgate__*" \
   "Run the market-research stepfile for brand Oatly in the UK plant-based milk market."
 ```
 
+### Approvals
+
+A stepfile with an `approve` gate asks you through a form the client shows. As of 2026-09-28, only Claude Code in a terminal (`claude`) shows it. The VS Code extension, the desktop app, `claude -p` and the Agent SDK without an `onElicitation` handler tell Stepgate they can show it, then decline every request without asking you ([#79174](https://github.com/anthropics/claude-code/issues/79174), [#89858](https://github.com/anthropics/claude-code/issues/89858)). The run then fails that gate, whatever you would have answered. Run a stepfile that writes from the terminal.
+
 ## Claude Desktop
 
 Open **Settings > Developer > Edit Config**, which opens `claude_desktop_config.json` (`~/Library/Application Support/Claude/` on macOS, `%APPDATA%\Claude\` on Windows), and add:

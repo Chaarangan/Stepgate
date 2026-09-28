@@ -12,7 +12,7 @@ Status: validated against the vendors' documented APIs (Snowflake SQL API v2, Ji
 4. **create** (mechanical, only when breached): Stepgate creates the approved issue, labelled `stepgate-draft`, with the SQL in a code block, and records its key.
 5. **report** (mechanical): Stepgate returns the SQL, value, threshold, verdict and key with a Markdown summary.
 
-The confirm and draft steps need an MCP client that supports form elicitation, since that is how Stepgate asks the person.
+The confirm and draft steps need an MCP client that shows form elicitation, such as Claude Code in a terminal ([connect.md](../../../docs/connect.md#approvals)), since that is how Stepgate asks the person.
 
 ## Inputs
 

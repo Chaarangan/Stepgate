@@ -13,7 +13,7 @@ Status: validated against the vendors' documented APIs (GitHub REST API version 
 5. **email**: the agent writes the subject and body. Stepgate sets `to` to `operator_email`, `recipients` to the contacts' addresses (lowercased, each once), and builds `raw`, the RFC 2822 message: `To`, `Subject`, `MIME-Version: 1.0`, `Content-Type: text/plain; charset=UTF-8` and `Content-Transfer-Encoding: 8bit`, an empty line, then the body, every line ending in CRLF. The subject must be one line, so no header can be added through it. Gates check the subject and body name the tag, and the body cites every note item and no other pull request number, and lists every recipient. Then a person is asked to approve the draft: the message shows the whole output, including `raw`, the exact message Gmail will store.
 6. **draft** (mechanical): Stepgate calls `createDraft`, Gmail's `drafts.create` media upload, with the approved `raw`, and records the draft's `id` and `message.id`.
 
-The approval in step 5 needs an MCP client that supports form elicitation; on one that does not, the run fails before its first step.
+The approval in step 5 needs an MCP client that shows form elicitation, such as Claude Code in a terminal ([connect.md](../../../docs/connect.md#approvals)); on one that does not, the run fails before its first step.
 
 ## Inputs
 
