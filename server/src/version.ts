@@ -1,5 +1,5 @@
 /** Stepgate's version; a test keeps it equal to package.json. */
-export const VERSION = "0.1.3";
+export const VERSION = "0.1.4";
 
 /**
  * The User-Agent sent on outgoing requests. Some APIs (SEC EDGAR, USAJOBS) require the operator's
