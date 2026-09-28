@@ -5,12 +5,14 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { parse as parseYaml } from "yaml";
 import { StepfileInvalid } from "../src/engine/errors.ts";
+import { guardedFetch, type HttpContext } from "../src/engine/http.ts";
 import { directorySink } from "../src/engine/ledger.ts";
 import { testGates } from "../src/gate-test.ts";
 import { load } from "../src/engine/load.ts";
 import { evaluatePredicate } from "../src/engine/predicate.ts";
 import type { Json, JsonObject } from "../src/engine/types.ts";
 import { userAgent, VERSION } from "../src/version.ts";
+import { startApi } from "./fixtures.ts";
 import { GOOD_STOCK, GOOD_SUMMARY, startHarness, type Harness } from "./harness.ts";
 
 /** Every issue a load failure reports, as "path message". */
@@ -282,5 +284,29 @@ steps:
     expect(reports.map((report) => [report.case, report.ok])).toEqual([["right", true], ["wrong output", false], ["wrong call", false]]);
     expect(reports[1]?.problem).toBe('Stepgate computes output {"counts":[2,1]} from these calls, not the case\'s {"counts":[2,9]}');
     expect(reports[2]?.problem).toBe('call shelf would send {"shelf":"B"} as listItems call 2, but the case recorded {"shelf":"C"}');
+  });
+});
+
+describe("requests", () => {
+  it("does not retry a request its caller aborted, as when an MCP client closes during preflight", async () => {
+    const api = await startApi(0);
+    try {
+      const appended: string[] = [];
+      const context: HttpContext = {
+        allowedHosts: new Set([api.host]),
+        append: async (type) => void appended.push(type),
+        userAgent: userAgent(null),
+        credentials: { value: async () => "", rejected: async () => false },
+        limits: { requestTimeoutMs: 5_000, responseBytes: 1_000_000 },
+      };
+      const aborted = new AbortController();
+      aborted.abort(new Error("the client closed"));
+
+      await expect(guardedFetch(context, "get health", new URL(`${api.origin}/health`), { method: "GET", signal: aborted.signal }, null)).rejects.toThrow("the client closed");
+      expect(appended).toEqual([]);
+      expect(api.received.filter((request) => request.path === "/health")).toEqual([]);
+    } finally {
+      await api.close();
+    }
   });
 });
