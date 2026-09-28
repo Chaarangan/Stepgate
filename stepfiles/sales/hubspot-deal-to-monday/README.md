@@ -13,7 +13,7 @@ Status: validated against the vendors' documented APIs and offline gate tests, b
 5. **items** (mechanical): Stepgate creates one approved item per line item in that group.
 6. **updates** (mechanical): Stepgate adds each approved update to its item.
 
-The approval in step 3 needs an MCP client that supports form elicitation. Steps 4 to 6 send only three fixed mutation documents (create_group, create_item and create_update), with variables taken from the approved plan and from the ids the earlier writes returned. monday.com reports an application error with HTTP 200 and an `errors` array, so a gate on each write step stops the run at the first write that failed and shows the errors.
+The approval in step 3 needs an MCP client that shows form elicitation, such as Claude Code in a terminal ([connect.md](../../../docs/connect.md#approvals)). Steps 4 to 6 send only three fixed mutation documents (create_group, create_item and create_update), with variables taken from the approved plan and from the ids the earlier writes returned. monday.com reports an application error with HTTP 200 and an `errors` array, so a gate on each write step stops the run at the first write that failed and shows the errors.
 
 HubSpot deal stages are pipeline-specific internal ids. In the default pipeline the closed-won stage is `closedwon`, but other pipelines use generated ids such as `11348547`. The stepfile therefore does not match a stage name: it reads the stage from the Pipelines API and treats a probability of 1.0 as closed won, which is how HubSpot defines it.
 

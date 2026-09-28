@@ -157,7 +157,7 @@ describe("approve gates", () => {
 
     const result = await call({ item: "K-1" });
 
-    expect(textOf(seen[2])).toContain("- reviewed: a person declined to approve this output: Mention the supplier.");
+    expect(textOf(seen[2])).toContain("- reviewed: the approval was declined: Mention the supplier.");
     expect(stateOf(result)).toMatchObject({ state: "finished", outputs: { summary: { summary: "Blue kettle has 4 in stock, from Acme." } } });
   });
 

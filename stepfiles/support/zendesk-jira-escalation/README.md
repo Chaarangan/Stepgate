@@ -12,7 +12,7 @@ Status: validated against the vendors' documented APIs (Zendesk Support API, Jir
 4. **note** (mechanical): Stepgate adds each approved internal note, with the key from step 3 in a created issue's note, and records the action and Jira key per ticket.
 5. **report**: Stepgate lists one row per ticket and the agent writes a Markdown summary. A gate checks the summary names every handled ticket as `#ID` and every Jira key, and no other ticket number or key in the project.
 
-The approval in step 2 needs an MCP client that supports form elicitation. It covers both writes: the person sees each create note as `Stepgate escalation: created draft Jira issue {KEY}.`, and step 4 sends that text with `{KEY}` replaced by the key Jira returned in step 3. Every other value either write sends is one the person approved.
+The approval in step 2 needs an MCP client that shows form elicitation, such as Claude Code in a terminal ([connect.md](../../../docs/connect.md#approvals)). It covers both writes: the person sees each create note as `Stepgate escalation: created draft Jira issue {KEY}.`, and step 4 sends that text with `{KEY}` replaced by the key Jira returned in step 3. Every other value either write sends is one the person approved.
 
 The internal note is `Stepgate escalation: linked to existing Jira issue KEY.` for a link and `Stepgate escalation: created draft Jira issue KEY.` for a create.
 

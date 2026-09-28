@@ -151,7 +151,8 @@ function compileGate(document: StepfileDocument, services: GateServices, step: S
   if ("approve" in gate) {
     return async (context) => {
       const { approved, reason } = await services.approvals.ask({ stepfile: document.id, step: step.id, gate: gate.id, message: gate.approve.message, output: context.output });
-      return verdict(gate.id, approved ? null : `a person declined to approve this output${reason === null ? "" : `: ${reason}`}`);
+      // Some clients answer decline without showing the form (docs/connect.md, Approvals), so this names no person.
+      return verdict(gate.id, approved ? null : `the approval was declined${reason === null ? "" : `: ${reason}`}`);
     };
   }
   return async (context) => verdict(gate.id, await askVerifier(document, services.http, step, gate.id, gate.http.tool, context));
