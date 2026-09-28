@@ -102,6 +102,17 @@ jobs:
           curl -fsSL -o mcp-publisher.tar.gz https://github.com/modelcontextprotocol/registry/releases/download/v1.8.1/mcp-publisher_linux_amd64.tar.gz
           echo "a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc  mcp-publisher.tar.gz" | sha256sum --check
           tar xzf mcp-publisher.tar.gz mcp-publisher
+      # npm takes minutes to serve a new version, and the registry refuses a package version it cannot find there.
+      - name: Wait until npm serves this version
+        run: |
+          version="${TAG#v}"
+          for attempt in $(seq 1 30); do
+            npm view "stepgate@$version" version > /dev/null 2>&1 && exit 0
+            echo "::warning::stepgate@$version is not on npm yet (attempt $attempt of 30); waiting 20s"
+            sleep 20
+          done
+          echo "::error::stepgate@$version did not appear on npm within 10 minutes"
+          exit 1
       - run: ./mcp-publisher login github-oidc
       - run: ./mcp-publisher publish
 
