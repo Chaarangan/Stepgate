@@ -1,0 +1,7 @@
+# gitleaks' default rules, plus an allowlist for the fake credentials that tests and conformance cases use.
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Fake credentials from server/test/fixtures.ts, which are not secrets"
+regexes = ['''api-key-5f1c9d''', '''mcp-token-7a2e4b''', '''basic-token-3c9f''']
