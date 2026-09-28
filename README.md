@@ -4,6 +4,10 @@
 [![npm](https://img.shields.io/npm/v/stepgate.svg)](https://www.npmjs.com/package/stepgate)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
+<p align="center">
+  <img src="docs/social-preview.png" alt="Stepgate — Agent Guardrails. One Step at a Time." width="75%">
+</p>
+
 **Agents can't skip steps.** Write an agent's procedure once, as a YAML stepfile, and every step is gated: the agent moves on only when a mechanical check passes, never on its own word.
 
 **One file runs anywhere.** A stepfile has no packages, no versions to pin and no code to deploy, so it moves as a single file to any MCP client, such as Claude Code, Cursor or an agent you wrote, and runs on the model that client already uses.
