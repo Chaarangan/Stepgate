@@ -47,7 +47,7 @@ MODEL_BASE_URL=https://openrouter.ai/api/v1 MODEL_NAME=<model> MODEL_API_KEY=...
 
 ## Commits and pull requests
 
-Commit subjects take the form `area: short lowercase summary`, where the area is one of `stepfiles`, `schema`, `server`, `docs`, `ci` or `chore`. Keep each commit to one change, and explain why in the body.
+Commit subjects take the form `area: short lowercase summary`, where the area is one of `stepfiles`, `schema`, `server`, `test`, `docs`, `ci` or `chore`. Keep each commit to one change, and explain why in the body.
 
 ## Releasing
 
@@ -58,7 +58,7 @@ Maintainers release by publishing a GitHub release; [.github/workflows/release.y
 3. The workflow checks that the tag matches every version field and that `npm run check` passes, then:
    - publishes `stepgate` to npm, so `npx -y stepgate` runs the new version;
    - publishes `@chaarangan/stepgate` to GitHub Packages;
-   - publishes the server to the MCP Registry as `io.github.Chaarangan/stepgate`;
+   - publishes the server to the MCP Registry as `io.github.Chaarangan/stepgate`, once npm serves the new version, which can take a few minutes;
    - attaches the package tarball to the release.
 
 A release marked as a pre-release, such as `v0.2.0-rc.1`, goes to the npm dist-tag `next` (`npx -y stepgate@next`) and is not sent to the MCP Registry.

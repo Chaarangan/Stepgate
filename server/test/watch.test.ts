@@ -53,7 +53,8 @@ async function serveWatched(texts: string[]): Promise<{ harness: Harness; files:
 }
 
 async function until(condition: () => boolean): Promise<void> {
-  const deadline = Date.now() + 5_000;
+  // File events can arrive seconds late on a loaded machine, as macOS delivered a removal under the full suite.
+  const deadline = Date.now() + 15_000;
   while (!condition()) {
     if (Date.now() > deadline) {
       throw new Error("timed out waiting for the server to reload the stepfile");
@@ -66,7 +67,7 @@ async function callTool(harness: Harness, name: string, args: Record<string, unk
   return (await harness.client.callTool({ name, arguments: args })) as CallToolResult;
 }
 
-describe("--watch", () => {
+describe("--watch", { timeout: 20_000 }, () => {
   it("reloads an edited stepfile and tells the client its tools changed", async () => {
     const { harness, files, changes } = await serveWatched([stepfile("greeting", "Says hello.")]);
 

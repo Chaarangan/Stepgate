@@ -1,6 +1,7 @@
 # Stepgate
 
 [![CI](https://github.com/Chaarangan/stepgate/actions/workflows/ci.yml/badge.svg)](https://github.com/Chaarangan/stepgate/actions/workflows/ci.yml)
+[![npm](https://img.shields.io/npm/v/stepgate.svg)](https://www.npmjs.com/package/stepgate)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
 **Agents can't skip steps.** Write an agent's procedure once, as a YAML stepfile, and run it from any MCP client, such as Claude Code, with the model that client already uses.
