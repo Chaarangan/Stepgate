@@ -228,7 +228,8 @@ async function fetchRetrying(
       }
       waitMs = requested ?? waitMs;
     } catch (error) {
-      if (error instanceof StepgateError) {
+      // The caller cancelled, as an MCP client closing mid-request does; retrying would outlive the caller.
+      if (error instanceof StepgateError || init.signal?.aborted === true) {
         throw error;
       }
       if (!idempotent) {
