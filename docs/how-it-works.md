@@ -1,6 +1,23 @@
+<a id="top"></a>
+
+<p><a href="../README.md">Stepgate</a> &middot; <a href="stepfile.md">Writing a stepfile</a> &middot; <a href="connect.md">Connecting a client</a> &middot; <strong>How it works</strong></p>
+
 # How Stepgate works
 
 Stepgate is an MCP server. It offers each stepfile it loads as a tool. When a client calls that tool, Stepgate starts a run and shows the client's agent the first step; the agent does the step with its own model, through Stepgate's tools, and Stepgate decides when the step has passed. For the file format itself, see [stepfile.md](stepfile.md), and for connecting a client, [connect.md](connect.md).
+
+<details>
+  <summary>Contents</summary>
+  <ol>
+    <li><a href="#one-step-at-a-time">One step at a time</a></li>
+    <li><a href="#connecting-a-client">Connecting a client</a></li>
+    <li><a href="#during-a-run">During a run</a></li>
+    <li><a href="#limits">Limits</a></li>
+    <li><a href="#errors">Errors</a></li>
+    <li><a href="#the-ledger">The ledger</a></li>
+    <li><a href="#design-choices">Design choices</a></li>
+  </ol>
+</details>
 
 ## One step at a time
 
@@ -21,6 +38,8 @@ A mechanical step, one with `do` instead of instructions, never reaches the clie
 
 What this guarantees is that the path through a stepfile depends only on submitted outputs and mechanical checks. The outputs themselves still come from a model and still vary.
 
+<p align="right">(<a href="#top">back to top</a>)</p>
+
 ## Connecting a client
 
 `stepgate <stepfile>...` serves over stdio, which is how desktop MCP clients launch servers. Each argument is either a path ending in `.yaml`, `.yml` or `.json`, or the name of a stepfile in the bundled [catalog](../stepfiles/); `stepgate --list` shows the catalog. `--http <port>` serves Streamable HTTP at `/mcp` instead. Every file is loaded and validated at start, so an invalid stepfile stops the server rather than failing a call. The client needs nothing beyond MCP tools, so any MCP client with a model that can call tools works.
@@ -33,6 +52,8 @@ What this guarantees is that the path through a stepfile depends only on submitt
 - **Authoring.** `stepgate_guide`, `stepgate_examples`, `stepgate_outline`, `stepgate_inspect_api`, `stepgate_validate` and `stepgate_try` help an agent write a new stepfile and try it without restarting the server; [connect.md](connect.md#writing-stepfiles-with-an-agent) describes them. With no stepfile arguments, Stepgate serves only these.
 - **HTTP.** `--http` listens on 127.0.0.1 only, and refuses a request whose `Host` or `Origin` is not a loopback address, so a web page cannot reach it through DNS rebinding. A request body larger than 4 MiB is refused with 413, and one that is not JSON with 400.
 - **Runs.** A run belongs to the MCP session that started it, so HTTP sessions are stateful, and a session idle for `--run-idle-ms` is closed with its runs. A run the client stops calling for `--run-idle-ms` is abandoned and its connections closed; later calls for it get `RunNotActive`.
+
+<p align="right">(<a href="#top">back to top</a>)</p>
 
 ## During a run
 
@@ -47,6 +68,8 @@ What this guarantees is that the path through a stepfile depends only on submitt
 **Credentials.** Credential `<name>` is read from `<NAME>_API_KEY` in Stepgate's environment, which an MCP client sets in its server configuration. A value is read when a request needs it and kept no longer than that request. An `oauth2` credential with a `token_url` may instead be given `<NAME>_REFRESH_TOKEN` and `<NAME>_CLIENT_ID`: Stepgate then holds the access token in memory until 60 seconds before it expires, refreshes it when an API answers 401 and sends the request once more, and keeps a rotated refresh token in memory, since it cannot rewrite the environment. A revoked refresh token stops the run with `InvalidGrant`.
 
 **Retries.** Calls to tools, verifiers and OpenAPI documents are retried up to four times on 429 and on a 403 that carries rate-limit headers the way GitHub sends them. A 5xx, a network error or a missed deadline is retried only for GET, HEAD, OPTIONS, PUT and DELETE, and for an operation the stepfile declares `effect: read`; a POST or PATCH may already have taken effect, so it fails at once with `ToolCallFailed` rather than risk sending an email or creating an issue twice. When the response says how long to wait (`Retry-After`, or `x-ratelimit-remaining: 0` with `x-ratelimit-reset`), Stepgate waits that long; otherwise it backs off from half a second. An API asking for more than 60 seconds ends the call at once with `ToolCallFailed`. Each retry leaves a `retry` record with the wait, and after the last attempt the last error is raised. An OAuth `invalid_grant` stops the run at once with `InvalidGrant`, because a revoked grant will not recover and retrying can revoke a working one.
+
+<p align="right">(<a href="#top">back to top</a>)</p>
 
 ## Limits
 
@@ -65,6 +88,8 @@ Limits depend on the client and its model, so they are command-line options rath
 | `--draft-setting` | none | Let drafts use this setting from the environment; repeatable |
 | `--record-cases` | none | Write each finished or failed run here as `<stepfile>-<run>.cases.yaml`, which `stepgate --test` runs; the file holds the APIs' full responses, and a run that ended before any attempt writes none |
 | `--watch` | off | Reload a stepfile when its file changes; a run in progress keeps the version it started with |
+
+<p align="right">(<a href="#top">back to top</a>)</p>
 
 ## Errors
 
@@ -89,6 +114,8 @@ Limits depend on the client and its model, so they are command-line options rath
 | `UrlNotPublic` | `stepgate_inspect_api` was given a URL that is not public `https` |
 | `ApiDocumentInvalid` | An inspected OpenAPI document does not parse, or has a `$ref` Stepgate cannot inline |
 
+<p align="right">(<a href="#top">back to top</a>)</p>
+
 ## The ledger
 
 Every run writes a hash-chained ledger. Each record carries `run`, `stepfile`, `seq`, `type`, `at` (an RFC 3339 time) and `prev`, the SHA-256 of the previous record's RFC 8785 canonical form, so editing any record breaks the chain. Records are stored exactly as they were hashed: with `--ledger-dir` as one `<stepfile>-<run>.jsonl` file per run, otherwise as JSON lines on standard error. `stepgate --verify <file>...` checks each file and exits 1 naming the first `seq` that does not follow.
@@ -108,6 +135,8 @@ Every run writes a hash-chained ledger. Each record carries `run`, `stepfile`, `
 
 Request bodies, responses and outputs appear only as hashes and lengths. No credential value, and no hash of one, is ever recorded, because a hash of a short secret can be cracked.
 
+<p align="right">(<a href="#top">back to top</a>)</p>
+
 ## Design choices
 
 - **The file names no model, provider or framework.** An optional model hint would become the norm, and the file would then only work where that model exists.
@@ -121,3 +150,5 @@ Request bodies, responses and outputs appear only as hashes and lengths. No cred
 - **Stepgate makes every tool call.** Credentials, the host allowlist and the evidence gates see depend on it, so the stepfile's operations are reachable only through `stepgate_call`.
 - **Triggers stay with the client.** A shared file that could schedule itself would run on someone's machine unasked.
 - **An MCP server, not a library.** Clients already speak MCP, so connecting costs one line of configuration rather than a dependency to install and upgrade. It also means a stepfile cannot choose which Stepgate version runs it, so it cannot downgrade to one without a fix.
+
+<p align="right">(<a href="#top">back to top</a>)</p>
