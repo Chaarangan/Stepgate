@@ -299,12 +299,13 @@ To serve over HTTP instead of stdio, run `npx -y stepgate --http 3100 market-res
 | [docs/how-it-works.md](docs/how-it-works.md) | What Stepgate does during a run, its limits, errors and ledger. |
 | [server/schema/stepfile.schema.json](server/schema/stepfile.schema.json) | The JSON Schema for stepfiles. |
 | [CONTEXT.md](CONTEXT.md) | The project's vocabulary. |
+| [Releases](https://github.com/Chaarangan/stepgate/releases) | What changed in each version. |
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
 ## Contributing
 
-Bug reports, new stepfiles for the catalog and pull requests are all welcome. The [open issues](https://github.com/Chaarangan/stepgate/issues) list proposed features and known bugs. Adding a stepfile needs no server knowledge: follow [stepfiles/README.md](stepfiles/README.md). For changes to the server or the format, see [CONTRIBUTING.md](CONTRIBUTING.md).
+Bug reports, new stepfiles for the catalog and pull requests are all welcome. The [open issues](https://github.com/Chaarangan/stepgate/issues) list proposed features and known bugs, and those labelled [good first issue](https://github.com/Chaarangan/stepgate/labels/good%20first%20issue) are small enough for a first pull request. Adding a stepfile needs no server knowledge: follow [stepfiles/README.md](stepfiles/README.md). For changes to the server or the format, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 To report a vulnerability, follow [SECURITY.md](SECURITY.md). Everyone taking part is expected to follow the [Code of Conduct](CODE_OF_CONDUCT.md).
 

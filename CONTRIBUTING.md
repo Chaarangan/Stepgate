@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for helping. Bug reports, new stepfiles for the catalog, and pull requests are all welcome.
+Thanks for helping. Bug reports, new stepfiles for the catalog, and pull requests are all welcome. If this is your first open source pull request, you are welcome here: pick an issue labelled [good first issue](https://github.com/Chaarangan/stepgate/labels/good%20first%20issue), say in it that you are taking it, and ask there whenever you are stuck.
 
 **Adding a stepfile to the catalog?** That needs no server knowledge: follow [stepfiles/README.md](stepfiles/README.md). The rest of this guide is about the server and the format.
 
