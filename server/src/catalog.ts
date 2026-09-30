@@ -11,9 +11,9 @@ export type CatalogEntry = { domain: string; id: string; file: URL; stepfile: St
 
 type Location = { domain: string; id: string };
 
-// The published package carries stepfiles/ beside dist/; a repository checkout has it one level
+// The published package carries awesome-stepfiles/ beside dist/; a repository checkout has it one level
 // higher. The packaged location is tried first, so an installed package never looks outside itself.
-const LOCATIONS = [new URL("../stepfiles/", import.meta.url), new URL("../../stepfiles/", import.meta.url)];
+const LOCATIONS = [new URL("../awesome-stepfiles/", import.meta.url), new URL("../../awesome-stepfiles/", import.meta.url)];
 
 const FOLDER_NAME = /^[a-z][a-z0-9-]{0,63}$/;
 
@@ -32,7 +32,7 @@ function subdirectories(directory: URL): string[] {
     .sort();
 }
 
-/** Every stepfiles/<domain>/<id>/ folder, sorted by domain and then id. */
+/** Every awesome-stepfiles/<domain>/<id>/ folder, sorted by domain and then id. */
 function locations(directory: URL): Location[] {
   return subdirectories(directory).flatMap((domain) => subdirectories(new URL(`${domain}/`, directory)).map((id) => ({ domain, id })));
 }
@@ -50,7 +50,7 @@ export function catalogProblems(directory: URL): string[] {
     }
     const loose = readdirSync(new URL(`${domain}/`, directory)).filter((name) => name.endsWith(".stepfile.yaml"));
     for (const name of loose) {
-      problems.push(`stepfiles/${domain}/${name} must live in its own folder, stepfiles/${domain}/<id>/`);
+      problems.push(`awesome-stepfiles/${domain}/${name} must live in its own folder, awesome-stepfiles/${domain}/<id>/`);
     }
   }
   const seen = new Map<string, string>();
@@ -175,7 +175,7 @@ export function entryProblems(directory: URL, domain: string, id: string): strin
 export function listCatalog(directory: URL): CatalogEntry[] {
   const layout = catalogProblems(directory);
   if (layout.length > 0) {
-    throw new CatalogEntryInvalid("stepfiles", layout);
+    throw new CatalogEntryInvalid("awesome-stepfiles", layout);
   }
   return locations(directory).map((location) => {
     const problems = entryProblems(directory, location.domain, location.id);

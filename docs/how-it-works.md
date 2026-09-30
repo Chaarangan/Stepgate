@@ -65,7 +65,7 @@ The guarantee is that the path through a stepfile depends only on submitted outp
 `stepgate <stepfile>...` serves over stdio, which is how desktop MCP clients launch servers. Each argument is one of:
 
 - a path ending in `.yaml`, `.yml` or `.json`;
-- the name of a stepfile in the bundled [catalog](../stepfiles/). `stepgate --list` shows the catalog.
+- the name of a stepfile in the bundled [catalog](../awesome-stepfiles/). `stepgate --list` shows the catalog.
 
 `--http <port>` serves Streamable HTTP at `/mcp` instead.
 

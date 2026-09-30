@@ -1,4 +1,4 @@
-// Scaffolds stepfiles/<domain>/<id>/ with a working stepfile and a README to fill in.
+// Scaffolds awesome-stepfiles/<domain>/<id>/ with a working stepfile and a README to fill in.
 //
 //   npm run new-stepfile -- <domain>/<id>
 //
@@ -12,9 +12,9 @@ if (domain === undefined || id === undefined || extra !== undefined || !NAME.tes
   process.exit(2);
 }
 
-const folder = new URL(`../../stepfiles/${domain}/${id}/`, import.meta.url);
+const folder = new URL(`../../awesome-stepfiles/${domain}/${id}/`, import.meta.url);
 if (existsSync(folder)) {
-  console.error(`stepfiles/${domain}/${id}/ already exists`);
+  console.error(`awesome-stepfiles/${domain}/${id}/ already exists`);
   process.exit(1);
 }
 
@@ -31,7 +31,7 @@ inputs:
     topic: { type: string, minLength: 1 }
 
 # Declare remote APIs under tools: and the secrets they need under credentials:.
-# See docs/stepfile.md for the fields, and stepfiles/marketing/market-research/ for a full example.
+# See docs/stepfile.md for the fields, and awesome-stepfiles/marketing/market-research/ for a full example.
 
 steps:
   - id: summarise
@@ -78,4 +78,4 @@ Then call the \`${id}\` tool with \`{ "topic": "..." }\`.
 mkdirSync(folder, { recursive: true });
 writeFileSync(new URL(`${id}.stepfile.yaml`, folder), stepfile);
 writeFileSync(new URL("README.md", folder), readme);
-console.log(`created stepfiles/${domain}/${id}/: replace every TODO(${id}), then run npm run check`);
+console.log(`created awesome-stepfiles/${domain}/${id}/: replace every TODO(${id}), then run npm run check`);

@@ -54,7 +54,7 @@ Every client launches the same command:
 npx -y stepgate market-research drug-shortage-watch
 ```
 
-Each argument is the name of a stepfile in the [catalog](../stepfiles/) or a path to your own `.stepfile.yaml`. `npx -y stepgate --list` shows the catalog.
+Each argument is the name of a stepfile in the [catalog](../awesome-stepfiles/) or a path to your own `.stepfile.yaml`. `npx -y stepgate --list` shows the catalog.
 
 Options you are likely to want:
 

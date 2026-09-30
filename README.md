@@ -21,7 +21,7 @@
     <br />
     <a href="#quick-start">Quick start</a>
     &middot;
-    <a href="stepfiles/">Browse the catalog</a>
+    <a href="awesome-stepfiles/">Browse the catalog</a>
     &middot;
     <a href="https://github.com/Chaarangan/stepgate/issues/new?template=bug_report.yml">Report a bug</a>
     &middot;
@@ -112,7 +112,7 @@ When an agent is handed a plan as text, it decides how much of the plan to follo
 
 ### Quick start
 
-1. Add the server to your MCP client's configuration, naming one or more stepfiles from the [catalog](stepfiles/), or giving absolute paths to your own `.stepfile.yaml` files ([details](docs/connect.md#your-own-stepfiles)):
+1. Add the server to your MCP client's configuration, naming one or more stepfiles from the [catalog](awesome-stepfiles/), or giving absolute paths to your own `.stepfile.yaml` files ([details](docs/connect.md#your-own-stepfiles)):
 
    ```json
    {
@@ -186,7 +186,7 @@ steps:
   # ... filter, analyse and report steps
 ```
 
-Credentials say what is needed, never where it lives: the server reads `tavily` from `TAVILY_API_KEY`. `effect: read` marks the search as safe to retry. The complete file is [stepfiles/marketing/market-research](stepfiles/marketing/market-research/), and editors that support `yaml-language-server` validate against [server/schema/stepfile.schema.json](server/schema/stepfile.schema.json), which the npm package also ships.
+Credentials say what is needed, never where it lives: the server reads `tavily` from `TAVILY_API_KEY`. `effect: read` marks the search as safe to retry. The complete file is [awesome-stepfiles/marketing/market-research](awesome-stepfiles/marketing/market-research/), and editors that support `yaml-language-server` validate against [server/schema/stepfile.schema.json](server/schema/stepfile.schema.json), which the npm package also ships.
 
 ### Make the procedure you already wrote enforceable
 
@@ -286,7 +286,7 @@ To serve over HTTP instead of stdio, run `npx -y stepgate --http 3100 market-res
 
 ## Catalog
 
-[stepfiles/](stepfiles/) is a community catalog of stepfiles, reviewed and shipped with the npm package, so each one runs by name. Built something repeatable? Adding it is one folder and one pull request: see [stepfiles/README.md](stepfiles/README.md), or [suggest an idea](https://github.com/Chaarangan/stepgate/issues/new?template=stepfile_idea.yml).
+[awesome-stepfiles/](awesome-stepfiles/) is a community catalog of stepfiles, reviewed and shipped with the npm package, so each one runs by name. Built something repeatable? Adding it is one folder and one pull request: see [awesome-stepfiles/README.md](awesome-stepfiles/README.md), or [suggest an idea](https://github.com/Chaarangan/stepgate/issues/new?template=stepfile_idea.yml).
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
@@ -305,7 +305,7 @@ To serve over HTTP instead of stdio, run `npx -y stepgate --http 3100 market-res
 
 ## Contributing
 
-Bug reports, new stepfiles for the catalog and pull requests are all welcome. The [open issues](https://github.com/Chaarangan/stepgate/issues) list proposed features and known bugs, and those labelled [good first issue](https://github.com/Chaarangan/stepgate/labels/good%20first%20issue) are small enough for a first pull request. Adding a stepfile needs no server knowledge: follow [stepfiles/README.md](stepfiles/README.md). For changes to the server or the format, see [CONTRIBUTING.md](CONTRIBUTING.md).
+Bug reports, new stepfiles for the catalog and pull requests are all welcome. The [open issues](https://github.com/Chaarangan/stepgate/issues) list proposed features and known bugs, and those labelled [good first issue](https://github.com/Chaarangan/stepgate/labels/good%20first%20issue) are small enough for a first pull request. Adding a stepfile needs no server knowledge: follow [awesome-stepfiles/README.md](awesome-stepfiles/README.md). For changes to the server or the format, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 To report a vulnerability, follow [SECURITY.md](SECURITY.md). Everyone taking part is expected to follow the [Code of Conduct](CODE_OF_CONDUCT.md).
 
