@@ -36,6 +36,9 @@ Every folder has a README with what the stepfile does, its inputs, and the crede
 
 A stepfile is worth sharing when it turns a task people repeat into steps with real checks. You need Node.js 22.18 or later.
 
+> [!TIP]
+> Writing it with Claude Code, Cursor or another coding assistant? Skip to [the prompt](#the-prompt) and paste it in.
+
 1. Fork the repository, then run `npm run new-stepfile -- <domain>/<id>` in `server/`, choosing an existing domain folder where one fits. It creates `awesome-stepfiles/<domain>/<id>/` with a working stepfile and a README.
 2. Write the procedure. [docs/stepfile.md](../docs/stepfile.md) explains every field, and [marketing/market-research](marketing/market-research/) is a complete example.
 3. Replace every `TODO(<id>)` marker.
@@ -61,11 +64,28 @@ Other clients are set up the same way, with no stepfile arguments ([docs/connect
 | `awesome-stepfiles/media/book-list-verification/` | A complete `<id>.cases.yaml` |
 | The API's OpenAPI document or MCP server URL | The operations the steps will call |
 
-A prompt that covers the whole job:
+### The prompt
 
-> Add a catalog entry `science/earthquake-brief` that summarises the week's earthquakes above a magnitude near a place, using the USGS Earthquake Catalog API. Run `npm run new-stepfile -- science/earthquake-brief` in `server/`, then follow the rules in `awesome-stepfiles/README.md` and the format in `docs/stepfile.md`, copying the shape of `marketing/market-research`. Use `stepgate_inspect_api` on the API, give every step gates that check real properties of the output, and `stepgate_try` the draft with a real place. Replace every `TODO(earthquake-brief)`, write `earthquake-brief.cases.yaml`, fill in the README, add a row to the index in `awesome-stepfiles/README.md`, and run `npm run check` until it passes.
+Copy it, and swap the entry id, the task and the API for your own:
 
-Before opening the pull request, read the gates yourself. An assistant can make a gate pass by weakening it, and only you can tell a gate that checks the output from one that checks its shape.
+```text
+Add a catalog entry `science/earthquake-brief` that summarises the week's
+earthquakes above a magnitude near a place, using the USGS Earthquake Catalog API.
+
+1. Run `npm run new-stepfile -- science/earthquake-brief` in `server/`.
+2. Follow the rules in `awesome-stepfiles/README.md` and the format in
+   `docs/stepfile.md`, copying the shape of `marketing/market-research`.
+3. Use `stepgate_inspect_api` on the API, and give every step gates that check
+   real properties of the output.
+4. `stepgate_try` the draft with a real place.
+5. Replace every `TODO(earthquake-brief)`, write `earthquake-brief.cases.yaml`
+   and fill in the README.
+6. Add a row to the index in `awesome-stepfiles/README.md`.
+7. Run `npm run check` in `server/` until it passes.
+```
+
+> [!WARNING]
+> Before opening the pull request, read the gates yourself. An assistant can make a gate pass by weakening it, and only you can tell a gate that checks the output from one that checks its shape.
 
 ### What an entry must meet
 

@@ -51,6 +51,7 @@
       <ul>
         <li><a href="#a-stepfile">A stepfile</a></li>
         <li><a href="#make-the-procedure-you-already-wrote-enforceable">Make the procedure you already wrote enforceable</a></li>
+        <li><a href="#create-your-stepfile">Create your stepfile</a></li>
         <li><a href="#command-line">Command line</a></li>
       </ul>
     </li>
@@ -269,6 +270,17 @@ steps:
 ```
 
 </details>
+
+### Create your stepfile
+
+Ask your coding assistant for one in plain words. With Stepgate connected, it reads the format, inspects the API, validates its draft and tries it:
+
+```text
+Write a stepfile that converts an amount between currencies at the latest ECB rate,
+using the Frankfurter API. Try it with 250 USD to EUR.
+```
+
+For the full prompt and the files to point it at, see [the prompt](awesome-stepfiles/README.md#the-prompt) in the catalog.
 
 ### Command line
 
