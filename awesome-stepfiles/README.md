@@ -7,7 +7,7 @@ npx -y stepgate --list            # the catalog, by domain
 npx -y stepgate market-research   # serve one over stdio
 ```
 
-Every folder has a README with what the stepfile does, its inputs, and the credentials it needs.
+Every folder has a README with what the stepfile does, its inputs, and the credentials it needs. A stepfile does not need to be here to run: pass the path of your own file instead of a catalog name ([docs/connect.md](../docs/connect.md#your-own-stepfiles)).
 
 ## Index
 
@@ -32,16 +32,16 @@ Every folder has a README with what the stepfile does, its inputs, and the crede
 | support | [zendesk-jira-escalation](support/zendesk-jira-escalation/) | Escalate Zendesk tickets to Jira as draft issues with internal notes | `zendesk`, `jira` |
 | travel | [event-weather-contingency](travel/event-weather-contingency/) | Weather go, contingency or postpone call for an outdoor event | None |
 
-A stepfile does not need to be here to run: pass the path of your own file to `stepgate` instead of a catalog name, as [docs/connect.md](../docs/connect.md#your-own-stepfiles) describes. The catalog is for stepfiles worth sharing.
-
 ## Add yours
 
 A stepfile is worth sharing when it turns a task people repeat into steps with real checks. You need Node.js 22.18 or later.
 
 1. Fork the repository, then run `npm run new-stepfile -- <domain>/<id>` in `server/`, choosing an existing domain folder where one fits. It creates `awesome-stepfiles/<domain>/<id>/` with a working stepfile and a README.
 2. Write the procedure. [docs/stepfile.md](../docs/stepfile.md) explains every field, and [marketing/market-research](marketing/market-research/) is a complete example.
-3. Replace every `TODO(<id>)` marker, and add `<id>.cases.yaml` with recorded calls and outputs, so `stepgate --test <id>` and CI check your gates offline ([docs/stepfile.md](../docs/stepfile.md#testing-gates-offline)). Running Stepgate with `--record-cases <dir>` writes one from a real run; trim it and remove anything personal. Then run `npm run check` in `server/`.
-4. Run it once against a real model and API, and open a pull request that changes only your folder.
+3. Replace every `TODO(<id>)` marker.
+4. Add `<id>.cases.yaml` with recorded calls and outputs, so `stepgate --test <id>` and CI check your gates offline ([docs/stepfile.md](../docs/stepfile.md#testing-gates-offline)). Running Stepgate with `--record-cases <dir>` writes one from a real run; trim it and remove anything personal.
+5. Add a row for your entry to the [index](#index), then run `npm run check` in `server/`.
+6. Run it once against a real model and API, and open a pull request that changes only your folder and its index row.
 
 ### With a coding assistant
 
@@ -55,7 +55,7 @@ Other clients are set up the same way, with no stepfile arguments ([docs/connect
 
 | File | Why |
 |---|---|
-| `awesome-stepfiles/README.md` | The rules a catalog entry must meet (this file) |
+| `awesome-stepfiles/README.md` | The rules an entry must meet, and the index to add it to (this file) |
 | `docs/stepfile.md` | Every field, and how gates and cases files work |
 | `awesome-stepfiles/marketing/market-research/` | A complete entry to copy the shape of |
 | `awesome-stepfiles/media/book-list-verification/` | A complete `<id>.cases.yaml` |
@@ -63,16 +63,17 @@ Other clients are set up the same way, with no stepfile arguments ([docs/connect
 
 A prompt that covers the whole job:
 
-> Add a catalog entry `science/earthquake-brief` that summarises the week's earthquakes above a magnitude near a place, using the USGS Earthquake Catalog API. Run `npm run new-stepfile -- science/earthquake-brief` in `server/`, then follow the rules in `awesome-stepfiles/README.md` and the format in `docs/stepfile.md`, copying the shape of `marketing/market-research`. Use `stepgate_inspect_api` on the API, give every step gates that check real properties of the output, and `stepgate_try` the draft with a real place. Replace every `TODO(earthquake-brief)`, write `earthquake-brief.cases.yaml`, fill in the README, and run `npm run check` until it passes.
+> Add a catalog entry `science/earthquake-brief` that summarises the week's earthquakes above a magnitude near a place, using the USGS Earthquake Catalog API. Run `npm run new-stepfile -- science/earthquake-brief` in `server/`, then follow the rules in `awesome-stepfiles/README.md` and the format in `docs/stepfile.md`, copying the shape of `marketing/market-research`. Use `stepgate_inspect_api` on the API, give every step gates that check real properties of the output, and `stepgate_try` the draft with a real place. Replace every `TODO(earthquake-brief)`, write `earthquake-brief.cases.yaml`, fill in the README, add a row to the index in `awesome-stepfiles/README.md`, and run `npm run check` until it passes.
 
 Before opening the pull request, read the gates yourself. An assistant can make a gate pass by weakening it, and only you can tell a gate that checks the output from one that checks its shape.
 
-A catalog entry must:
+### What an entry must meet
 
-- live in `awesome-stepfiles/<domain>/<id>/`, as `<id>.stepfile.yaml`, a `README.md` and an `<id>.cases.yaml`, with the folder name equal to the stepfile's `id`, and an `id` no other domain uses;
-- call only public `https` APIs and MCP servers, and declare every credential with a clear `description`;
-- give every step gates that check real properties of the output, not just its shape;
-- write only from a mechanical step, after an agent step with an `approve` gate, using only inputs, settings and earlier steps' outputs, so what reaches an API is what a person approved. An operation counts as a write unless it is an OpenAPI GET, HEAD or OPTIONS, or its `exposes` entry declares `effect: read`; declare that only where the API's documentation says the operation changes nothing;
-- contain no secrets, personal data, or anything tied to one model or provider.
+- **Layout.** It lives in `awesome-stepfiles/<domain>/<id>/` as `<id>.stepfile.yaml`, a `README.md` and an `<id>.cases.yaml`. The folder name equals the stepfile's `id`, and no other domain uses that `id`.
+- **APIs.** It calls only public `https` APIs and MCP servers, and declares every credential with a clear `description`.
+- **Gates.** Every step has gates that check real properties of the output, not just its shape.
+- **Writes.** It writes only from a mechanical step that follows an agent step with an `approve` gate, using only inputs, settings and earlier steps' outputs. What reaches an API is then what a person approved.
+- **Reads.** An operation counts as a write unless it is an OpenAPI GET, HEAD or OPTIONS, or its `exposes` entry declares `effect: read`. Declare that only where the API's documentation says the operation changes nothing.
+- **Content.** It contains no secrets, personal data, or anything tied to one model or provider.
 
 `npm run check` enforces the structural rules, and CI runs it on every pull request. Not sure what to build? [Suggest an idea](https://github.com/Chaarangan/stepgate/issues/new?template=stepfile_idea.yml), or pick one someone else suggested.
