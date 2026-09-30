@@ -1,4 +1,4 @@
-# Stepfile catalog
+# Awesome Stepfiles
 
 Community stepfiles, reviewed and shipped with Stepgate, grouped into domain folders such as `marketing/`. Each entry runs by name:
 
@@ -42,6 +42,30 @@ A stepfile is worth sharing when it turns a task people repeat into steps with r
 2. Write the procedure. [docs/stepfile.md](../docs/stepfile.md) explains every field, and [marketing/market-research](marketing/market-research/) is a complete example.
 3. Replace every `TODO(<id>)` marker, and add `<id>.cases.yaml` with recorded calls and outputs, so `stepgate --test <id>` and CI check your gates offline ([docs/stepfile.md](../docs/stepfile.md#testing-gates-offline)). Running Stepgate with `--record-cases <dir>` writes one from a real run; trim it and remove anything personal. Then run `npm run check` in `server/`.
 4. Run it once against a real model and API, and open a pull request that changes only your folder.
+
+### With a coding assistant
+
+Claude Code, Cursor, Copilot or any other coding assistant can write the entry with you. It works best with Stepgate's authoring tools, which let it read the format, inspect the API, validate its draft and try it. From the repository root in Claude Code:
+
+```sh
+claude mcp add stepgate -- npx -y stepgate
+```
+
+Other clients are set up the same way, with no stepfile arguments ([docs/connect.md](../docs/connect.md#writing-stepfiles-with-an-agent)). Then point the assistant at these files:
+
+| File | Why |
+|---|---|
+| `awesome-stepfiles/README.md` | The rules a catalog entry must meet (this file) |
+| `docs/stepfile.md` | Every field, and how gates and cases files work |
+| `awesome-stepfiles/marketing/market-research/` | A complete entry to copy the shape of |
+| `awesome-stepfiles/media/book-list-verification/` | A complete `<id>.cases.yaml` |
+| The API's OpenAPI document or MCP server URL | The operations the steps will call |
+
+A prompt that covers the whole job:
+
+> Add a catalog entry `science/earthquake-brief` that summarises the week's earthquakes above a magnitude near a place, using the USGS Earthquake Catalog API. Run `npm run new-stepfile -- science/earthquake-brief` in `server/`, then follow the rules in `awesome-stepfiles/README.md` and the format in `docs/stepfile.md`, copying the shape of `marketing/market-research`. Use `stepgate_inspect_api` on the API, give every step gates that check real properties of the output, and `stepgate_try` the draft with a real place. Replace every `TODO(earthquake-brief)`, write `earthquake-brief.cases.yaml`, fill in the README, and run `npm run check` until it passes.
+
+Before opening the pull request, read the gates yourself. An assistant can make a gate pass by weakening it, and only you can tell a gate that checks the output from one that checks its shape.
 
 A catalog entry must:
 
