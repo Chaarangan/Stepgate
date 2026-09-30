@@ -8,7 +8,7 @@ Run everything from `server/`:
 
 - `npm run check`: type checker and all tests. Run it before calling a change done.
 - `npm run build`: compile to `dist/`.
-- `npm run new-stepfile -- <domain>/<id>`: scaffold a catalog entry in `stepfiles/<domain>/<id>/`.
+- `npm run new-stepfile -- <domain>/<id>`: scaffold a catalog entry in `awesome-stepfiles/<domain>/<id>/`.
 
 ## Where things are
 
@@ -16,8 +16,8 @@ Run everything from `server/`:
 - `server/src/server.ts`: stepfiles as MCP tools that start runs, plus `stepgate_call` and `stepgate_submit`, which the client drives each step with.
 - `server/test/harness.ts`: starts fixture servers and a client that plays scripted actions on each run. New tests use it.
 - `server/src/authoring.ts`: the tools that help an agent write a stepfile (guide, examples, API inspection, validation, draft rules).
-- `server/src/catalog.ts`: finds, validates and lists the `stepfiles/` catalog; the CLI takes catalog names as well as paths.
-- `stepfiles/<domain>/<id>/`: one catalog entry per folder, `<id>.stepfile.yaml` plus `README.md`; ids are unique across domains.
+- `server/src/catalog.ts`: finds, validates and lists the `awesome-stepfiles/` catalog; the CLI takes catalog names as well as paths.
+- `awesome-stepfiles/<domain>/<id>/`: one catalog entry per folder, `<id>.stepfile.yaml` plus `README.md`; ids are unique across domains.
 
 ## Rules
 

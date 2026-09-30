@@ -7,7 +7,7 @@
 A stepfile is one YAML or JSON file that describes an agent's procedure: its inputs, the remote APIs and MCP servers it may call, and an ordered list of steps with the checks each step must pass. It names no model, provider or framework, so the same file runs on any MCP client.
 
 - **Schema.** The JSON Schema is [server/schema/stepfile.schema.json](../server/schema/stepfile.schema.json).
-- **Example.** [stepfiles/marketing/market-research](../stepfiles/marketing/market-research/) is a complete example from the [catalog](../stepfiles/).
+- **Example.** [awesome-stepfiles/marketing/market-research](../awesome-stepfiles/marketing/market-research/) is a complete example from the [catalog](../awesome-stepfiles/).
 - **File name.** Name files `<id>.stepfile.yaml`.
 - **Running your own.** Pass its path to `stepgate`, as [connect.md](connect.md#your-own-stepfiles) describes. It does not need to be in the catalog.
 - **What happens in a run.** See [how-it-works.md](how-it-works.md).
@@ -626,7 +626,7 @@ A mechanical step that makes calls therefore needs them recorded, even where a c
 - Steps run in the order listed. A step expected to `pass` becomes `steps.<id>` for the ones after it.
 - `http` gates need their verifier and `approve` gates a person, so both are skipped and named in the report.
 
-[media/book-list-verification](../stepfiles/media/book-list-verification/) has a complete cases file.
+[media/book-list-verification](../awesome-stepfiles/media/book-list-verification/) has a complete cases file.
 
 ## When a gate fails
 

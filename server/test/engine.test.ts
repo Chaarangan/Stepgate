@@ -28,7 +28,7 @@ function issuesOf(work: () => unknown): string[] {
   throw new Error("expected load to refuse the stepfile");
 }
 
-const MARKET_RESEARCH = new URL("../../stepfiles/marketing/market-research/market-research.stepfile.yaml", import.meta.url);
+const MARKET_RESEARCH = new URL("../../awesome-stepfiles/marketing/market-research/market-research.stepfile.yaml", import.meta.url);
 
 let harness: Harness | undefined;
 

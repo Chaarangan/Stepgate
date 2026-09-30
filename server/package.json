@@ -31,7 +31,7 @@
     "!dist/**/*.d.ts",
     "schema",
     "conformance",
-    "stepfiles",
+    "awesome-stepfiles",
     "docs"
   ],
   "scripts": {
@@ -39,8 +39,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "check": "npm run typecheck && npm run test",
-    "prepack": "npm run build && cp ../LICENSE ../README.md . && cp -R ../stepfiles . && mkdir -p docs && cp ../docs/stepfile.md docs/",
-    "postpack": "rm -rf LICENSE README.md stepfiles docs",
+    "prepack": "npm run build && cp ../LICENSE ../README.md . && cp -R ../awesome-stepfiles . && mkdir -p docs && cp ../docs/stepfile.md docs/",
+    "postpack": "rm -rf LICENSE README.md awesome-stepfiles docs",
     "demo": "node examples/demo-client.ts",
     "new-stepfile": "node scripts/new-stepfile.ts",
     "check-stepfile": "node scripts/check-stepfile.ts",

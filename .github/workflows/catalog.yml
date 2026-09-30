@@ -3,11 +3,11 @@ name: Catalog
 on:
   pull_request:
     paths:
-      - "stepfiles/**"
+      - "awesome-stepfiles/**"
   push:
     branches: [main]
     paths:
-      - "stepfiles/**"
+      - "awesome-stepfiles/**"
 
 permissions:
   contents: read

@@ -2,7 +2,7 @@
 
 Thanks for helping. Bug reports, new stepfiles for the catalog, and pull requests are all welcome. If this is your first open source pull request, you are welcome here: pick an issue labelled [good first issue](https://github.com/Chaarangan/stepgate/labels/good%20first%20issue), say in it that you are taking it, and ask there whenever you are stuck.
 
-**Adding a stepfile to the catalog?** That needs no server knowledge: follow [stepfiles/README.md](stepfiles/README.md). The rest of this guide is about the server and the format.
+**Adding a stepfile to the catalog?** That needs no server knowledge: follow [awesome-stepfiles/README.md](awesome-stepfiles/README.md). The rest of this guide is about the server and the format.
 
 ## Before you start
 
@@ -33,7 +33,7 @@ MODEL_BASE_URL=https://openrouter.ai/api/v1 MODEL_NAME=<model> MODEL_API_KEY=...
 | Path | What it is |
 |---|---|
 | `docs/stepfile.md`, `docs/how-it-works.md` | The stepfile format, and what Stepgate does with it |
-| `stepfiles/` | The community catalog, one folder per stepfile |
+| `awesome-stepfiles/` | The community catalog, one folder per stepfile |
 | `server/schema/stepfile.schema.json` | The JSON Schema for stepfiles, shipped in the package |
 | `server/src/engine/` | Loading, validation, the step loop, tools, gates and the ledger |
 | `server/src/server.ts`, `server/src/cli.ts` | The MCP server and the `stepgate` command |
