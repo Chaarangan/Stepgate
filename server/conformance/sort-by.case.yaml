@@ -1,0 +1,99 @@
+name: sort_by orders arrays by numbers, strings, and null fields in asc and desc directions
+stepfile:
+  stepgate: "1"
+  id: sorter
+  inputs:
+    type: object
+    required: [items]
+    properties:
+      items:
+        type: array
+        items:
+          type: object
+          required: [id, score, name]
+          properties:
+            id: { type: string }
+            score: { type: number }
+            name: { type: string }
+            tag: { type: [string, "null"] }
+  steps:
+    - id: order
+      do:
+        output:
+          num_asc: { map: [{ sort_by: [{ var: inputs.items }, score, asc] }, { var: id }] }
+          num_desc: { map: [{ sort_by: [{ var: inputs.items }, score, desc] }, { var: id }] }
+          str_asc: { map: [{ sort_by: [{ var: inputs.items }, name, asc] }, { var: id }] }
+          str_desc: { map: [{ sort_by: [{ var: inputs.items }, name, desc] }, { var: id }] }
+          null_asc: { map: [{ sort_by: [{ var: inputs.items }, tag, asc] }, { var: id }] }
+          null_desc: { map: [{ sort_by: [{ var: inputs.items }, tag, desc] }, { var: id }] }
+      produces:
+        type: object
+        required: [num_asc, num_desc, str_asc, str_desc, null_asc, null_desc]
+        properties:
+          num_asc: { type: array, items: { type: string } }
+          num_desc: { type: array, items: { type: string } }
+          str_asc: { type: array, items: { type: string } }
+          str_desc: { type: array, items: { type: string } }
+          null_asc: { type: array, items: { type: string } }
+          null_desc: { type: array, items: { type: string } }
+      gates:
+        - id: num-asc-check
+          message: num_asc order check
+          predicate:
+            and:
+              - { "==": [{ get: [{ var: output.num_asc }, 0] }, two] }
+              - { "==": [{ get: [{ var: output.num_asc }, 1] }, four] }
+              - { "==": [{ get: [{ var: output.num_asc }, 2] }, three] }
+              - { "==": [{ get: [{ var: output.num_asc }, 3] }, one] }
+        - id: num-desc-check
+          message: num_desc order check
+          predicate:
+            and:
+              - { "==": [{ get: [{ var: output.num_desc }, 0] }, one] }
+              - { "==": [{ get: [{ var: output.num_desc }, 1] }, three] }
+              - { "==": [{ get: [{ var: output.num_desc }, 2] }, two] }
+              - { "==": [{ get: [{ var: output.num_desc }, 3] }, four] }
+        - id: str-asc-check
+          message: str_asc order check
+          predicate:
+            and:
+              - { "==": [{ get: [{ var: output.str_asc }, 0] }, three] }
+              - { "==": [{ get: [{ var: output.str_asc }, 1] }, two] }
+              - { "==": [{ get: [{ var: output.str_asc }, 2] }, one] }
+              - { "==": [{ get: [{ var: output.str_asc }, 3] }, four] }
+        - id: str-desc-check
+          message: str_desc order check
+          predicate:
+            and:
+              - { "==": [{ get: [{ var: output.str_desc }, 0] }, four] }
+              - { "==": [{ get: [{ var: output.str_desc }, 1] }, one] }
+              - { "==": [{ get: [{ var: output.str_desc }, 2] }, two] }
+              - { "==": [{ get: [{ var: output.str_desc }, 3] }, three] }
+        - id: null-asc-check
+          message: null_asc order check
+          predicate:
+            and:
+              - { "==": [{ get: [{ var: output.null_asc }, 0] }, three] }
+              - { "==": [{ get: [{ var: output.null_asc }, 1] }, one] }
+              - { "==": [{ get: [{ var: output.null_asc }, 2] }, two] }
+              - { "==": [{ get: [{ var: output.null_asc }, 3] }, four] }
+        - id: null-desc-check
+          message: null_desc order check
+          predicate:
+            and:
+              - { "==": [{ get: [{ var: output.null_desc }, 0] }, one] }
+              - { "==": [{ get: [{ var: output.null_desc }, 1] }, three] }
+              - { "==": [{ get: [{ var: output.null_desc }, 2] }, two] }
+              - { "==": [{ get: [{ var: output.null_desc }, 3] }, four] }
+inputs:
+  items:
+    - { id: one, score: 30, name: beta, tag: zebra }
+    - { id: two, score: 10, name: alpha, tag: null }
+    - { id: three, score: 20, name: Gamma, tag: apple }
+    - { id: four, score: 10, name: delta, tag: null }
+actions: []
+expect:
+  replies:
+    - state: finished
+      contain: '"num_asc"'
+  ledger: [run_started, step_started, computed, gate, gate, gate, gate, gate, gate, step_passed, run_finished]
