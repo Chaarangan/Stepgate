@@ -1,0 +1,56 @@
+name: a mechanical call with each accepts a literal array and a mixed array
+api:
+  routes:
+    - method: GET
+      path: /items?shelf=A
+      answers: [{ status: 200, json: { items: [{ id: K-1 }] } }]
+    - method: GET
+      path: /items?shelf=B
+      answers: [{ status: 200, json: { items: [{ id: K-2 }] } }]
+    - method: GET
+      path: /items?shelf=C
+      answers: [{ status: 200, json: { items: [{ id: K-3 }] } }]
+stepfile:
+  stepgate: "1"
+  id: shelves
+  inputs: { type: object, required: [extra], properties: { extra: { type: string } } }
+  tools:
+    catalogue:
+      openapi:
+        server: "${api.origin}"
+        document:
+          openapi: 3.1.0
+          info: { title: Catalogue, version: "1" }
+          paths:
+            /items:
+              get:
+                operationId: listItems
+                parameters: [{ name: shelf, in: query, required: true, schema: { type: string } }]
+      exposes: [listItems]
+  steps:
+    - id: fetch
+      do:
+        calls:
+          - id: fixed
+            operation: listItems
+            each: [A, B]
+            arguments: { shelf: { var: item } }
+          - id: mixed
+            operation: listItems
+            each: [A, { var: inputs.extra }]
+            arguments: { shelf: { var: item } }
+        output:
+          fixed_count: { length: { var: responses.fixed } }
+          mixed_count: { length: { var: responses.mixed } }
+      produces: { type: object }
+inputs: { extra: C }
+actions: []
+expect:
+  replies:
+    - { state: finished, contain: '"fixed_count": 2' }
+  ledger: [run_started, step_started, tool_call, tool_call, tool_call, tool_call, computed, step_passed, run_finished]
+  requests:
+    - { method: GET, path: /items?shelf=A }
+    - { method: GET, path: /items?shelf=B }
+    - { method: GET, path: /items?shelf=A }
+    - { method: GET, path: /items?shelf=C }
