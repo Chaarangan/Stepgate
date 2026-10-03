@@ -134,7 +134,11 @@ function mechanicalProblem(work: MechanicalWork, recorded: RecordedStep, inputs:
   const queue = [...recorded.calls];
   const responses: JsonObject = {};
   for (const planned of work.calls ?? []) {
-    const elements = planned.each === undefined ? [null] : evaluateExpression(planned.each, { inputs, steps, responses });
+    const elements = planned.each === undefined
+      ? [null]
+      : (Array.isArray(planned.each)
+          ? evaluateTemplate(planned.each, { inputs, steps, responses })
+          : evaluateExpression(planned.each, { inputs, steps, responses }));
     if (!Array.isArray(elements)) {
       return `call ${planned.id}'s each gives ${JSON.stringify(elements)}, not an array`;
     }

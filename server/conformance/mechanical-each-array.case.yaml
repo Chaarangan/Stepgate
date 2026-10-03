@@ -1,0 +1,81 @@
+name: a mechanical call with each accepts a literal array and a mixed array
+api:
+  routes:
+    - method: GET
+      path: /items?shelf=A
+      answers: [{ status: 200, json: { items: [{ id: K-1 }] } }]
+    - method: GET
+      path: /items?shelf=B
+      answers: [{ status: 200, json: { items: [{ id: K-2 }] } }]
+    - method: GET
+      path: /items?shelf=C
+      answers: [{ status: 200, json: { items: [{ id: K-3 }] } }]
+    - method: GET
+      path: /items?shelf=D
+      answers: [{ status: 200, json: { items: [{ id: K-4 }] } }]
+stepfile:
+  stepgate: "1"
+  id: shelves
+  inputs:
+    type: object
+    required: [extra]
+    properties:
+      extra: { type: string }
+  tools:
+    catalogue:
+      openapi:
+        server: "${api.origin}"
+        document:
+          openapi: 3.1.0
+          info: { title: Catalogue, version: "1" }
+          paths:
+            /items:
+              get:
+                operationId: listItems
+                parameters: [{ name: shelf, in: query, required: true, schema: { type: string } }]
+      exposes: [listItems]
+  steps:
+    - id: fetch
+      do:
+        calls:
+          - id: fixed
+            operation: listItems
+            each: [A, B]
+            arguments: { shelf: { var: item } }
+          - id: mixed
+            operation: listItems
+            each: [C, { var: inputs.extra }]
+            arguments: { shelf: { var: item } }
+        output:
+          fixed_items: { map: [{ var: responses.fixed }, { var: items.0.id }] }
+          mixed_items: { map: [{ var: responses.mixed }, { var: items.0.id }] }
+      produces:
+        type: object
+        required: [fixed_items, mixed_items]
+        properties:
+          fixed_items: { type: array, items: { type: string } }
+          mixed_items: { type: array, items: { type: string } }
+      gates:
+        - id: check-fixed
+          message: fixed items must be K-1 and K-2
+          predicate:
+            and:
+              - { "==": [{ get: [{ var: output.fixed_items }, 0] }, K-1] }
+              - { "==": [{ get: [{ var: output.fixed_items }, 1] }, K-2] }
+        - id: check-mixed
+          message: mixed items must be K-3 and K-4
+          predicate:
+            and:
+              - { "==": [{ get: [{ var: output.mixed_items }, 0] }, K-3] }
+              - { "==": [{ get: [{ var: output.mixed_items }, 1] }, K-4] }
+inputs: { extra: D }
+actions: []
+expect:
+  replies:
+    - { state: finished, contain: '"fixed_items"' }
+  ledger: [run_started, step_started, tool_call, tool_call, tool_call, tool_call, computed, gate, gate, step_passed, run_finished]
+  requests:
+    - { method: GET, path: /items?shelf=A }
+    - { method: GET, path: /items?shelf=B }
+    - { method: GET, path: /items?shelf=C }
+    - { method: GET, path: /items?shelf=D }
