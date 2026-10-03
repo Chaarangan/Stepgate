@@ -9,7 +9,7 @@ import { guardedFetch, type HttpContext } from "../src/engine/http.ts";
 import { directorySink } from "../src/engine/ledger.ts";
 import { testGates } from "../src/gate-test.ts";
 import { load } from "../src/engine/load.ts";
-import { evaluatePredicate } from "../src/engine/predicate.ts";
+import { evaluateExpression, evaluatePredicate } from "../src/engine/predicate.ts";
 import type { Json, JsonObject } from "../src/engine/types.ts";
 import { userAgent, VERSION } from "../src/version.ts";
 import { startApi } from "./fixtures.ts";
@@ -200,6 +200,67 @@ describe("gate operators", () => {
     expect(evaluatePredicate(rule, context([{ id: "K-1", stock: 4 }, { id: "K-2", stock: 0 }]))).toBe(true);
     expect(evaluatePredicate(rule, context([{ id: "K-1", stock: 5 }]))).toBe(false);
     expect(evaluatePredicate(rule, context([{ id: "K-9", stock: 4 }]))).toBe(false);
+  });
+
+  it("sort_by stably orders lists by number, string, and puts null last in both asc and desc", () => {
+    const list = [
+      { id: "A", num: 3, str: "cherry", tag: null },
+      { id: "B", num: 1, str: "apple", tag: "first" },
+      { id: "C", num: 2, str: "Banana", tag: null },
+      { id: "D", num: 1, str: "date", tag: "second" },
+    ];
+    // Numbers asc (stable tie-breaker preserves B before D)
+    const numAsc = evaluateExpression({ sort_by: [{ var: "list" }, "num", "asc"] }, { list });
+    expect(numAsc).toEqual([
+      { id: "B", num: 1, str: "apple", tag: "first" },
+      { id: "D", num: 1, str: "date", tag: "second" },
+      { id: "C", num: 2, str: "Banana", tag: null },
+      { id: "A", num: 3, str: "cherry", tag: null },
+    ]);
+    // Numbers desc
+    const numDesc = evaluateExpression({ sort_by: [{ var: "list" }, "num", "desc"] }, { list });
+    expect(numDesc).toEqual([
+      { id: "A", num: 3, str: "cherry", tag: null },
+      { id: "C", num: 2, str: "Banana", tag: null },
+      { id: "B", num: 1, str: "apple", tag: "first" },
+      { id: "D", num: 1, str: "date", tag: "second" },
+    ]);
+    // Strings by code point asc ("Banana" with uppercase 'B' has code point 66 < 97 'a')
+    const strAsc = evaluateExpression({ sort_by: [{ var: "list" }, "str", "asc"] }, { list });
+    expect(strAsc).toEqual([
+      { id: "C", num: 2, str: "Banana", tag: null },
+      { id: "B", num: 1, str: "apple", tag: "first" },
+      { id: "A", num: 3, str: "cherry", tag: null },
+      { id: "D", num: 1, str: "date", tag: "second" },
+    ]);
+    // Strings by code point desc
+    const strDesc = evaluateExpression({ sort_by: [{ var: "list" }, "str", "desc"] }, { list });
+    expect(strDesc).toEqual([
+      { id: "D", num: 1, str: "date", tag: "second" },
+      { id: "A", num: 3, str: "cherry", tag: null },
+      { id: "B", num: 1, str: "apple", tag: "first" },
+      { id: "C", num: 2, str: "Banana", tag: null },
+    ]);
+    // Nulls placed last in asc
+    const nullAsc = evaluateExpression({ sort_by: [{ var: "list" }, "tag", "asc"] }, { list });
+    expect(nullAsc).toEqual([
+      { id: "B", num: 1, str: "apple", tag: "first" },
+      { id: "D", num: 1, str: "date", tag: "second" },
+      { id: "A", num: 3, str: "cherry", tag: null },
+      { id: "C", num: 2, str: "Banana", tag: null },
+    ]);
+    // Nulls placed last in desc
+    const nullDesc = evaluateExpression({ sort_by: [{ var: "list" }, "tag", "desc"] }, { list });
+    expect(nullDesc).toEqual([
+      { id: "D", num: 1, str: "date", tag: "second" },
+      { id: "B", num: 1, str: "apple", tag: "first" },
+      { id: "A", num: 3, str: "cherry", tag: null },
+      { id: "C", num: 2, str: "Banana", tag: null },
+    ]);
+    // Invalid arguments return null
+    expect(evaluateExpression({ sort_by: ["not an array", "num", "asc"] }, {})).toBeNull();
+    expect(evaluateExpression({ sort_by: [list, 123, "asc"] }, { list })).toBeNull();
+    expect(evaluateExpression({ sort_by: [list, "num", "invalid"] }, { list })).toBeNull();
   });
 });
 

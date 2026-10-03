@@ -37,7 +37,60 @@ register("host", (value: unknown) => {
   return new URL(value).host.toLowerCase() || null;
 });
 function valueAt(value: unknown, path: string): unknown {
+  if (path === "") {
+    return value;
+  }
   return path.split(".").reduce<unknown>((current, segment) => (current !== null && typeof current === "object" ? (current as Record<string, unknown>)[segment] : undefined), value);
+}
+
+function compareStringsByCodePoint(a: string, b: string): number {
+  if (a === b) {
+    return 0;
+  }
+  const iterA = a[Symbol.iterator]();
+  const iterB = b[Symbol.iterator]();
+  while (true) {
+    const nextA = iterA.next();
+    const nextB = iterB.next();
+    if (nextA.done && nextB.done) {
+      return 0;
+    }
+    if (nextA.done) {
+      return -1;
+    }
+    if (nextB.done) {
+      return 1;
+    }
+    const cpA = nextA.value.codePointAt(0)!;
+    const cpB = nextB.value.codePointAt(0)!;
+    if (cpA !== cpB) {
+      return cpA < cpB ? -1 : 1;
+    }
+  }
+}
+
+function compareValues(valA: unknown, valB: unknown): number {
+  if (typeof valA === "number" && typeof valB === "number") {
+    if (Number.isNaN(valA) && Number.isNaN(valB)) {
+      return 0;
+    }
+    if (Number.isNaN(valA)) {
+      return 1;
+    }
+    if (Number.isNaN(valB)) {
+      return -1;
+    }
+    return valA < valB ? -1 : valA > valB ? 1 : 0;
+  }
+  if (typeof valA === "string" && typeof valB === "string") {
+    return compareStringsByCodePoint(valA, valB);
+  }
+  if (typeof valA === "boolean" && typeof valB === "boolean") {
+    return valA === valB ? 0 : valA ? 1 : -1;
+  }
+  const strA = String(valA);
+  const strB = String(valB);
+  return compareStringsByCodePoint(strA, strB);
 }
 
 // `get` reads one key literally, so a key containing dots (an email address, a domain) still works.
@@ -73,6 +126,39 @@ register("match_all", (value: unknown, pattern: unknown) => {
     return null;
   }
   return [...linearRegExp(pattern).matchAll(value)].map((match) => match[1] ?? match[0]);
+});
+// `sort_by` returns the array ordered by the value at `path` in each item.
+// Stable, compares numbers as numbers and strings by code point, and puts null last.
+register("sort_by", (array: unknown, path: unknown, direction: unknown) => {
+  if (!Array.isArray(array) || typeof path !== "string") {
+    return null;
+  }
+  const dir = typeof direction === "string" ? direction.toLowerCase() : "";
+  if (dir !== "asc" && dir !== "desc") {
+    return null;
+  }
+  const indexed = array.map((item, index) => ({ item, index }));
+  indexed.sort((a, b) => {
+    const valA = valueAt(a.item, path);
+    const valB = valueAt(b.item, path);
+    const aNull = valA === null || valA === undefined;
+    const bNull = valB === null || valB === undefined;
+    if (aNull && bNull) {
+      return a.index - b.index;
+    }
+    if (aNull) {
+      return 1;
+    }
+    if (bNull) {
+      return -1;
+    }
+    const diff = compareValues(valA, valB);
+    if (diff !== 0) {
+      return dir === "desc" ? -diff : diff;
+    }
+    return a.index - b.index;
+  });
+  return indexed.map((entry) => entry.item);
 });
 
 // json-logic-js 2.0's operators and special forms; it does not export the list.
