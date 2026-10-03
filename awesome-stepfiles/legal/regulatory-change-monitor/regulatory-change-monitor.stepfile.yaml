@@ -75,7 +75,7 @@ steps:
         # A null argument breaks the operation's schema, so each combination of topic and agency is spelled out.
         - id: found
           operation: searchDocuments
-          each: { merge: [RULE, PRORULE] }
+          each: [RULE, PRORULE]
           arguments:
             if:
               - { and: [{ var: inputs.topic }, { var: inputs.agency }] }
