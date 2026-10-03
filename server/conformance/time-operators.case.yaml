@@ -1,0 +1,67 @@
+name: time_add and time_diff handle month end, year end, and leap day
+stepfile:
+  stepgate: "1"
+  id: time-checks
+  inputs:
+    type: object
+    required: [base_date]
+    properties:
+      base_date: { type: string }
+  steps:
+    - id: calculate
+      do:
+        output:
+          month_end: { time_add: ["2026-01-31T23:59:59Z", 1] }
+          year_end: { time_add: ["2026-12-31T23:59:59Z", 1] }
+          leap_day: { time_add: ["2028-02-28T12:00:00Z", 86400] }
+          non_leap_day: { time_add: ["2026-02-28T12:00:00Z", 86400] }
+          month_diff: { time_diff: ["2026-02-01T00:00:00Z", "2026-01-31T23:59:59Z"] }
+          year_diff: { time_diff: ["2027-01-01T00:00:00Z", "2026-12-31T23:59:59Z"] }
+          leap_diff: { time_diff: ["2028-02-29T12:00:00Z", "2028-02-28T12:00:00Z"] }
+          invalid_add: { time_add: ["2026-02-29T00:00:00Z", 10] }
+          invalid_diff: { time_diff: ["2026-02-29T00:00:00Z", "2026-02-28T00:00:00Z"] }
+      produces:
+        type: object
+        required: [month_end, year_end, leap_day, non_leap_day, month_diff, year_diff, leap_diff]
+        properties:
+          month_end: { type: string }
+          year_end: { type: string }
+          leap_day: { type: string }
+          non_leap_day: { type: string }
+          month_diff: { type: number }
+          year_diff: { type: number }
+          leap_diff: { type: number }
+          invalid_add: { type: ["string", "null"] }
+          invalid_diff: { type: ["number", "null"] }
+      gates:
+        - id: month-end-check
+          message: month end must roll into next month
+          predicate:
+            and:
+              - "==": [{ var: output.month_end }, "2026-02-01T00:00:00Z"]
+              - "==": [{ var: output.month_diff }, 1]
+        - id: year-end-check
+          message: year end must roll into next year
+          predicate:
+            and:
+              - "==": [{ var: output.year_end }, "2027-01-01T00:00:00Z"]
+              - "==": [{ var: output.year_diff }, 1]
+        - id: leap-day-check
+          message: leap day must land on Feb 29 in leap year and March 1 in non-leap year
+          predicate:
+            and:
+              - "==": [{ var: output.leap_day }, "2028-02-29T12:00:00Z"]
+              - "==": [{ var: output.non_leap_day }, "2026-03-01T12:00:00Z"]
+              - "==": [{ var: output.leap_diff }, 86400]
+        - id: null-checks
+          message: invalid timestamps must evaluate to null
+          predicate:
+            and:
+              - "==": [{ var: output.invalid_add }, null]
+              - "==": [{ var: output.invalid_diff }, null]
+inputs: { base_date: "2026-01-01T00:00:00Z" }
+actions: []
+expect:
+  replies:
+    - { state: finished }
+  ledger: [run_started, step_started, computed, gate, gate, gate, gate, step_passed, run_finished]

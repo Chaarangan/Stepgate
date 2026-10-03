@@ -9,7 +9,7 @@ import { guardedFetch, type HttpContext } from "../src/engine/http.ts";
 import { directorySink } from "../src/engine/ledger.ts";
 import { testGates } from "../src/gate-test.ts";
 import { load } from "../src/engine/load.ts";
-import { evaluatePredicate } from "../src/engine/predicate.ts";
+import { evaluateExpression, evaluatePredicate } from "../src/engine/predicate.ts";
 import type { Json, JsonObject } from "../src/engine/types.ts";
 import { userAgent, VERSION } from "../src/version.ts";
 import { startApi } from "./fixtures.ts";
@@ -200,6 +200,42 @@ describe("gate operators", () => {
     expect(evaluatePredicate(rule, context([{ id: "K-1", stock: 4 }, { id: "K-2", stock: 0 }]))).toBe(true);
     expect(evaluatePredicate(rule, context([{ id: "K-1", stock: 5 }]))).toBe(false);
     expect(evaluatePredicate(rule, context([{ id: "K-9", stock: 4 }]))).toBe(false);
+  });
+
+  it("time_add shifts timestamps and formats in UTC RFC 3339", () => {
+    expect(evaluateExpression({ time_add: ["2026-01-31T23:59:59Z", 1] }, {})).toBe("2026-02-01T00:00:00Z");
+    expect(evaluateExpression({ time_add: ["2026-12-31T23:59:59Z", 1] }, {})).toBe("2027-01-01T00:00:00Z");
+    expect(evaluateExpression({ time_add: ["2028-02-28T12:00:00Z", 86400] }, {})).toBe("2028-02-29T12:00:00Z");
+    expect(evaluateExpression({ time_add: ["2026-02-28T12:00:00Z", 86400] }, {})).toBe("2026-03-01T12:00:00Z");
+    expect(evaluateExpression({ time_add: ["2026-03-01T02:30:00Z", -259200] }, {})).toBe("2026-02-26T02:30:00Z");
+    expect(evaluateExpression({ time_add: ["2026-01-01T05:00:00+05:00", 0] }, {})).toBe("2026-01-01T00:00:00Z");
+    expect(evaluateExpression({ time_add: ["2026-01-01T00:00:00Z", 1.5] }, {})).toBe("2026-01-01T00:00:01.500Z");
+  });
+
+  it("time_add returns null for invalid inputs", () => {
+    expect(evaluateExpression({ time_add: ["2026-02-29T00:00:00Z", 10] }, {})).toBeNull();
+    expect(evaluateExpression({ time_add: ["not-a-date", 10] }, {})).toBeNull();
+    expect(evaluateExpression({ time_add: ["2026-01-01T00:00:00Z", "10"] }, {})).toBeNull();
+    expect(evaluateExpression({ time_add: ["2026-01-01T00:00:00Z", Number.NaN] }, {})).toBeNull();
+    expect(evaluateExpression({ time_add: [null, 10] }, {})).toBeNull();
+    expect(evaluateExpression({ time_add: [] }, {})).toBeNull();
+  });
+
+  it("time_diff calculates the difference in seconds between two timestamps", () => {
+    expect(evaluateExpression({ time_diff: ["2026-02-01T00:00:00Z", "2026-01-31T23:59:59Z"] }, {})).toBe(1);
+    expect(evaluateExpression({ time_diff: ["2026-01-31T23:59:59Z", "2026-02-01T00:00:00Z"] }, {})).toBe(-1);
+    expect(evaluateExpression({ time_diff: ["2028-02-29T12:00:00Z", "2028-02-28T12:00:00Z"] }, {})).toBe(86400);
+    expect(evaluateExpression({ time_diff: ["2026-01-01T00:00:01.500Z", "2026-01-01T00:00:00Z"] }, {})).toBe(1.5);
+    expect(evaluateExpression({ time_diff: ["2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z"] }, {})).toBe(0);
+  });
+
+  it("time_diff returns null for invalid inputs", () => {
+    expect(evaluateExpression({ time_diff: ["2026-02-29T00:00:00Z", "2026-02-28T00:00:00Z"] }, {})).toBeNull();
+    expect(evaluateExpression({ time_diff: ["2026-01-01T00:00:00Z", "invalid"] }, {})).toBeNull();
+    expect(evaluateExpression({ time_diff: ["invalid", "2026-01-01T00:00:00Z"] }, {})).toBeNull();
+    expect(evaluateExpression({ time_diff: [null, "2026-01-01T00:00:00Z"] }, {})).toBeNull();
+    expect(evaluateExpression({ time_diff: ["2026-01-01T00:00:00Z", 123] }, {})).toBeNull();
+    expect(evaluateExpression({ time_diff: [] }, {})).toBeNull();
   });
 });
 

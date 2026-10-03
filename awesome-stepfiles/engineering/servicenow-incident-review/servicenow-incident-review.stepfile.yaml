@@ -240,37 +240,10 @@ steps:
             - { var: responses.notes.result.assignment_group }
         work_notes: { substr: [{ var: responses.notes.result.work_notes }, 0, 4000] }
         window_end: *opened
-        # Goes back k days, where k = floor((23 - (hour - lookback_hours)) / 24), borrowing from the previous month when the day drops below 1.
         window_start:
-          cat:
-            - if:
-                - ">=": [&day { "-": [&d { "+": [{ substr: [*raw, 8, 2] }] }, &k { "/": [{ "-": [&back { "-": [23, &hour { "-": [{ "+": [{ substr: [*raw, 11, 2] }] }, { var: inputs.lookback_hours }] }] }, { "%": [*back, 24] }] }, 24] }] }, 1]
-                - cat: [{ substr: [*raw, 0, 8] }, { substr: [{ cat: ["0", *day] }, -2] }]
-                - cat:
-                    - &prev-year { "-": [&y { "+": [{ substr: [*raw, 0, 4] }] }, { if: [{ "==": [&m { "+": [{ substr: [*raw, 5, 2] }] }, 1] }, 1, 0] }] }
-                    - "-"
-                    - { substr: [{ cat: ["0", &prev-month { if: [{ "==": [*m, 1] }, 12, { "-": [*m, 1] }] }] }, -2] }
-                    - "-"
-                    - "+":
-                        - *day
-                        - get:
-                            - - 31
-                              - if: [{ and: [{ "==": [{ "%": [*prev-year, 4] }, 0] }, { or: [{ "!=": [{ "%": [*prev-year, 100] }, 0] }, { "==": [{ "%": [*prev-year, 400] }, 0] }] }] }, 29, 28]
-                              - 31
-                              - 30
-                              - 31
-                              - 30
-                              - 31
-                              - 31
-                              - 30
-                              - 31
-                              - 30
-                              - 31
-                            - { "-": [*prev-month, 1] }
-            - T
-            - { substr: [{ cat: ["0", { "+": [*hour, { "*": [*k, 24] }] }] }, -2] }
-            - { substr: [*raw, 13, 6] }
-            - Z
+          time_add:
+            - *opened
+            - "*": [{ var: inputs.lookback_hours }, -3600]
     produces:
       type: object
       required: [sys_id, short_description, state, priority, opened_at, resolved_at, assignment_group, work_notes, window_start, window_end]
