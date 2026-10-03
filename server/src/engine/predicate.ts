@@ -64,6 +64,14 @@ register("join", (left: unknown, right: unknown, leftPath: unknown, rightPath: u
 register("object", (...pairs: unknown[]) =>
   pairs.every((pair) => Array.isArray(pair) && pair.length === 2 && typeof pair[0] === "string") ? Object.fromEntries(pairs as Array<[string, unknown]>) : null,
 );
+// `assign` merges objects in sequence, later ones overriding earlier ones,
+// so a step can extend an existing object without re-listing every field.
+register("assign", (...objects: unknown[]) =>
+  objects.length > 0 &&
+  objects.every((obj) => obj !== null && typeof obj === "object" && !Array.isArray(obj))
+    ? Object.assign({}, ...objects)
+    : null,
+);
 register("lower", (value: unknown) => (typeof value === "string" ? value.toLowerCase() : null));
 register("flatten", (value: unknown) =>
   Array.isArray(value) ? value.flatMap((item: unknown) => (Array.isArray(item) ? item : [item])) : null,
