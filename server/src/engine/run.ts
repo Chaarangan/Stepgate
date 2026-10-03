@@ -324,7 +324,10 @@ export async function startRun(written: Stepfile, inputs: JsonObject, runContext
     const calls: EvidenceCall[] = [];
     for (const planned of work.calls ?? []) {
       const tool = session.tools.get(planned.operation) as StepOperation;
-      const elements = planned.each === undefined ? null : evaluateExpression(planned.each, { inputs, steps: outputs, responses });
+      const elements = planned.each === undefined ? null :
+        Array.isArray(planned.each)
+          ? evaluateTemplate(planned.each, { inputs, steps: outputs, responses })
+          : evaluateExpression(planned.each, { inputs, steps: outputs, responses });
       if (planned.each !== undefined && !Array.isArray(elements)) {
         throw new CallArgumentsInvalid(step.id, planned.id, planned.operation, `each must give an array, and gave ${JSON.stringify(elements)}`);
       }

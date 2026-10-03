@@ -332,7 +332,7 @@ output:
   rows: { map: [{ var: responses.shelf.items }, { object: [[name, { var: id }], [stock, { var: count }]] }] }
 ```
 
-**Repeating a call.** A call with `each`, an expression giving an array, is made once per element, in order.
+**Repeating a call.** A call with `each`, an expression or literal array whose elements are evaluated as templates, is made once per element, in order.
 
 - The element is `item` in its `arguments`.
 - `responses.<call id>` is then the list of results.

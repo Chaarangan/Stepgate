@@ -254,10 +254,13 @@ function checkCrossFieldRules(document: StepfileDocument): ValidationIssue[] {
       ...readingLet,
       ...lets.map(([name, rule]): [string, Json] => [`${path}/let/${name}`, rule]),
       ...(step.when === undefined ? [] : [[`${path}/when`, step.when] as [string, Json]]),
-      ...(step.do?.calls ?? []).flatMap((call, position): Array<[string, Json]> => (call.each === undefined ? [] : [[`${path}/do/calls/${position}`, call.each]])),
+      ...(step.do?.calls ?? []).flatMap((call, position): Array<[string, Json]> => (call.each === undefined || Array.isArray(call.each) ? [] : [[`${path}/do/calls/${position}`, call.each]])),
     ];
     const templates: Array<[string, Json]> = step.do === undefined ? [] : [
-      ...(step.do.calls ?? []).map((call, position): [string, Json] => [`${path}/do/calls/${position}`, call.arguments ?? null]),
+      ...(step.do.calls ?? []).flatMap((call, position): Array<[string, Json]> => [
+        [`${path}/do/calls/${position}`, call.arguments ?? null],
+        ...(Array.isArray(call.each) ? [[`${path}/do/calls/${position}`, call.each] as [string, Json]] : []),
+      ]),
       [`${path}/do/output`, step.do.output],
     ];
     for (const [where, message] of [

@@ -126,6 +126,31 @@ describe("load", () => {
     expect(issuesOf(() => load(JSON.stringify(document)))).toContain("/steps/0 steps.report.summary does not name an earlier step");
   });
 
+  it("checks literal array elements in each like any template", () => {
+    const document = parseYaml(readFileSync(MARKET_RESEARCH, "utf8")) as { steps: Array<Record<string, unknown>> };
+    const first = document.steps[0] as Record<string, unknown>;
+    delete first.instructions;
+    delete first.gates;
+    delete first.tools;
+    delete first.retries;
+    delete first.derive;
+    first.do = {
+      calls: [
+        {
+          id: "one",
+          operation: "tavily_search",
+          each: ["valid_scalar", { var: { invalid_operator: 123 } }],
+          arguments: { query: "test" },
+        },
+      ],
+      output: {},
+    };
+
+    expect(() => load(JSON.stringify(document))).toThrow(
+      "/steps/0/do/calls/0 invalid_operator is not a JSONLogic or Stepgate operator"
+    );
+  });
+
   it("refuses a when condition that reads let, which is evaluated only on submission", () => {
     const document = parseYaml(readFileSync(MARKET_RESEARCH, "utf8")) as { steps: Array<Record<string, unknown>> };
     (document.steps[1] as Record<string, unknown>).when = { "==": [{ var: "let.x" }, 1] };
