@@ -1,10 +1,67 @@
+<a id="top"></a>
+
+<p><a href="../README.md">Stepgate</a> &middot; <strong>Writing a stepfile</strong> &middot; <a href="connect.md">Connecting a client</a> &middot; <a href="how-it-works.md">How it works</a></p>
+
 # Writing a stepfile
 
 A stepfile is one YAML or JSON file that describes an agent's procedure: its inputs, the remote APIs and MCP servers it may call, and an ordered list of steps with the checks each step must pass. It names no model, provider or framework, so the same file runs on any MCP client.
 
-The JSON Schema is [server/schema/stepfile.schema.json](../server/schema/stepfile.schema.json), and [stepfiles/marketing/market-research](../stepfiles/marketing/market-research/) is a complete example from the [catalog](../stepfiles/). Name files `<id>.stepfile.yaml`. To run your own file, pass its path to `stepgate`, as [connect.md](connect.md#your-own-stepfiles) describes; it does not need to be in the catalog. For what Stepgate does when it runs one, see [how-it-works.md](how-it-works.md).
+- **Schema.** The JSON Schema is [server/schema/stepfile.schema.json](../server/schema/stepfile.schema.json).
+- **Example.** [awesome-stepfiles/marketing/market-research](../awesome-stepfiles/marketing/market-research/) is a complete example from the [catalog](../awesome-stepfiles/).
+- **File name.** Name files `<id>.stepfile.yaml`.
+- **Running your own.** Pass its path to `stepgate`, as [connect.md](connect.md#your-own-stepfiles) describes. It does not need to be in the catalog.
+- **What happens in a run.** See [how-it-works.md](how-it-works.md).
 
 The format version is `"1"`. It is a draft, so fields may still change before a stable release.
+
+<details>
+  <summary>Contents</summary>
+  <ol>
+    <li><a href="#top-level-fields">Top-level fields</a></li>
+    <li>
+      <a href="#tools">Tools</a>
+      <ul>
+        <li><a href="#openapi-tools">OpenAPI tools</a></li>
+        <li><a href="#mcp-tools">MCP tools</a></li>
+        <li><a href="#verifier-tools">Verifier tools</a></li>
+        <li><a href="#names-and-credentials">Names and credentials</a></li>
+        <li><a href="#narrowing-results-with-select">Narrowing results with <code>select</code></a></li>
+        <li><a href="#read-only-post-operations">Read-only POST operations</a></li>
+        <li><a href="#how-parameters-and-bodies-are-sent">How parameters and bodies are sent</a></li>
+      </ul>
+    </li>
+    <li><a href="#settings">Settings</a></li>
+    <li>
+      <a href="#credentials">Credentials</a>
+      <ul>
+        <li><a href="#refreshing-oauth2-credentials">Refreshing <code>oauth2</code> credentials</a></li>
+        <li><a href="#mcp-servers-that-use-mcp-authorization">MCP servers that use MCP authorization</a></li>
+      </ul>
+    </li>
+    <li>
+      <a href="#steps">Steps</a>
+      <ul>
+        <li><a href="#mechanical-steps">Mechanical steps</a></li>
+        <li><a href="#deriving-fields">Deriving fields</a></li>
+      </ul>
+    </li>
+    <li>
+      <a href="#gates">Gates</a>
+      <ul>
+        <li><a href="#schema-gates">Schema gates</a></li>
+        <li><a href="#predicate-gates">Predicate gates</a></li>
+        <li><a href="#operators">Operators</a></li>
+        <li><a href="#patterns">Patterns</a></li>
+        <li><a href="#http-gates">HTTP gates</a></li>
+        <li><a href="#approve-gates">Approve gates</a></li>
+        <li><a href="#naming-expressions">Naming expressions</a></li>
+      </ul>
+    </li>
+    <li><a href="#testing-gates-offline">Testing gates offline</a></li>
+    <li><a href="#when-a-gate-fails">When a gate fails</a></li>
+    <li><a href="#identity">Identity</a></li>
+  </ol>
+</details>
 
 ## Top-level fields
 
@@ -20,7 +77,9 @@ The format version is `"1"`. It is a draft, so fields may still change before a 
 | `steps` | yes | The steps, run in order ([Steps](#steps)) |
 | `$defs` | no | Shared JSON Schemas, referenced as `#/$defs/<name>` |
 
-Unknown fields are rejected. Beyond the schema, Stepgate checks these rules when it loads a file, and refuses to start if one fails:
+Unknown fields are rejected.
+
+Beyond the schema, Stepgate checks these rules when it loads a file. It refuses to start if one fails:
 
 1. Step ids are unique, and gate ids are unique within a step.
 2. Every name in any `exposes` list is unique across the file, and none is `submit`.
@@ -28,17 +87,39 @@ Unknown fields are rejected. Beyond the schema, Stepgate checks these rules when
 4. Every `credential` a tool names is declared, and the tool's host is in that credential's `hosts`.
 5. Every `http` gate names a `verifier` tool.
 6. Every placeholder and every `var` path under `steps.` names an earlier step.
-7. A step has `instructions` or `do`, not both. An agent step has at least one gate; a mechanical step has no `tools`, `retries`, `derive` or `let`, its call ids are unique, every call names an exposed operation, and `responses.<id>` names an earlier call of the step, or any of its calls in `output`.
+7. A step has `instructions` or `do`, not both.
+   - An agent step has at least one gate.
+   - A mechanical step has no `tools`, `retries`, `derive` or `let`.
+   - A mechanical step's call ids are unique, and every call names an exposed operation.
+   - `responses.<id>` names an earlier call of the step, or, in `output`, any of its calls.
 8. Every `derive` key is a property of the step's `produces`.
-9. Every `var` path under `let.` names an entry of the step's `let`, one before it when read from `let` itself, and `when` reads no `let`.
-10. Every `results` takes a literal operation name and optional path, and appears only in an agent step's gates, `let` and `derive`, never in `when`, `select` or `do`.
-11. Every expression is made of one-key objects naming a JSONLogic or Stepgate operator, and empty objects. An object with other keys would be kept as data unevaluated, so it is refused; build it with `object`, or in a template write it as it is.
+9. Every `var` path under `let.` names an entry of the step's `let`.
+   - Read from `let` itself, it names an entry before it.
+   - `when` reads no `let`.
+10. Every `results` takes a literal operation name and an optional path.
+    - It appears only in an agent step's gates, `let` and `derive`.
+    - It never appears in `when`, `select` or `do`.
+11. Every expression is made of one-key objects naming a JSONLogic or Stepgate operator, and empty objects.
+    - An object with other keys would be kept as data, unevaluated, so it is refused.
+    - Build such an object with `object`, or, in a template, write it as it is.
 
 ## Tools
 
-Tools are remote. Every URL is `https`, except that plain `http` is accepted for a loopback address (`localhost`, `127.0.0.1`, `[::1]`) so local verifiers and test servers work. A stepfile cannot run local code or launch a stdio MCP server.
+Tools are remote. A stepfile cannot run local code or launch a stdio MCP server.
 
-**`openapi`** gives the `server` URL Stepgate calls, an OpenAPI 3.x document inline (`document`) or by `url` plus `sha256` (the SHA-256 of the fetched bytes), and the `operationId`s it `exposes`. The document's own `servers` list is ignored, so the host a tool reaches is always visible in the stepfile. Each exposed operation becomes one tool built from its parameters and JSON request body. Operations not exposed are invisible to the model.
+Every URL is `https`. The exception is plain `http` for a loopback address (`localhost`, `127.0.0.1`, `[::1]`), so local verifiers and test servers work.
+
+### OpenAPI tools
+
+An **`openapi`** tool gives:
+
+- **`server`**, the URL Stepgate calls;
+- **the OpenAPI 3.x document**, inline as `document`, or by `url` plus `sha256` (the SHA-256 of the fetched bytes);
+- **`exposes`**, the `operationId`s the steps may call.
+
+The document's own `servers` list is ignored, so the host a tool reaches is always visible in the stepfile.
+
+Each exposed operation becomes one tool, built from its parameters and JSON request body. Operations not exposed are invisible to the model.
 
 ```yaml
 tools:
@@ -51,7 +132,11 @@ tools:
     exposes: [queryDatabase, createPage]
 ```
 
-**`mcp`** gives a Streamable HTTP MCP server `url` and the tool names it `exposes`. An entry may pin `schema_sha256`, the SHA-256 of the RFC 8785 canonical form of that tool's input schema, so a changed signature is caught before the run starts.
+### MCP tools
+
+An **`mcp`** tool gives a Streamable HTTP MCP server `url` and the tool names it `exposes`.
+
+An entry may pin `schema_sha256`: the SHA-256 of the RFC 8785 canonical form of that tool's input schema. A changed signature is then caught before the run starts.
 
 ```yaml
 tools:
@@ -61,11 +146,24 @@ tools:
     exposes: [tavily_search]
 ```
 
-**`verifier`** gives a `url` that `http` gates post to. It exposes nothing to the model.
+### Verifier tools
 
-Exposed names match `^[a-zA-Z0-9_-]{1,64}$`, which the major model APIs accept as tool names. A tool binds at most one credential. An MCP tool takes a `bearer` or `oauth2` credential, sent as an `Authorization: Bearer` header. An OpenAPI tool places its credential where the operation's security scheme says, and always as HTTP Basic for a `basic` credential.
+A **`verifier`** tool gives a `url` that `http` gates post to. It exposes nothing to the model.
 
-An `exposes` entry may also be an object with a `select`: a JSONLogic expression over the operation's result (parsed as JSON where it is JSON), whose value is all the client is shown. Gates still see the whole result in `calls`, so a large response can be narrowed to the fields a step needs without the model losing evidence to truncation or the gates losing what the API returned. An error result is shown whole.
+### Names and credentials
+
+- **Names.** Exposed names match `^[a-zA-Z0-9_-]{1,64}$`, which the major model APIs accept as tool names.
+- **One credential per tool.** A tool binds at most one credential.
+- **MCP tools** take a `bearer` or `oauth2` credential, sent as an `Authorization: Bearer` header.
+- **OpenAPI tools** place their credential where the operation's security scheme says. A `basic` credential is always sent as HTTP Basic.
+
+### Narrowing results with `select`
+
+An `exposes` entry may be an object with a `select`. That is a JSONLogic expression over the operation's result (parsed as JSON where it is JSON), and its value is all the client is shown.
+
+Gates still see the whole result in `calls`. A large response can therefore be narrowed to the fields a step needs, without the model losing evidence to truncation, and without the gates losing what the API returned.
+
+An error result is shown whole.
 
 ```yaml
 exposes:
@@ -73,16 +171,26 @@ exposes:
     select: { map: [{ var: docs }, { cat: [{ var: key }, " ", { var: title }] }] }
 ```
 
-An `exposes` entry may declare `effect: read` for an operation that changes nothing although its method is POST or PATCH, such as a search sent as POST. Stepgate then retries it after a 5xx or a network error as it does a GET, and the catalog does not count it as a write. Declare it only where the API's documentation says the operation has no side effects.
+### Read-only POST operations
+
+An `exposes` entry may declare `effect: read` for an operation that changes nothing although its method is POST or PATCH, such as a search sent as POST. Stepgate then:
+
+- retries it after a 5xx or a network error, as it does a GET;
+- does not count it as a write in the catalog.
+
+Declare it only where the API's documentation says the operation has no side effects.
 
 ```yaml
 exposes:
   - { name: searchJiraIssues, effect: read }
 ```
 
-An OpenAPI parameter whose schema allows exactly one value (`const`, or an `enum` with one entry) is sent with that value on every call and is not shown to the model. Use it for fixed headers and query values an API requires, such as `format: json`.
+### How parameters and bodies are sent
 
-An array query parameter is sent the way OpenAPI specifies by default, repeating the name (`tag=red&tag=blue`); with `explode: false` it is sent comma-separated (`fields=name,stock`). A request body is sent as JSON when the operation accepts `application/json`. Otherwise, for a `text/*` or `message/*` content type, the model supplies the body as a plain string and Stepgate sends it with that content type, which is how a raw email reaches Gmail's `message/rfc822` upload without any encoding by the model.
+- **Fixed values.** An OpenAPI parameter whose schema allows exactly one value (`const`, or an `enum` with one entry) is sent with that value on every call, and is not shown to the model. Use it for fixed headers and query values an API requires, such as `format: json`.
+- **Array query parameters** are sent the way OpenAPI specifies by default, repeating the name (`tag=red&tag=blue`). With `explode: false` they are sent comma-separated (`fields=name,stock`).
+- **JSON bodies.** A request body is sent as JSON when the operation accepts `application/json`.
+- **Text bodies.** For a `text/*` or `message/*` content type, the model supplies the body as a plain string, and Stepgate sends it with that content type. That is how a raw email reaches Gmail's `message/rfc822` upload without any encoding by the model.
 
 ## Settings
 
@@ -106,7 +214,11 @@ credentials:
     description: Your Atlassian email and an API token, as you@example.com:token.
 ```
 
-Whoever runs Stepgate supplies the value as an environment variable named after the setting, `JIRA_SITE=acme` here. It is filled in before the run starts, so the hosts Stepgate may contact are fixed and known before the model is asked anything. The value must match the setting's `pattern`, which defaults to a single DNS label (letters, digits and hyphens), so it cannot point a request at another host. Placeholders are allowed only in the host and port, never in a path, and every placeholder must be a declared setting that some tool or credential uses.
+- **Supplying it.** Whoever runs Stepgate supplies the value as an environment variable named after the setting: `JIRA_SITE=acme` here.
+- **When it is filled in.** Before the run starts, so the hosts Stepgate may contact are fixed and known before the model is asked anything.
+- **What it may contain.** The value must match the setting's `pattern`. The default is a single DNS label (letters, digits and hyphens), so it cannot point a request at another host.
+- **Where it may appear.** Only in the host and port, never in a path.
+- **Declaring it.** Every placeholder must be a declared setting that some tool or credential uses.
 
 ## Credentials
 
@@ -120,13 +232,32 @@ credentials:
     description: Reads the target database. Never writes.
 ```
 
-A stepfile declares what it needs and never where a secret lives: there is no value field and no environment-variable name. Whoever runs Stepgate supplies the value, as `<NAME>_API_KEY` in its environment. A `basic` credential's value is `user:secret`, for example an Atlassian or Zendesk email and API token, and is sent as HTTP Basic. `description` is required; it is what a person reads before handing the stepfile a credential.
+A stepfile declares what it needs, never where a secret lives. There is no value field and no environment-variable name.
 
-An `oauth2` credential with a `token_url` can also be refreshed: whoever runs Stepgate sets `<NAME>_REFRESH_TOKEN` and `<NAME>_CLIENT_ID` (and `<NAME>_CLIENT_SECRET` for a confidential client) instead of an access token, and Stepgate exchanges them at `token_url` with the declared `scopes`, refreshes the access token before it expires, and once more when an API answers 401. The refresh token is sent to `token_url`, so it is fixed in the file and cannot use a `{setting}`; read it before handing a stepfile a refresh token.
+- **The value.** Whoever runs Stepgate supplies it, as `<NAME>_API_KEY` in its environment.
+- **`basic` credentials.** The value is `user:secret`, for example an Atlassian or Zendesk email and API token. It is sent as HTTP Basic.
+- **`description`** is required. It is what a person reads before handing the stepfile a credential.
+- **Where it goes.** A credential is attached only to requests whose host is in its `hosts`. It never reaches the model, a placeholder or the ledger.
 
-A remote MCP server that uses MCP authorization, such as Linear's or Notion's, takes an `oauth2` credential whose `token_url` is the token endpoint its authorization server advertises; `stepgate_inspect_api` reports it. Before reading such a credential, Stepgate reads the server's protected resource metadata and refuses to start if its authorization server advertises a different token endpoint, so a refresh token only goes where the MCP server says. Whoever runs Stepgate authorizes it once with `stepgate --auth`, as [connect.md](connect.md#mcp-servers-that-use-mcp-authorization) describes.
+### Refreshing `oauth2` credentials
 
-A credential is attached only to requests whose host is in its `hosts`, and never reaches the model, a placeholder or the ledger.
+An `oauth2` credential with a `token_url` can be refreshed. Instead of an access token, whoever runs Stepgate sets:
+
+- `<NAME>_REFRESH_TOKEN`;
+- `<NAME>_CLIENT_ID`;
+- `<NAME>_CLIENT_SECRET`, for a confidential client.
+
+Stepgate exchanges them at `token_url` with the declared `scopes`. It refreshes the access token before it expires, and once more when an API answers 401.
+
+The refresh token is sent to `token_url`, so `token_url` is fixed in the file and cannot use a `{setting}`. Read it before handing a stepfile a refresh token.
+
+### MCP servers that use MCP authorization
+
+A remote MCP server that uses MCP authorization, such as Linear's or Notion's, takes an `oauth2` credential. Its `token_url` is the token endpoint the server's authorization server advertises, which `stepgate_inspect_api` reports.
+
+Before reading such a credential, Stepgate reads the server's protected resource metadata. It refuses to start if the authorization server advertises a different token endpoint, so a refresh token only goes where the MCP server says.
+
+Whoever runs Stepgate authorizes it once with `stepgate --auth`, as [connect.md](connect.md#mcp-servers-that-use-mcp-authorization) describes.
 
 ## Steps
 
@@ -143,15 +274,30 @@ A credential is attached only to requests whose host is in its `hosts`, and neve
 | `let` | no | Named JSONLogic expressions that gates read as `let.<name>` ([Naming expressions](#naming-expressions)) |
 | `when` | no | A predicate over `inputs` and `steps`; the step is skipped unless it is `true` |
 
-Steps run in file order. There is no branching, looping or parallel block; `when` covers optional steps. An agent step is done by the client's agent; a mechanical step by Stepgate, and the client is never shown it.
+Steps run in file order. There is no branching, looping or parallel block; `when` covers optional steps.
 
-**Placeholders.** `{{inputs.<path>}}` and `{{steps.<id>.<path>}}` are replaced in `instructions` before the step starts. A string is inserted as-is and anything else as indented JSON. Placeholders work only in `instructions` and have no conditionals, loops or filters. A path that cannot be resolved is an error, caught at load time where possible.
+- **An agent step** is done by the client's agent.
+- **A mechanical step** is done by Stepgate, and the client is never shown it.
+
+**Placeholders.** `{{inputs.<path>}}` and `{{steps.<id>.<path>}}` are replaced in `instructions` before the step starts.
+
+- A string is inserted as-is, and anything else as indented JSON.
+- Placeholders work only in `instructions`, and have no conditionals, loops or filters.
+- A path that cannot be resolved is an error, caught at load time where possible.
 
 **Submitting.** The client finishes a step by sending an output matching `produces` to Stepgate's `stepgate_submit` tool. Each submission is one attempt.
 
 ### Mechanical steps
 
-A step with `do` instead of `instructions` is done by Stepgate. It makes each call in `calls` in order, computes `output`, checks it against `produces` and any gates, and moves on. The client is never shown the step; the next step it is shown lists it under `completed`. Use one for work that needs no judgement: fetching what the inputs already name, picking the latest filing, arithmetic.
+A step with `do` instead of `instructions` is done by Stepgate:
+
+1. It makes each call in `calls`, in order.
+2. It computes `output`.
+3. It checks the output against `produces` and any gates, and moves on.
+
+The client is never shown the step. The next step it is shown lists it under `completed`.
+
+Use one for work that needs no judgement: fetching what the inputs already name, picking the latest filing, arithmetic.
 
 ```yaml
 - id: fetch
@@ -169,7 +315,11 @@ A step with `do` instead of `instructions` is done by Stepgate. It makes each ca
     properties: { ids: { type: array }, count: { type: integer } }
 ```
 
-A call's `operation` is any exposed name, and its `arguments` and the step's `output` are templates over `{ inputs, steps, responses }`, where `responses.<call id>` is an earlier call's full result, parsed as JSON when it is JSON. In a template:
+A call's `operation` is any exposed name.
+
+A call's `arguments`, and the step's `output`, are templates over `{ inputs, steps, responses }`. `responses.<call id>` is an earlier call's full result, parsed as JSON when it is JSON.
+
+In a template:
 
 - a one-key object whose key is a JSONLogic or Stepgate operator is an expression, and its value is used;
 - `{ literal: <value> }` is the value as written, for an object that would otherwise read as an expression, such as a request body `{ filter: ... }`;
@@ -182,7 +332,13 @@ output:
   rows: { map: [{ var: responses.shelf.items }, { object: [[name, { var: id }], [stock, { var: count }]] }] }
 ```
 
-A call with `each`, an expression giving an array, is made once per element in order, with the element as `item` in its `arguments`, and `responses.<call id>` is then the list of results. An empty array makes no request. This repeats one call over data, such as looking up every DOI an earlier step listed; it is not a loop over steps, which the format does not have.
+**Repeating a call.** A call with `each`, an expression giving an array, is made once per element, in order.
+
+- The element is `item` in its `arguments`.
+- `responses.<call id>` is then the list of results.
+- An empty array makes no request.
+
+This repeats one call over data, such as looking up every DOI an earlier step listed. It is not a loop over steps, which the format does not have.
 
 ```yaml
 calls:
@@ -192,17 +348,30 @@ calls:
     arguments: { doi: { var: item } }
 ```
 
-Some APIs answer a question with an error status: NHTSA answers 400 when a vehicle has no recalls, and a registry 404 when a package does not exist. A call's `accept` lists the statuses of an OpenAPI operation to keep as its response, parsed like any other, instead of stopping the run:
+**Keeping error statuses.** Some APIs answer a question with an error status. NHTSA answers 400 when a vehicle has no recalls, and a registry answers 404 when a package does not exist.
+
+A call's `accept` lists the statuses of an OpenAPI operation to keep as its response, parsed like any other, instead of stopping the run:
 
 ```yaml
 - { id: recalls, operation: getRecallsByVehicle, arguments: { ... }, accept: [400] }
 ```
 
-A mechanical step takes no `tools`, `retries`, `derive` or `let`, and `results` has no calls to read there. Nobody is there to retry, so a call whose arguments break the operation's schema stops the run with `CallArgumentsInvalid`, a call that returns an error its `accept` does not list with `ToolCallFailed`, and an output that fails `produces` or a gate with `GateFailed`. Its calls count against the call limit like the client's.
+**Limits.** A mechanical step takes no `tools`, `retries`, `derive` or `let`, and `results` has no calls to read there. Its calls count against the call limit like the client's.
+
+Nobody is there to retry, so a mechanical step stops the run when:
+
+- a call's arguments break the operation's schema (`CallArgumentsInvalid`);
+- a call returns an error its `accept` does not list (`ToolCallFailed`);
+- the output fails `produces` or a gate (`GateFailed`).
 
 ### Deriving fields
 
-Counting, picking the latest item, arithmetic and copying are work a model does slowly and gets wrong, and checking that it did them right takes a gate. A step's `derive` has Stepgate compute such fields instead. Each key is a top-level property of `produces`, and each value a JSONLogic expression over what gates see, with `output` being the client's submission:
+Counting, picking the latest item, arithmetic and copying are work a model does slowly and gets wrong. Checking that it did them right takes a gate.
+
+A step's `derive` has Stepgate compute such fields instead:
+
+- each key is a top-level property of `produces`;
+- each value is a JSONLogic expression over what gates see, with `output` being the client's submission.
 
 ```yaml
 produces:
@@ -215,24 +384,60 @@ derive:
   count: { length: { results: [listItems, items] } }
 ```
 
-The client is shown `produces` without the derived properties and their `required` entries, and a submission that includes one fails a gate named `derive`. Otherwise Stepgate checks the submission against that reduced schema, evaluates `let`, adds the derived fields and checks the result against the whole `produces`. Gates, later steps and the run's outputs see the output with the derived fields, and `let` sees the submission without them.
+The client is shown `produces` without the derived properties and their `required` entries. A submission that includes a derived field fails a gate named `derive`.
+
+Otherwise, Stepgate:
+
+1. checks the submission against that reduced schema;
+2. evaluates `let`;
+3. adds the derived fields;
+4. checks the result against the whole `produces`.
+
+Gates, later steps and the run's outputs see the output with the derived fields. `let` sees the submission without them.
 
 ## Gates
 
 A gate is a mechanical check on the submitted output, or a person's approval of it. Every gate blocks; there are no advisory gates and no gates judged by a model.
 
-Gates see `{ inputs, steps, output, calls, let }`: the run's inputs, each earlier step's accepted output under `steps.<id>`, the submission being checked as `output`, `calls`, every tool call this step has made, and the step's `let` values. The output is validated against `produces` first; a mismatch fails like a gate.
+Gates see `{ inputs, steps, output, calls, let }`:
 
-Each entry in `calls` is `{ tool, arguments, result, is_error }`, where `tool` is the exposed name and `result` is the tool's full response, parsed as JSON when it is JSON and kept as text otherwise. Calls refused or rejected for bad arguments never reached the tool and are not listed. `calls` is what lets a gate catch a fabricated value: it can check that what the model submitted is what an API actually returned.
+| Key | What it holds |
+|---|---|
+| `inputs` | The run's inputs |
+| `steps.<id>` | Each earlier step's accepted output |
+| `output` | The submission being checked |
+| `calls` | Every tool call this step has made |
+| `let` | The step's `let` values |
 
-**`schema`** checks `output` against a JSON Schema (2020-12). The validator's errors are the diagnosis.
+The output is validated against `produces` first. A mismatch fails like a gate.
+
+Each entry in `calls` is `{ tool, arguments, result, is_error }`:
+
+- `tool` is the exposed name;
+- `result` is the tool's full response, parsed as JSON when it is JSON and kept as text otherwise.
+
+Calls refused, or rejected for bad arguments, never reached the tool and are not listed.
+
+`calls` is what lets a gate catch a fabricated value. A gate can check that what the model submitted is what an API actually returned.
+
+### Schema gates
+
+A **`schema`** gate checks `output` against a JSON Schema (2020-12). The validator's errors are the diagnosis.
 
 ```yaml
 - id: enough-sources
   schema: { properties: { sources: { minItems: 12 } } }
 ```
 
-**`predicate`** evaluates a [JSONLogic](https://jsonlogic.com/operations.html) rule and passes only if it returns exactly `true`. Its `message` is the diagnosis the model sees on failure. An optional `explain` is a second JSONLogic expression, evaluated only when the rule fails, whose result is added after the message, so the model is told which items broke the rule instead of guessing. A `null`, empty string or empty array adds nothing, and the addition is cut at 2,000 characters. Without an `explain`, the predicates listed under [When a gate fails](#when-a-gate-fails) explain themselves.
+### Predicate gates
+
+A **`predicate`** gate evaluates a [JSONLogic](https://jsonlogic.com/operations.html) rule, and passes only if it returns exactly `true`.
+
+- **`message`** is the diagnosis the model sees on failure.
+- **`explain`** is optional: a second JSONLogic expression, evaluated only when the rule fails. Its result is added after the message, so the model is told which items broke the rule instead of guessing.
+  - A `null`, empty string or empty array adds nothing.
+  - The addition is cut at 2,000 characters.
+- **Without an `explain`**, the predicates listed under [When a gate fails](#when-a-gate-fails) explain themselves.
 
 ```yaml
 - id: domain-breadth
@@ -257,7 +462,9 @@ A predicate can check the output against the evidence. This one passes only if e
             - map: [{ var: result.docs }, { var: key }]
 ```
 
-`results` is shorthand for the filter over `calls` that evidence gates need, and it leaves out calls whose `is_error` is true. The rule above, leaving out failed searches, is:
+`results` is shorthand for the filter over `calls` that evidence gates need. It leaves out calls whose `is_error` is true.
+
+The rule above, leaving out failed searches, is:
 
 ```yaml
   predicate:
@@ -266,7 +473,7 @@ A predicate can check the output against the evidence. This one passes only if e
       - { map: [{ results: [searchBooks, docs] }, { var: key }] }
 ```
 
-Like `var: calls`, it reads the step's calls from the top of the data, so use it where `var: calls` would work, not inside the body of a `map`, `filter` or `all`.
+Like `var: calls`, it reads the step's calls from the top of the data. Use it where `var: calls` would work, not inside the body of a `map`, `filter` or `all`.
 
 For a `subset` rule, `difference` over the same two arrays makes a good `explain`. This one lists the books no search returned:
 
@@ -279,6 +486,8 @@ For a `subset` rule, `difference` over the same two arrays makes a good `explain
             - filter: [{ var: calls }, { "==": [{ var: tool }, searchBooks] }]
             - map: [{ var: result.docs }, { var: key }]
 ```
+
+### Operators
 
 Besides the standard JSONLogic operators, thirteen more are available:
 
@@ -298,9 +507,34 @@ Besides the standard JSONLogic operators, thirteen more are available:
 | `host` | string | Lowercased host of an absolute URL, with port if present; `null` if not a URL |
 | `match_all` | string, pattern | Capture group 1 of every match, or the whole match if the pattern has no group |
 
-`subset`, `difference` and `join` exist because JSONLogic's `all`, `map` and `filter` cannot see data outside the current array element. `subset` answers "is every cited id a kept source"; `join` lines each output row up with its evidence so a rule can compare them field by field, for example `none` over `join(output.rows, calls.0.result.items, "id", "id")` of rows whose `right` is `null` or whose `left.stock` differs from `right.stock`. Note that JSONLogic's `all` is false on an empty array; use `none`, or a count of violations, when the list may be empty. Patterns in `match_all`, in a setting's `pattern`, and in the `pattern` and `patternProperties` keywords of `inputs`, `produces`, `$defs` and `schema` gates run on RE2, which matches in time linear in the input, so no pattern can stall a run on a large API response. RE2 accepts the ECMA-262 subset JSON Schema recommends plus lookbehind, but not lookahead or backreferences; a pattern it cannot compile fails at load time. End a match with a consumed group such as `(?:[^0-9]|$)` where you would write `(?![0-9])`. Schemas published by a remote tool keep their own patterns, since they only check the client's arguments.
+**Why `subset`, `difference` and `join` exist.** JSONLogic's `all`, `map` and `filter` cannot see data outside the current array element.
 
-**`http`** posts `{ stepfile, step, gate, inputs, steps, output, calls }` as JSON, without the step's `let` values, to a `verifier` tool. A 2xx response of `{ "pass": true }` passes; `{ "pass": false, "message": "..." }` fails with that message. Any other response is treated as an outage rather than a verdict and stops the run. This is how a check that needs code runs: you operate the verifier.
+- `subset` answers "is every cited id a kept source".
+- `join` lines each output row up with its evidence, so a rule can compare them field by field. For example: `none` over `join(output.rows, calls.0.result.items, "id", "id")` of rows whose `right` is `null` or whose `left.stock` differs from `right.stock`.
+
+**Empty lists.** JSONLogic's `all` is false on an empty array. Use `none`, or a count of violations, when the list may be empty.
+
+### Patterns
+
+These patterns run on RE2, which matches in time linear in the input, so no pattern can stall a run on a large API response:
+
+- patterns in `match_all`;
+- a setting's `pattern`;
+- the `pattern` and `patternProperties` keywords of `inputs`, `produces`, `$defs` and `schema` gates.
+
+RE2 accepts the ECMA-262 subset JSON Schema recommends, plus lookbehind. It does not accept lookahead or backreferences, and a pattern it cannot compile fails at load time. End a match with a consumed group such as `(?:[^0-9]|$)` where you would write `(?![0-9])`.
+
+Schemas published by a remote tool keep their own patterns, since they only check the client's arguments.
+
+### HTTP gates
+
+An **`http`** gate posts `{ stepfile, step, gate, inputs, steps, output, calls }` as JSON to a `verifier` tool. The step's `let` values are not included.
+
+- A 2xx response of `{ "pass": true }` passes.
+- `{ "pass": false, "message": "..." }` fails, with that message.
+- Any other response is treated as an outage rather than a verdict, and stops the run.
+
+This is how a check that needs code runs: you operate the verifier.
 
 ```yaml
 tools:
@@ -313,7 +547,18 @@ steps:
         http: { tool: checker }
 ```
 
-**`approve`** asks a person. Stepgate sends the client an MCP [elicitation](https://modelcontextprotocol.io/specification/2025-06-18/client/elicitation) with the gate's `message` and the submitted output beneath it; the gate passes when the person accepts, and fails with their reason, which the model sees, when they decline. Put it on the step before anything irreversible, such as sending the email a draft step prepared. A person is asked only once every other gate of the step has passed, so they never approve a submission the checks would reject. A run whose stepfile has an `approve` gate fails preflight on a client that does not support elicitation. Some clients declare that support but decline every request without showing it, which Stepgate cannot tell from a person's decline; [connect.md](connect.md#approvals) lists the ones known.
+### Approve gates
+
+An **`approve`** gate asks a person. Stepgate sends the client an MCP [elicitation](https://modelcontextprotocol.io/specification/2025-06-18/client/elicitation) with the gate's `message` and the submitted output beneath it.
+
+- **Accept** passes the gate.
+- **Decline** fails it, with the person's reason, which the model sees.
+
+Put it on the step before anything irreversible, such as sending the email a draft step prepared.
+
+A person is asked only once every other gate of the step has passed, so they never approve a submission the checks would reject.
+
+**Client support.** A run whose stepfile has an `approve` gate fails preflight on a client that does not support elicitation. Some clients declare that support but decline every request without showing it, which Stepgate cannot tell from a person's decline. [connect.md](connect.md#approvals) lists the ones known.
 
 ```yaml
 - id: reviewed
@@ -324,7 +569,11 @@ It is still mechanical: a person decides, never a model. How long Stepgate waits
 
 ### Naming expressions
 
-A step's `let` names expressions once, so a predicate and its `explain`, or several gates, do not repeat the same one. The entries are evaluated in order on every submission that satisfies `produces`, over what gates see, and each may read the ones before it. Gates read them as `let.<name>`:
+A step's `let` names expressions once, so a predicate and its `explain`, or several gates, do not repeat the same one.
+
+- The entries are evaluated in order, over what gates see, on every submission that satisfies `produces`.
+- Each may read the ones before it.
+- Gates read them as `let.<name>`.
 
 ```yaml
 let:
@@ -339,7 +588,9 @@ gates:
 
 ## Testing gates offline
 
-`stepgate --test <stepfile> [<cases.yaml>]` runs a stepfile's gates over recorded calls and outputs, with no model and no network, and exits 1 when a verdict differs from what the case expects. The cases default to `<id>.cases.yaml` beside the stepfile, and the catalog's CI runs every entry's cases.
+`stepgate --test <stepfile> [<cases.yaml>]` runs a stepfile's gates over recorded calls and outputs, with no model and no network. It exits 1 when a verdict differs from what the case expects.
+
+The cases default to `<id>.cases.yaml` beside the stepfile. The catalog's CI runs every entry's cases.
 
 ```yaml
 cases:
@@ -355,15 +606,33 @@ cases:
         expect: { fail: [docs-match-searches] }   # or: pass
 ```
 
-Rather than write the recorded calls by hand, run Stepgate with `--record-cases <dir>`: every run that finishes or fails is written there in this format, one entry per attempt with the calls the step had made, what it submitted and which gates failed. The file holds the APIs' full responses, so trim them to what the gates read and remove anything personal before committing it.
+**Recording cases.** Rather than write the recorded calls by hand, run Stepgate with `--record-cases <dir>`. Every run that finishes or fails is written there in this format, one entry per attempt, with:
 
-A mechanical step in a case is replayed: its recorded `calls` must be the calls it makes, in order, with the arguments its templates compute, and its `output` must be what its `output` template computes from their results. A mechanical step that makes calls therefore needs them recorded even where a case only uses it to set up a later step; a YAML anchor on the first recording saves repeating them.
+- the calls the step had made;
+- what it submitted;
+- which gates failed.
 
-Steps run in the order listed, and a step expected to `pass` becomes `steps.<id>` for the ones after it. `http` gates need their verifier and `approve` gates a person, so both are skipped and named in the report. [media/book-list-verification](../stepfiles/media/book-list-verification/) has a complete cases file.
+The file holds the APIs' full responses. Trim them to what the gates read, and remove anything personal, before committing it.
+
+**Mechanical steps are replayed.**
+
+- Its recorded `calls` must be the calls it makes, in order, with the arguments its templates compute.
+- Its `output` must be what its `output` template computes from their results.
+
+A mechanical step that makes calls therefore needs them recorded, even where a case only uses it to set up a later step. A YAML anchor on the first recording saves repeating them.
+
+**Order and skipped gates.**
+
+- Steps run in the order listed. A step expected to `pass` becomes `steps.<id>` for the ones after it.
+- `http` gates need their verifier and `approve` gates a person, so both are skipped and named in the report.
+
+[media/book-list-verification](../awesome-stepfiles/media/book-list-verification/) has a complete cases file.
 
 ## When a gate fails
 
-The model gets back every failing gate's id and diagnosis as the result of its `stepgate_submit` call, and may submit again. A predicate with no `explain` adds what broke after its `message` when its rule has one of these shapes:
+The model gets back every failing gate's id and diagnosis as the result of its `stepgate_submit` call, and may submit again.
+
+A predicate with no `explain` adds what broke after its `message`, when its rule has one of these shapes:
 
 | Rule | Added |
 |---|---|
@@ -372,7 +641,9 @@ The model gets back every failing gate's id and diagnosis as the result of its `
 | `==` or `===` of two values | `expected <second>, got <first>`, so put the submitted value first |
 | `and` of rules | What each failing part of the shapes above adds, separated by ` \| ` |
 
-An `explain` replaces this, and any other shape shows only its `message`. Once a step has used its `retries`, the run stops with `GateFailed`. A step also stops at the tool-call limit whoever runs Stepgate has set.
+An `explain` replaces this. Any other shape shows only its `message`.
+
+The run stops with `GateFailed` once a step has used its `retries`. A step also stops at the tool-call limit whoever runs Stepgate has set.
 
 ## Identity
 

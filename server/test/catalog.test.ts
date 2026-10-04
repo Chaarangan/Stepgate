@@ -135,7 +135,7 @@ describe("catalog", () => {
     writeFileSync(new URL("retail/loose.stepfile.yaml", catalog), "stepgate: \"1\"\n");
 
     expect(catalogProblems(catalog)).toEqual([
-      "stepfiles/retail/loose.stepfile.yaml must live in its own folder, stepfiles/retail/<id>/",
+      "awesome-stepfiles/retail/loose.stepfile.yaml must live in its own folder, awesome-stepfiles/retail/<id>/",
       "market-research appears in both marketing and sales; catalog names must be unique",
     ]);
   });
