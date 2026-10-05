@@ -489,7 +489,7 @@ For a `subset` rule, `difference` over the same two arrays makes a good `explain
 
 ### Operators
 
-Besides the standard JSONLogic operators, fourteen more are available:
+Besides the standard JSONLogic operators, fifteen more are available:
 
 | Operator | Arguments | Result |
 |---|---|---|
@@ -500,6 +500,7 @@ Besides the standard JSONLogic operators, fourteen more are available:
 | `unique` | array | Distinct elements by JSON equality, in first-seen order |
 | `subset` | array `a`, array `b` | `true` if every element of `a` is in `b` |
 | `difference` | array `a`, array `b` | The elements of `a` that are not in `b`, in order |
+| `sort_by` | array, path, asc or desc | The array ordered by the value at `path` in each item. Stable, compares numbers as numbers and strings by code point, and puts `null` last |
 | `keys` | object | Its own keys, in order; `null` if not an object. APIs that omit empty fields, such as Airtable, make this the list of filled fields |
 | `lower` | string | The string in lowercase, for case-insensitive comparisons |
 | `get` | object or array, key | The value under one key, read literally; use it for keys that contain dots, such as email addresses, which `var` cannot reach |
