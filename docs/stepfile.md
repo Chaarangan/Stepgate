@@ -332,7 +332,7 @@ output:
   rows: { map: [{ var: responses.shelf.items }, { object: [[name, { var: id }], [stock, { var: count }]] }] }
 ```
 
-**Repeating a call.** A call with `each`, an expression giving an array, is made once per element, in order.
+**Repeating a call.** A call with `each`, an array or an expression giving one, is made once per element, in order. Each element is evaluated as a template, so a mix of literal values and expressions works too.
 
 - The element is `item` in its `arguments`.
 - `responses.<call id>` is then the list of results.
@@ -489,16 +489,18 @@ For a `subset` rule, `difference` over the same two arrays makes a good `explain
 
 ### Operators
 
-Besides the standard JSONLogic operators, fifteen more are available:
+Besides the standard JSONLogic operators, seventeen more are available:
 
 | Operator | Arguments | Result |
 |---|---|---|
 | `results` | operation, optional path | The values at `path` (the whole result without one) of every call this step made to the operation that did not fail, flattened one level |
 | `object` | `[key, value]` pairs | An object with those keys and values, each value evaluated, or `null` if a key is not a string; the only way to build one inside `map`, since JSONLogic keeps an object literal as data |
+| `assign` | objects | A new object with the keys of each argument in turn, later ones overriding earlier ones; `null` if any argument is not an object |
 | `length` | array or string | Number of elements, or of Unicode code points |
 | `unique` | array | Distinct elements by JSON equality, in first-seen order |
 | `subset` | array `a`, array `b` | `true` if every element of `a` is in `b` |
 | `difference` | array `a`, array `b` | The elements of `a` that are not in `b`, in order |
+| `sort_by` | array, path, asc or desc | The array ordered by the value at `path` in each item. Stable, compares numbers as numbers and strings by code point, and puts `null` last |
 | `keys` | object | Its own keys, in order; `null` if not an object. APIs that omit empty fields, such as Airtable, make this the list of filled fields |
 | `lower` | string | The string in lowercase, for case-insensitive comparisons |
 | `get` | object or array, key | The value under one key, read literally; use it for keys that contain dots, such as email addresses, which `var` cannot reach |

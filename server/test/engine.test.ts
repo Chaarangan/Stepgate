@@ -151,6 +151,24 @@ describe("load", () => {
     expect(load(JSON.stringify(document)).document.id).toBe("market-research");
   });
 
+  it("accepts a mechanical call whose each is a literal or mixed array, and checks its elements like any template", () => {
+    const document = parseYaml(readFileSync(MARKET_RESEARCH, "utf8")) as { steps: Array<Record<string, unknown>> };
+    const first = document.steps[0] as Record<string, unknown>;
+    delete first.instructions;
+    delete first.tools;
+    delete first.retries;
+    delete first.derive;
+    first.do = {
+      calls: [{ id: "search", operation: "tavily_search", each: ["query-1", { var: "inputs.topic" }], arguments: { query: { var: "item" } } }],
+      output: { total: 1 },
+    };
+    expect(load(JSON.stringify(document)).document.id).toBe("market-research");
+
+    (first.do as { calls: Array<{ each: unknown }> }).calls[0]!.each = ["valid", { map: [{ var: "inputs.topic" }, { a: 1, b: 2 }] }];
+    const messages = issuesOf(() => load(JSON.stringify(document)));
+    expect(messages).toContain("/steps/0/do/calls/0 an expression holds an object with keys a, b, which JSONLogic keeps as data; build it with object");
+  });
+
   it("requires every {placeholder} to be a declared setting, and every setting to be used", () => {
     const document = parseYaml(readFileSync(MARKET_RESEARCH, "utf8")) as { settings?: unknown; tools: { tavily: { mcp: { url: string } } } };
     document.tools.tavily.mcp.url = "https://{region}.mcp.tavily.com/mcp/";
@@ -236,6 +254,78 @@ describe("gate operators", () => {
     expect(evaluateExpression({ time_diff: [null, "2026-01-01T00:00:00Z"] }, {})).toBeNull();
     expect(evaluateExpression({ time_diff: ["2026-01-01T00:00:00Z", 123] }, {})).toBeNull();
     expect(evaluateExpression({ time_diff: [] }, {})).toBeNull();
+  });
+
+  it("sort_by stably orders lists by number, string, and puts null last in both asc and desc", () => {
+    const list = [
+      { id: "A", num: 3, str: "cherry", tag: null },
+      { id: "B", num: 1, str: "apple", tag: "first" },
+      { id: "C", num: 2, str: "Banana", tag: null },
+      { id: "D", num: 1, str: "date", tag: "second" },
+    ];
+    // Numbers asc (stable tie-breaker preserves B before D)
+    const numAsc = evaluateExpression({ sort_by: [{ var: "list" }, "num", "asc"] }, { list });
+    expect(numAsc).toEqual([
+      { id: "B", num: 1, str: "apple", tag: "first" },
+      { id: "D", num: 1, str: "date", tag: "second" },
+      { id: "C", num: 2, str: "Banana", tag: null },
+      { id: "A", num: 3, str: "cherry", tag: null },
+    ]);
+    // Numbers desc
+    const numDesc = evaluateExpression({ sort_by: [{ var: "list" }, "num", "desc"] }, { list });
+    expect(numDesc).toEqual([
+      { id: "A", num: 3, str: "cherry", tag: null },
+      { id: "C", num: 2, str: "Banana", tag: null },
+      { id: "B", num: 1, str: "apple", tag: "first" },
+      { id: "D", num: 1, str: "date", tag: "second" },
+    ]);
+    // Strings by code point asc ("Banana" with uppercase 'B' has code point 66 < 97 'a')
+    const strAsc = evaluateExpression({ sort_by: [{ var: "list" }, "str", "asc"] }, { list });
+    expect(strAsc).toEqual([
+      { id: "C", num: 2, str: "Banana", tag: null },
+      { id: "B", num: 1, str: "apple", tag: "first" },
+      { id: "A", num: 3, str: "cherry", tag: null },
+      { id: "D", num: 1, str: "date", tag: "second" },
+    ]);
+    // Strings by code point desc
+    const strDesc = evaluateExpression({ sort_by: [{ var: "list" }, "str", "desc"] }, { list });
+    expect(strDesc).toEqual([
+      { id: "D", num: 1, str: "date", tag: "second" },
+      { id: "A", num: 3, str: "cherry", tag: null },
+      { id: "B", num: 1, str: "apple", tag: "first" },
+      { id: "C", num: 2, str: "Banana", tag: null },
+    ]);
+    // Nulls placed last in asc
+    const nullAsc = evaluateExpression({ sort_by: [{ var: "list" }, "tag", "asc"] }, { list });
+    expect(nullAsc).toEqual([
+      { id: "B", num: 1, str: "apple", tag: "first" },
+      { id: "D", num: 1, str: "date", tag: "second" },
+      { id: "A", num: 3, str: "cherry", tag: null },
+      { id: "C", num: 2, str: "Banana", tag: null },
+    ]);
+    // Nulls placed last in desc
+    const nullDesc = evaluateExpression({ sort_by: [{ var: "list" }, "tag", "desc"] }, { list });
+    expect(nullDesc).toEqual([
+      { id: "D", num: 1, str: "date", tag: "second" },
+      { id: "B", num: 1, str: "apple", tag: "first" },
+      { id: "A", num: 3, str: "cherry", tag: null },
+      { id: "C", num: 2, str: "Banana", tag: null },
+    ]);
+    // Invalid arguments return null
+    expect(evaluateExpression({ sort_by: ["not an array", "num", "asc"] }, {})).toBeNull();
+    expect(evaluateExpression({ sort_by: [list, 123, "asc"] }, { list })).toBeNull();
+    expect(evaluateExpression({ sort_by: [list, "num", "invalid"] }, { list })).toBeNull();
+  });
+
+  it("assign merges objects sequentially with later keys overriding earlier keys, or null if any argument is not an object", () => {
+    const context = { inputs: {}, steps: {}, output: { base: { a: 1, b: 2 }, patch: { b: 3, c: 4 } } };
+    expect(evaluatePredicate({ "==": [{ get: [{ assign: [{ var: "output.base" }, { var: "output.patch" }] }, "b"] }, 3] }, context)).toBe(true);
+    expect(evaluatePredicate({ "==": [{ get: [{ assign: [{ var: "output.base" }, { var: "output.patch" }] }, "a"] }, 1] }, context)).toBe(true);
+    expect(evaluatePredicate({ "==": [{ get: [{ assign: [{ var: "output.base" }, { var: "output.patch" }] }, "c"] }, 4] }, context)).toBe(true);
+    expect(evaluatePredicate({ "==": [{ assign: [{ var: "output.base" }, null] }, null] }, context)).toBe(true);
+    expect(evaluatePredicate({ "==": [{ assign: [{ var: "output.base" }, "string"] }, null] }, context)).toBe(true);
+    expect(evaluatePredicate({ "==": [{ assign: [{ var: "output.base" }, [1, 2]] }, null] }, context)).toBe(true);
+    expect(evaluatePredicate({ "==": [{ assign: [] }, null] }, context)).toBe(true);
   });
 });
 
