@@ -37,7 +37,7 @@ export type Gate =
  * With `each`, it is made once per element of that array, with `item` bound, and its response is the list of results.
  * An error status in `accept` is kept as the response instead of stopping the run.
  */
-export type MechanicalCall = { id: string; operation: string; arguments?: JsonObject; each?: JsonObject; accept?: number[] };
+export type MechanicalCall = { id: string; operation: string; arguments?: JsonObject; each?: Json; accept?: number[] };
 
 /** What Stepgate does for a mechanical step: its calls in order, then an output template over their responses. */
 export type MechanicalWork = { calls?: MechanicalCall[]; output: Json };
