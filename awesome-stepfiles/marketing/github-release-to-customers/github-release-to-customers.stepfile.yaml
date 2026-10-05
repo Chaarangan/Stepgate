@@ -214,82 +214,9 @@ steps:
         created_at: { var: responses.release.created_at }
         previous_created_at: { var: responses.previous.created_at }
         window_start:
-          get:
-            # Each timestamp becomes seconds by days-from-civil (days since 0000-03-01, plus 1), is
-            # shifted, and is turned back by the inverse, civil-from-days; each map binds the next values.
-            - &window
-              map:
-                - map:
-                    - map:
-                        - map:
-                            - map:
-                                - map:
-                                    - map:
-                                        - [[{ var: responses.previous.created_at }, 2], [{ var: responses.release.created_at }, 1]]
-                                        - "+":
-                                            - "*":
-                                                - "+":
-                                                    - "*": [365, &year { "-": [{ "+": [{ substr: [&iso { var: "0" }, 0, 4] }] }, { if: [{ "<=": [&month { "+": [{ substr: [*iso, 5, 2] }] }, 2] }, 1, 0] }] }]
-                                                    - "/": [{ "-": [*year, { "%": [*year, 4] }] }, 4]
-                                                    - "*": [-1, { "/": [{ "-": [*year, { "%": [*year, 100] }] }, 100] }]
-                                                    - "/": [{ "-": [*year, { "%": [*year, 400] }] }, 400]
-                                                    - "/": [{ "-": [&month-days { "+": [{ "*": [153, { "%": [{ "+": [*month, 9] }, 12] }] }, 2] }, { "%": [*month-days, 5] }] }, 5]
-                                                    - "+": [{ substr: [*iso, 8, 2] }]
-                                                - 86400
-                                            - "*": [{ "+": [{ substr: [*iso, 11, 2] }] }, 3600]
-                                            - "*": [{ "+": [{ substr: [*iso, 14, 2] }] }, 60]
-                                            - "+": [{ substr: [*iso, 17, 2] }]
-                                            - var: "1"
-                                    # [z, seconds of day], z counting days from 0000-03-01
-                                    - - "-": [{ "/": [{ "-": [{ var: "" }, { "%": [{ var: "" }, 86400] }] }, 86400] }, 1]
-                                      - "%": [{ var: "" }, 86400]
-                                # [era, day of era, seconds]
-                                - - "/": [{ "-": [{ var: "0" }, { "%": [{ var: "0" }, 146097] }] }, 146097]
-                                  - "%": [{ var: "0" }, 146097]
-                                  - var: "1"
-                            # [era, day of era, year of era, seconds]
-                            - - var: "0"
-                              - var: "1"
-                              - "/":
-                                  - "-":
-                                      - &yoe-days
-                                        "-":
-                                          - "+":
-                                              - "-": [{ var: "1" }, { "/": [{ "-": [{ var: "1" }, { "%": [{ var: "1" }, 1460] }] }, 1460] }]
-                                              - "/": [{ "-": [{ var: "1" }, { "%": [{ var: "1" }, 36524] }] }, 36524]
-                                          - "/": [{ "-": [{ var: "1" }, { "%": [{ var: "1" }, 146096] }] }, 146096]
-                                      - "%": [*yoe-days, 365]
-                                  - 365
-                              - var: "2"
-                        # [year from March, day of year from March, seconds]
-                        - - "+": [{ var: "2" }, { "*": [{ var: "0" }, 400] }]
-                          - "-":
-                              - var: "1"
-                              - "+":
-                                  - "*": [365, { var: "2" }]
-                                  - "/": [{ "-": [{ var: "2" }, { "%": [{ var: "2" }, 4] }] }, 4]
-                                  - "*": [-1, { "/": [{ "-": [{ var: "2" }, { "%": [{ var: "2" }, 100] }] }, 100] }]
-                          - var: "3"
-                    # [year from March, day of year, month from March (0 is March), seconds]
-                    - - var: "0"
-                      - var: "1"
-                      - "/": [{ "-": [&mp-days { "+": [{ "*": [5, { var: "1" }] }, 2] }, { "%": [*mp-days, 153] }] }, 153]
-                      - var: "2"
-                - cat:
-                    - "+": [{ var: "0" }, { if: [{ ">=": [{ var: "2" }, 10] }, 1, 0] }]
-                    - "-"
-                    - substr: [{ cat: ["0", { if: [{ "<": [{ var: "2" }, 10] }, { "+": [{ var: "2" }, 3] }, { "-": [{ var: "2" }, 9] }] }] }, -2]
-                    - "-"
-                    - substr: [{ cat: ["0", { "+": [{ "-": [{ var: "1" }, { "/": [{ "-": [&d-days { "+": [{ "*": [153, { var: "2" }] }, 2] }, { "%": [*d-days, 5] }] }, 5] }] }, 1] }] }, -2]
-                    - "T"
-                    - substr: [{ cat: ["0", { "/": [{ "-": [{ var: "3" }, { "%": [{ var: "3" }, 3600] }] }, 3600] }] }, -2]
-                    - ":"
-                    - substr: [{ cat: ["0", { "/": [{ "-": [{ "%": [{ var: "3" }, 3600] }, { "%": [{ var: "3" }, 60] }] }, 60] }] }, -2]
-                    - ":"
-                    - substr: [{ cat: ["0", { "%": [{ var: "3" }, 60] }] }, -2]
-                    - "Z"
-            - 0
-        window_end: { get: [*window, 1] }
+          time_add: [{ var: responses.previous.created_at }, 2]
+        window_end:
+          time_add: [{ var: responses.release.created_at }, 1]
     produces:
       type: object
       required: [name, html_url, created_at, previous_created_at, window_start, window_end]
@@ -305,7 +232,7 @@ steps:
       - id: previous-is-older
         message: The previous release must have been made from an older commit than the announced one.
         predicate:
-          "<": [{ var: output.previous_created_at }, { var: output.created_at }]
+          ">": [{ time_diff: [{ var: output.created_at }, { var: output.previous_created_at }] }, 0]
 
   - id: pulls
     do:

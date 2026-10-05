@@ -169,6 +169,98 @@ register("sort_by", (array: unknown, path: unknown, direction: unknown) => {
   return indexed.map((entry) => entry.item);
 });
 
+const RFC3339_PATTERN = /^([0-9]{4})-([0-9]{2})-([0-9]{2})[Tt]([0-9]{2}):([0-9]{2}):([0-9]{2})(?:\.([0-9]+))?([Zz]|([+-][0-9]{2}):([0-9]{2}))$/;
+
+export function parseRfc3339(value: unknown): number | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const match = RFC3339_PATTERN.exec(value);
+  if (!match) {
+    return null;
+  }
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const hour = Number(match[4]);
+  const minute = Number(match[5]);
+  let second = Number(match[6]);
+  const fracStr = match[7];
+  const offsetStr = match[8];
+  const offsetHourStr = match[9];
+  const offsetMinStr = match[10];
+
+  if (month < 1 || month > 12) {
+    return null;
+  }
+  const isLeap = (year % 4 === 0 && year % 100 !== 0) || (year % 400 === 0);
+  const daysInMonth = [31, isLeap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1]!;
+  if (day < 1 || day > daysInMonth) {
+    return null;
+  }
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59 || second < 0 || second > 60) {
+    return null;
+  }
+  if (second === 60) {
+    second = 59;
+  }
+
+  let offsetMinutes = 0;
+  if (offsetStr !== "Z" && offsetStr !== "z") {
+    if (!offsetHourStr || !offsetMinStr) {
+      return null;
+    }
+    const sign = offsetHourStr.startsWith("-") ? -1 : 1;
+    const offH = Number(offsetHourStr.slice(1));
+    const offM = Number(offsetMinStr);
+    if (offH > 23 || offM > 59) {
+      return null;
+    }
+    offsetMinutes = sign * (offH * 60 + offM);
+  }
+
+  const d = new Date(0);
+  d.setUTCFullYear(year, month - 1, day);
+  d.setUTCHours(hour, minute, second, 0);
+  if (Number.isNaN(d.getTime())) {
+    return null;
+  }
+
+  const fractionMs = fracStr !== undefined ? Number(`0.${fracStr}`) * 1000 : 0;
+  return d.getTime() - offsetMinutes * 60_000 + fractionMs;
+}
+
+register("time_add", (timestamp: unknown, seconds: unknown) => {
+  if (typeof timestamp !== "string" || typeof seconds !== "number" || !Number.isFinite(seconds)) {
+    return null;
+  }
+  const ms = parseRfc3339(timestamp);
+  if (ms === null) {
+    return null;
+  }
+  const targetMs = Math.round(ms + seconds * 1000);
+  if (!Number.isFinite(targetMs)) {
+    return null;
+  }
+  const d = new Date(targetMs);
+  if (Number.isNaN(d.getTime()) || d.getUTCFullYear() < 0 || d.getUTCFullYear() > 9999) {
+    return null;
+  }
+  return d.toISOString().replace(/\.000Z$/, "Z");
+});
+
+register("time_diff", (later: unknown, earlier: unknown) => {
+  if (typeof later !== "string" || typeof earlier !== "string") {
+    return null;
+  }
+  const laterMs = parseRfc3339(later);
+  const earlierMs = parseRfc3339(earlier);
+  if (laterMs === null || earlierMs === null) {
+    return null;
+  }
+  return (laterMs - earlierMs) / 1000;
+});
+
 // json-logic-js 2.0's operators and special forms; it does not export the list.
 const JSONLOGIC_OPERATORS = [
   "==", "===", "!=", "!==", ">", ">=", "<", "<=", "!!", "!", "%", "log", "in", "cat", "substr", "+", "*", "-", "/", "min", "max", "merge",

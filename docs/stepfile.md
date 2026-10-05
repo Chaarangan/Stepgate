@@ -489,7 +489,7 @@ For a `subset` rule, `difference` over the same two arrays makes a good `explain
 
 ### Operators
 
-Besides the standard JSONLogic operators, fifteen more are available:
+Besides the standard JSONLogic operators, seventeen more are available:
 
 | Operator | Arguments | Result |
 |---|---|---|
@@ -508,6 +508,8 @@ Besides the standard JSONLogic operators, fifteen more are available:
 | `flatten` | array | The array with nested arrays flattened one level |
 | `host` | string | Lowercased host of an absolute URL, with port if present; `null` if not a URL |
 | `match_all` | string, pattern | Capture group 1 of every match, or the whole match if the pattern has no group |
+| `time_add` | timestamp, seconds | The RFC 3339 timestamp moved by that many seconds, in UTC (`YYYY-MM-DDTHH:MM:SSZ` or `.sssZ`), or `null` if the timestamp does not parse or arguments are invalid |
+| `time_diff` | timestamp `later`, timestamp `earlier` | The seconds between two RFC 3339 timestamps (`(later - earlier) / 1000`), or `null` if a value does not parse or arguments are invalid |
 
 **Why `subset`, `difference` and `join` exist.** JSONLogic's `all`, `map` and `filter` cannot see data outside the current array element.
 
