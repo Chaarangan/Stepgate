@@ -188,16 +188,9 @@ steps:
                 - flatten: { map: [{ var: responses.dois }, { map: [{ var: message.items }, *record] }] }
                 - doi_key
                 - doi
-            - object:
-                - [id, { var: left.ref.id }]
-                - [raw, { var: left.ref.raw }]
-                - [title, { var: left.ref.title }]
-                - [first_author, { var: left.ref.first_author }]
-                - [year, { var: left.ref.year }]
-                - [doi, { var: left.ref.doi }]
-                - [search_terms, { var: left.ref.search_terms }]
-                - [candidates, { var: left.candidates }]
-                - [doi_record, { var: right }]
+            - assign:
+                - { var: left.ref }
+                - object: [[candidates, { var: left.candidates }], [doi_record, { var: right }]]
     produces:
       type: object
       required: [references]
@@ -251,31 +244,24 @@ steps:
       references:
         map:
           - join: [{ var: steps.lookup.references }, { var: output.matches }, id, id]
-          - object:
-              - [id, { var: left.id }]
-              - [raw, { var: left.raw }]
-              - [title, { var: left.title }]
-              - [first_author, { var: left.first_author }]
-              - [year, { var: left.year }]
-              - [doi, { var: left.doi }]
-              - [search_terms, { var: left.search_terms }]
-              - [candidates, { var: left.candidates }]
-              - [doi_record, { var: left.doi_record }]
-              - [matched, { var: right.matched }]
-              - [note, { var: right.note }]
-              - - verdict
-                - if:
-                    - "!": { var: right.matched }
-                    - not_found
-                    - and: [{ var: left.doi }, { "!==": [{ var: right.matched.doi }, { var: left.doi_record.doi }] }]
-                    - wrong_doi
-                    - and:
-                        - or:
-                            - "==": [{ var: left.year }, null]
-                            - "<=": [{ "-": [{ var: left.year }, 1] }, { var: right.matched.year }, { "+": [{ var: left.year }, 1] }]
-                        - in: [{ var: right.matched.first_author }, { var: left.raw }]
-                    - verified
-                    - metadata_mismatch
+          - assign:
+              - { var: left }
+              - object:
+                  - [matched, { var: right.matched }]
+                  - [note, { var: right.note }]
+                  - - verdict
+                    - if:
+                        - "!": { var: right.matched }
+                        - not_found
+                        - and: [{ var: left.doi }, { "!==": [{ var: right.matched.doi }, { var: left.doi_record.doi }] }]
+                        - wrong_doi
+                        - and:
+                            - or:
+                                - "==": [{ var: left.year }, null]
+                                - "<=": [{ "-": [{ var: left.year }, 1] }, { var: right.matched.year }, { "+": [{ var: left.year }, 1] }]
+                            - in: [{ var: right.matched.first_author }, { var: left.raw }]
+                        - verified
+                        - metadata_mismatch
     gates:
       - id: every-reference-once
         message: Submit every reference id exactly once.

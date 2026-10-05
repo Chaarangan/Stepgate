@@ -1,0 +1,24 @@
+name: assign gives null when an argument is not an object, so a gate fails rather than the run
+stepfile:
+  stepgate: "1"
+  id: assignments
+  inputs: { type: object, properties: {} }
+  steps:
+    - id: merge
+      instructions: Submit an extension object.
+      produces: { type: object, required: [extra], properties: { extra: {} } }
+      gates:
+        - id: merged
+          message: extra must be an object to assign
+          predicate: { "!=": [{ assign: [{ var: output.extra }, { object: [[ok, true]] }] }, null] }
+      retries: 1
+inputs: {}
+actions:
+  - submit: { extra: not-an-object }
+  - submit: { extra: { initial: true } }
+expect:
+  replies:
+    - { state: running, step: merge }
+    - { state: running, failures: [merged] }
+    - { state: finished }
+  ledger: [run_started, step_started, submit, gate, submit, gate, step_passed, run_finished]

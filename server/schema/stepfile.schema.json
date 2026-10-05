@@ -356,8 +356,15 @@
                     "description": "A template per argument: expressions over inputs, steps and responses of earlier calls."
                   },
                   "each": {
-                    "$ref": "#/$defs/predicate",
-                    "description": "An expression giving an array; the call is made once per element, with item bound in arguments, and its response is the list of results."
+                    "description": "An array, or an expression giving one; the call is made once per element, with item bound in arguments, and its response is the list of results.",
+                    "oneOf": [
+                      {
+                        "$ref": "#/$defs/predicate"
+                      },
+                      {
+                        "type": "array"
+                      }
+                    ]
                   },
                   "accept": {
                     "type": "array",

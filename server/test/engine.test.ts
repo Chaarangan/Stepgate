@@ -151,6 +151,24 @@ describe("load", () => {
     expect(load(JSON.stringify(document)).document.id).toBe("market-research");
   });
 
+  it("accepts a mechanical call whose each is a literal or mixed array, and checks its elements like any template", () => {
+    const document = parseYaml(readFileSync(MARKET_RESEARCH, "utf8")) as { steps: Array<Record<string, unknown>> };
+    const first = document.steps[0] as Record<string, unknown>;
+    delete first.instructions;
+    delete first.tools;
+    delete first.retries;
+    delete first.derive;
+    first.do = {
+      calls: [{ id: "search", operation: "tavily_search", each: ["query-1", { var: "inputs.topic" }], arguments: { query: { var: "item" } } }],
+      output: { total: 1 },
+    };
+    expect(load(JSON.stringify(document)).document.id).toBe("market-research");
+
+    (first.do as { calls: Array<{ each: unknown }> }).calls[0]!.each = ["valid", { map: [{ var: "inputs.topic" }, { a: 1, b: 2 }] }];
+    const messages = issuesOf(() => load(JSON.stringify(document)));
+    expect(messages).toContain("/steps/0/do/calls/0 an expression holds an object with keys a, b, which JSONLogic keeps as data; build it with object");
+  });
+
   it("requires every {placeholder} to be a declared setting, and every setting to be used", () => {
     const document = parseYaml(readFileSync(MARKET_RESEARCH, "utf8")) as { settings?: unknown; tools: { tavily: { mcp: { url: string } } } };
     document.tools.tavily.mcp.url = "https://{region}.mcp.tavily.com/mcp/";
@@ -261,6 +279,17 @@ describe("gate operators", () => {
     expect(evaluateExpression({ sort_by: ["not an array", "num", "asc"] }, {})).toBeNull();
     expect(evaluateExpression({ sort_by: [list, 123, "asc"] }, { list })).toBeNull();
     expect(evaluateExpression({ sort_by: [list, "num", "invalid"] }, { list })).toBeNull();
+  });
+
+  it("assign merges objects sequentially with later keys overriding earlier keys, or null if any argument is not an object", () => {
+    const context = { inputs: {}, steps: {}, output: { base: { a: 1, b: 2 }, patch: { b: 3, c: 4 } } };
+    expect(evaluatePredicate({ "==": [{ get: [{ assign: [{ var: "output.base" }, { var: "output.patch" }] }, "b"] }, 3] }, context)).toBe(true);
+    expect(evaluatePredicate({ "==": [{ get: [{ assign: [{ var: "output.base" }, { var: "output.patch" }] }, "a"] }, 1] }, context)).toBe(true);
+    expect(evaluatePredicate({ "==": [{ get: [{ assign: [{ var: "output.base" }, { var: "output.patch" }] }, "c"] }, 4] }, context)).toBe(true);
+    expect(evaluatePredicate({ "==": [{ assign: [{ var: "output.base" }, null] }, null] }, context)).toBe(true);
+    expect(evaluatePredicate({ "==": [{ assign: [{ var: "output.base" }, "string"] }, null] }, context)).toBe(true);
+    expect(evaluatePredicate({ "==": [{ assign: [{ var: "output.base" }, [1, 2]] }, null] }, context)).toBe(true);
+    expect(evaluatePredicate({ "==": [{ assign: [] }, null] }, context)).toBe(true);
   });
 });
 
