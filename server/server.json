@@ -4,7 +4,7 @@
   "title": "Stepgate",
   "description": "Agents can't skip steps: runs gated stepfiles on the client's own model.",
   "repository": {
-    "url": "https://github.com/Chaarangan/stepgate",
+    "url": "https://github.com/Chaarangan/Stepgate",
     "source": "github",
     "subfolder": "server"
   },

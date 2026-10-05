@@ -10,11 +10,11 @@
     "stepfile",
     "guardrails"
   ],
-  "homepage": "https://github.com/Chaarangan/stepgate#readme",
-  "bugs": "https://github.com/Chaarangan/stepgate/issues",
+  "homepage": "https://github.com/Chaarangan/Stepgate#readme",
+  "bugs": "https://github.com/Chaarangan/Stepgate/issues",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Chaarangan/stepgate.git",
+    "url": "git+https://github.com/Chaarangan/Stepgate.git",
     "directory": "server"
   },
   "license": "Apache-2.0",
