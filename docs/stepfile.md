@@ -489,12 +489,13 @@ For a `subset` rule, `difference` over the same two arrays makes a good `explain
 
 ### Operators
 
-Besides the standard JSONLogic operators, thirteen more are available:
+Besides the standard JSONLogic operators, fourteen more are available:
 
 | Operator | Arguments | Result |
 |---|---|---|
 | `results` | operation, optional path | The values at `path` (the whole result without one) of every call this step made to the operation that did not fail, flattened one level |
 | `object` | `[key, value]` pairs | An object with those keys and values, each value evaluated, or `null` if a key is not a string; the only way to build one inside `map`, since JSONLogic keeps an object literal as data |
+| `assign` | objects | A new object with the keys of each argument in turn, later ones overriding earlier ones; `null` if any argument is not an object |
 | `length` | array or string | Number of elements, or of Unicode code points |
 | `unique` | array | Distinct elements by JSON equality, in first-seen order |
 | `subset` | array `a`, array `b` | `true` if every element of `a` is in `b` |

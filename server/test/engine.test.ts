@@ -219,6 +219,17 @@ describe("gate operators", () => {
     expect(evaluatePredicate(rule, context([{ id: "K-1", stock: 5 }]))).toBe(false);
     expect(evaluatePredicate(rule, context([{ id: "K-9", stock: 4 }]))).toBe(false);
   });
+
+  it("assign merges objects sequentially with later keys overriding earlier keys, or null if any argument is not an object", () => {
+    const context = { inputs: {}, steps: {}, output: { base: { a: 1, b: 2 }, patch: { b: 3, c: 4 } } };
+    expect(evaluatePredicate({ "==": [{ get: [{ assign: [{ var: "output.base" }, { var: "output.patch" }] }, "b"] }, 3] }, context)).toBe(true);
+    expect(evaluatePredicate({ "==": [{ get: [{ assign: [{ var: "output.base" }, { var: "output.patch" }] }, "a"] }, 1] }, context)).toBe(true);
+    expect(evaluatePredicate({ "==": [{ get: [{ assign: [{ var: "output.base" }, { var: "output.patch" }] }, "c"] }, 4] }, context)).toBe(true);
+    expect(evaluatePredicate({ "==": [{ assign: [{ var: "output.base" }, null] }, null] }, context)).toBe(true);
+    expect(evaluatePredicate({ "==": [{ assign: [{ var: "output.base" }, "string"] }, null] }, context)).toBe(true);
+    expect(evaluatePredicate({ "==": [{ assign: [{ var: "output.base" }, [1, 2]] }, null] }, context)).toBe(true);
+    expect(evaluatePredicate({ "==": [{ assign: [] }, null] }, context)).toBe(true);
+  });
 });
 
 describe("version", () => {

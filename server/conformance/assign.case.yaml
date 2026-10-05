@@ -1,0 +1,35 @@
+name: assign extends an object with new fields, later ones overriding earlier ones
+stepfile:
+  stepgate: "1"
+  id: extensions
+  inputs: { type: object, required: [items], properties: { items: { type: array } } }
+  steps:
+    - id: extend
+      do:
+        output:
+          rows:
+            map:
+              - { var: inputs.items }
+              - assign:
+                  - { var: "" }
+                  - object: [[tag, new], [status, in_stock]]
+      produces:
+        type: object
+        required: [rows]
+        properties:
+          rows:
+            type: array
+            items:
+              type: object
+              required: [id, count, tag, status]
+              properties:
+                id: { type: string }
+                count: { type: integer }
+                tag: { type: string }
+                status: { type: string }
+inputs: { items: [{ id: K-1, count: 4, tag: old }, { id: K-2, count: 0, tag: old }] }
+actions: []
+expect:
+  replies:
+    - { state: finished, contain: '"tag": "new"' }
+  ledger: [run_started, step_started, computed, step_passed, run_finished]
